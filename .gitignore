@@ -22,3 +22,6 @@ __pycache__/
 /notes-*/
 /projects/
 /.ci/
+# restore_local.py: the extracted Windows toolchain and its download.
+/.toolchain/
+/.bootstrap/
