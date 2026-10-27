@@ -1,7 +1,7 @@
 {
-  "repository": "falseywinchnet/gui_forms",
-  "commit": "75da57674365fb3fd5597cde14b2ada9378a82e1",
-  "cache_release": "build-75da57674365fb3fd5597cde14b2ada9378a82e1",
+  "repository": "malkuth-software/gui_forms",
+  "commit": "e077f9d5a5117312e65e8c3b741c4edd24013d56",
+  "cache_release": "build-e077f9d5a5117312e65e8c3b741c4edd24013d56",
   "compiler": "22.1.8",
   "windows_toolchain": {
     "archive": "gui-forms-toolchain-windows-x64.tar.zst",
@@ -12,19 +12,19 @@
   "caches": {
     "linux-arm64": {
       "asset": "gui-forms-cache-linux-arm64.tar.gz",
-      "sha256": "61f1a0e0f2a7292052f450b8174d718ad68223b021772fe9ab8cf7e2a35e5dd3"
+      "sha256": "65443b9035375c15e2703958afe052401470fe45ff834b1918fb247b2b50e8f0"
     },
     "linux-x64": {
       "asset": "gui-forms-cache-linux-x64.tar.gz",
-      "sha256": "88d62e63cdfa9d9bf46917eafe2a4194c9e7c89e6264688afa37a152283696d8"
+      "sha256": "53546e08de59d6d33fc294f2d927aeea56e0d991ab30099601c453931af33094"
     },
     "macos-arm64": {
       "asset": "gui-forms-cache-macos-arm64.tar.gz",
-      "sha256": "a16084cf17012c52b3bca8f83f3be2187ba6a4686b4f23605ad49b7f0581cf12"
+      "sha256": "fa2aad3c1fe492b5ab0550c3f075b2616cf7270bc3699175be4e93b9b527f63c"
     },
     "windows-x64": {
       "asset": "gui-forms-cache-windows-x64.tar.gz",
-      "sha256": "ddd70969e7955195b1344c72e324a64c9f5d66fc7d40207728a8260f1bf90a41"
+      "sha256": "af328c744efec15f2c9ae5e5294dce7f1e8357c37e6a4882dadbf30ef754a4a7"
     }
   }
 }
