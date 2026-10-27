@@ -19,9 +19,12 @@ on:
         default: false
 permissions:
   contents: read
+# A newer push to a pull request cancels its older run. Runs on main are never
+# cancelled once started, so a release that is building still publishes
+# while later merges queue behind it.
 concurrency:
   group: native-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   prepare:
     runs-on: ubuntu-24.04
