@@ -188,6 +188,7 @@ jobs:
           path: |
             gui_forms/third_party/harfbuzz
             gui_forms/third_party/freetype
+            gui_forms/third_party/libunibreak
             .build/native/app/_deps/*-src
           key: plan-paint-sources-v1-${{ matrix.platform }}-${{ hashFiles('third_party/gui-forms.lock.json', 'CMakeLists.txt', 'cmake/ImportFormats.cmake') }}
       # The compiler identity plus the macOS runtime: what the codecs and
