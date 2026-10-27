@@ -42,8 +42,11 @@ if(RAINSTAR_LEGACY_UI)
 endif()
 option(RAINSTAR_BUNDLED_TIFF "Build the pinned TIFF library with the reduced import codec surface" OFF)
 if(RAINSTAR_BUNDLED_TIFF)
+  # win32-io would make libtiff's own sources see thandle_t as a Win32
+  # HANDLE while our TIFFClientOpen callbacks see void*: a call through
+  # a mismatched function type. Plan Paint opens TIFF only from memory.
   foreach(option tiff-tools tiff-tests tiff-contrib tiff-docs tiff-cxx tiff-install
-                 tiff-opengl
+                 tiff-opengl win32-io
                  ccitt packbits lzw thunder next logluv mdi zlib libdeflate pixarlog jpeg old-jpeg jpeg12
                  jbig lerc lzma zstd webp)
     set(${option} OFF CACHE BOOL "" FORCE)
