@@ -38,7 +38,7 @@ void IconPanel::initialize_control_tree() {
         groups_.push_back(group);
         add_child(group);
     }
-    strip_ = gf::make_control<gf::FlowLayoutPanel>(gf::StableId("icon-frames"));
+    strip_ = gf::make_control<gf::FlowLayoutPanelCompat>(gf::StableId("icon-frames"));
     (*strip_).set_auto_scroll(true);
     (*strip_).set_padding({0, 0, 0, 0});
     (*strip_).set_wrap_contents(false);

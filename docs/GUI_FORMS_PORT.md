@@ -29,9 +29,19 @@ Do not mix MINGW64 GCC headers with CLANG64 libc++ headers.
 
 Windows CI restores the hash-locked GUI.Forms toolchain archive with
 `scripts/restore-windows-toolchain.py` (bootstrap Python 3.14), reusing the
-provider's extraction and MSYS2 shell wrapper. Codec installation does not
+harness's extraction and MSYS2 shell wrapper. Codec installation does not
 upgrade the compiler. Rolling MSYS2 compiler packages may have moved beyond
 the required LLVM version and must not replace this pinned toolchain.
+
+The build tools shared with the other Malkuth products (the Windows toolchain
+extraction, the macOS runtime builder and validators, and the LLVM 22 CMake
+toolchain file) come from `template_harness` at the commit `harness.lock`
+pins, checked out at `template_harness/` inside the checkout:
+
+```sh
+git clone https://github.com/malkuth-software/template_harness.git template_harness
+python3 template_harness/harness/lock.py checkout template_harness
+```
 
 ```sh
 python3 scripts/fetch-gui-forms.py
@@ -65,7 +75,7 @@ Linux tests and the packaged startup check run under Xvfb.
 
 On macOS set `GUI_FORMS_LLVM_RUNTIME` to
 `$PWD/.build/toolchain/llvm-22.1.8-macos14` before importing the cache.
-The importer uses the provider's runtime validator and rebuilds from its
+The importer uses the harness's runtime validator and rebuilds from its
 pinned LLVM source when necessary. Homebrew's prebuilt libc++ is not the
 application runtime. Packaging follows the dependency closure, copies the
 runtime notices and rejects binaries whose minimum exceeds macOS 14.

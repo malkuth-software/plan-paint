@@ -2,7 +2,7 @@
 #include "forms/editor.hpp"
 #include "localization.hpp"
 #include <algorithm>
-#include <gui_forms/controls/scrollable_control/container_control/flow_layout_panel/flow_layout_panel.hpp>
+#include <gui_forms/controls/scrollable_control/container_control/flow_layout_panel_compat/flow_layout_panel_compat.hpp>
 #include <iomanip>
 #include <sstream>
 namespace paint::forms {
@@ -92,8 +92,8 @@ void EditorDialog::initialize_icon_sheet() {
     sheet_status_ = gf::make_control<gf::Label>(gf::StableId("sheet-status"));
     (*sheet_status_).set_font({gf::FontRole::control, 11, 400, false});
     put(sheet_status_, {375, 136, 385, 32});
-    const std::shared_ptr<gf::FlowLayoutPanel> viewport =
-        gf::make_control<gf::FlowLayoutPanel>(gf::StableId("sheet-viewport"));
+    const std::shared_ptr<gf::FlowLayoutPanelCompat> viewport =
+        gf::make_control<gf::FlowLayoutPanelCompat>(gf::StableId("sheet-viewport"));
     (*viewport).set_auto_scroll(true);
     (*viewport).set_wrap_contents(false);
     (*viewport).set_padding({0, 0, 0, 0});

@@ -1,3 +1,8 @@
+# Text files are LF in every checkout, whatever the machine's core.autocrlf,
+# so hashes over file bytes agree between hosts.
+* text=auto eol=lf
+# The Cairo font's original notices are kept byte for byte (CRLF).
+assets/fonts/cairo-unicode/Cairo?Read?Me?[12].txt -text
 # Keep upstream licenses and the checksummed source patch byte-for-byte.
 assets/fonts/poster/*-OFL.txt -text whitespace=-blank-at-eol
 third_party/gui-forms-patches/*.patch -text whitespace=-blank-at-eol

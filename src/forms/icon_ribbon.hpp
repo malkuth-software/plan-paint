@@ -13,7 +13,7 @@ class IconPanel final : public gui_forms::Control {
 
   private:
     std::weak_ptr<Editor> editor_;
-    std::shared_ptr<gui_forms::FlowLayoutPanel> strip_;
+    std::shared_ptr<gui_forms::FlowLayoutPanelCompat> strip_;
     std::shared_ptr<gui_forms::Label> status_;
     std::vector<std::shared_ptr<gui_forms::Label>> groups_;
     std::vector<std::shared_ptr<gui_forms::Button>> commands_;

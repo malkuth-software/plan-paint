@@ -87,7 +87,7 @@ void AtlasThumbnail::update_image() {
     if (!editor || !window()) {
         return;
     }
-    std::shared_ptr<gf::FlowLayoutPanel> strip = std::dynamic_pointer_cast<gf::FlowLayoutPanel>(parent());
+    std::shared_ptr<gf::FlowLayoutPanelCompat> strip = std::dynamic_pointer_cast<gf::FlowLayoutPanelCompat>(parent());
     if (!strip) {
         return;
     }
@@ -209,7 +209,7 @@ void AtlasPanel::initialize_control_tree() {
         add_child(control);
     }
     strip_ =
-        gf::make_control<gf::FlowLayoutPanel>(gf::StableId(gallery_ ? "gallery-frames" : "atlas-frames"));
+        gf::make_control<gf::FlowLayoutPanelCompat>(gf::StableId(gallery_ ? "gallery-frames" : "atlas-frames"));
     (*strip_).set_auto_scroll(true);
     (*strip_).set_padding({0, 0, 0, 0});
     (*strip_).set_wrap_contents(gallery_);

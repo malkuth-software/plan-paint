@@ -140,7 +140,7 @@ def main():
         if runtime_path not in rpaths(target):
             run(["install_name_tool", "-add_rpath", runtime_path, str(target)])
     if args.runtime:
-        audit = args.gui_forms_sdk / "tools/audit_macos_minimum.py"
+        audit = ROOT / "template_harness/harness/audit_macos_minimum.py"
         subprocess.run([__import__("sys").executable, str(audit), str(app)], check=True)
     for target in sorted(seen):
         identifiers = run(["otool", "-D", str(target)]).splitlines()[1:]
