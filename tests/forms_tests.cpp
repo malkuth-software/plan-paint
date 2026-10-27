@@ -139,7 +139,12 @@ class TestServices final : public gf::HostServices {
         return {{}, clipboard_files, 1};
     }
     gf::HostClipboardImageResult read_clipboard_image_impl() override {
-        return {{}, clipboard, 1, !clipboard.pixels.empty()};
+        gf::HostClipboardImageResult result{};
+        if (!clipboard.pixels.empty()) {
+            result.image = clipboard;
+        }
+        result.generation = 1;
+        return result;
     }
     gf::HostServiceStatus write_clipboard_image_impl(gf::HostImageView image) override {
         clipboard = {image.width, image.height, image.row_bytes,

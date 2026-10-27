@@ -64,8 +64,27 @@ jobs:
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
       CMAKE_OBJCXX_COMPILER_LAUNCHER: ccache
+      # Plan Paint is its harness workspace's root (projects/plan-paint.toml).
+      HARNESS_PROJECT: ${{ github.workspace }}/template_harness/projects/plan-paint.toml
+      HARNESS_WORKSPACE: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
+      # The harness at the commit harness.lock pins, at template_harness/.
+      - name: Read the harness pin
+        id: harness
+        shell: bash
+        run: |
+          echo "repository=$(sed -n 's/^repository = "\(.*\)"$/\1/p' harness.lock)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(sed -n 's/^commit = "\([0-9a-f]\{40\}\)"$/\1/p' harness.lock)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.harness.outputs.repository }}
+          ref: ${{ steps.harness.outputs.commit }}
+          path: template_harness
+          persist-credentials: false
+      - name: Verify the harness commit
+        shell: bash
+        run: test "$(git -C template_harness rev-parse HEAD)" = '${{ steps.harness.outputs.commit }}'
       - uses: actions/setup-python@v5
         if: runner.os == 'Windows'
         with:

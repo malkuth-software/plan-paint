@@ -14,3 +14,11 @@ __pycache__/
 /.ccache/
 /cache-manifest.json
 /gui-forms-cache-*.tar.gz
+
+# The harness workspace: Plan Paint is the workspace root, so the harness,
+# the notes clones, the projects clone and CI state sit inside the checkout.
+/template_harness/
+/notes/
+/notes-*/
+/projects/
+/.ci/

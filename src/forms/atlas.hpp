@@ -1,7 +1,7 @@
 #pragma once
 #include "document.hpp"
 #include <gui_forms/basic_controls.hpp>
-#include <gui_forms/controls/scrollable_control/container_control/flow_layout_panel/flow_layout_panel.hpp>
+#include <gui_forms/controls/scrollable_control/container_control/flow_layout_panel_compat/flow_layout_panel_compat.hpp>
 namespace paint::forms {
 std::string icon_format_name(IconFormat format);
 class Editor;
@@ -36,7 +36,7 @@ class AtlasPanel final : public gui_forms::Control {
 
   private:
     std::weak_ptr<Editor> editor_;
-    std::shared_ptr<gui_forms::FlowLayoutPanel> strip_;
+    std::shared_ptr<gui_forms::FlowLayoutPanelCompat> strip_;
     std::vector<std::shared_ptr<AtlasThumbnail>> thumbnails_;
     std::vector<std::shared_ptr<gui_forms::Button>> buttons_;
     std::vector<gui_forms::SubscriptionToken> subscriptions_;

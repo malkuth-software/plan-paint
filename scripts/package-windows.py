@@ -18,7 +18,9 @@ SYSTEM = {"kernel32.dll", "user32.dll", "gdi32.dll", "advapi32.dll", "comdlg32.d
           "usp10.dll", "windowscodecs.dll", "ws2_32.dll", "version.dll", "imm32.dll",
           "dwmapi.dll", "ntdll.dll", "msvcrt.dll", "ucrtbase.dll", "bcrypt.dll",
           "secur32.dll", "rpcrt4.dll", "setupapi.dll", "winspool.drv", "winmm.dll",
-          "crypt32.dll", "normaliz.dll", "api-ms-win-core-synch-l1-2-0.dll"}
+          "crypt32.dll", "normaliz.dll", "uxtheme.dll", "msimg32.dll", "shcore.dll",
+          "dbghelp.dll", "psapi.dll", "userenv.dll", "iphlpapi.dll", "uiautomationcore.dll",
+          "api-ms-win-core-synch-l1-2-0.dll"}
 
 def main():
     parser = argparse.ArgumentParser()
