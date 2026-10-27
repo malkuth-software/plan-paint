@@ -2,6 +2,8 @@
 #include "paths.hpp"
 #include <algorithm>
 #include <cerrno>
+#include <cstddef>
+#include <cstring>
 #include <filesystem>
 #include <limits>
 #include <random>
@@ -52,6 +54,40 @@ bool write_all(HANDLE file, const std::vector<std::uint8_t>& bytes) {
         offset += written;
     }
     return true;
+}
+// Outcome of renaming the open temporary file over the target in place.
+enum class HandleRename { renamed, failed, unsupported };
+// Renames the file open as `file` (opened with DELETE access) to `target`
+// with POSIX semantics: the target is replaced even while another handle
+// that shares delete access, such as Plan Paint's own file-change probe or
+// a scanner, has it open. MoveFileExW refuses that replacement with
+// ERROR_ACCESS_DENIED. File systems without POSIX renames report
+// `unsupported`, and the caller falls back to MoveFileExW.
+HandleRename rename_open_file(HANDLE file, const std::filesystem::path& target, bool replace_existing) {
+    const std::wstring& name = target.native();
+    const std::size_t name_bytes = name.size() * sizeof(wchar_t);
+    if (name_bytes > std::numeric_limits<DWORD>::max() - sizeof(FILE_RENAME_INFO)) {
+        return HandleRename::failed;
+    }
+    // FILE_RENAME_INFO ends in a one-character array; the name runs past it.
+    const std::size_t storage_bytes = sizeof(FILE_RENAME_INFO) + name_bytes;
+    std::vector<std::uint8_t> storage(storage_bytes, 0);
+    FILE_RENAME_INFO* information = reinterpret_cast<FILE_RENAME_INFO*>(storage.data());
+    (*information).Flags = FILE_RENAME_FLAG_POSIX_SEMANTICS;
+    if (replace_existing) {
+        (*information).Flags |= FILE_RENAME_FLAG_REPLACE_IF_EXISTS;
+    }
+    (*information).RootDirectory = nullptr;
+    (*information).FileNameLength = static_cast<DWORD>(name_bytes);
+    std::memcpy(storage.data() + offsetof(FILE_RENAME_INFO, FileName), name.data(), name_bytes);
+    if (SetFileInformationByHandle(file, FileRenameInfoEx, information, static_cast<DWORD>(storage_bytes))) {
+        return HandleRename::renamed;
+    }
+    const DWORD error = GetLastError();
+    if (error == ERROR_INVALID_PARAMETER || error == ERROR_NOT_SUPPORTED || error == ERROR_INVALID_FUNCTION) {
+        return HandleRename::unsupported;
+    }
+    return HandleRename::failed;
 }
 #else
 bool write_all(int file, const std::vector<std::uint8_t>& bytes) {
@@ -163,7 +199,7 @@ void write_file_atomic(const std::vector<std::uint8_t>& bytes, const std::string
     HANDLE file = INVALID_HANDLE_VALUE;
     for (int attempt = 0; attempt < 64 && file == INVALID_HANDLE_VALUE; ++attempt) {
         temporary = temporary_path(target);
-        file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+        file = CreateFileW(temporary.c_str(), GENERIC_WRITE | DELETE, 0, nullptr, CREATE_NEW,
                            FILE_ATTRIBUTE_TEMPORARY, nullptr);
         if (file == INVALID_HANDLE_VALUE && GetLastError() != ERROR_FILE_EXISTS) {
             throw std::runtime_error(failure_message);
@@ -173,8 +209,16 @@ void write_file_atomic(const std::vector<std::uint8_t>& bytes, const std::string
         throw std::runtime_error(failure_message);
     }
     const bool written = write_all(file, bytes) && FlushFileBuffers(file);
+    HandleRename rename = HandleRename::failed;
+    if (written) {
+        rename = rename_open_file(file, target, replace_existing);
+    }
     const bool closed = CloseHandle(file) != 0;
-    if (!written || !closed ||
+    if (rename == HandleRename::renamed) {
+        // The data was flushed before the rename; a failed close cannot lose it.
+        return;
+    }
+    if (!written || !closed || rename == HandleRename::failed ||
         !MoveFileExW(temporary.c_str(), target.c_str(),
                      (replace_existing ? MOVEFILE_REPLACE_EXISTING : 0) | MOVEFILE_WRITE_THROUGH)) {
         DeleteFileW(temporary.c_str());

@@ -22,6 +22,12 @@
 #include <vector>
 #ifndef _WIN32
 #include <sys/stat.h>
+#else
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #endif
 namespace {
 void require(bool value, const char* message) {
@@ -1507,6 +1513,29 @@ void test_file_security() {
     text.edit.content = "safe fallback";
     text.refresh({0, 0, 0, 255}, {255, 255, 255, 255});
     require(!text.preview.pixels.empty(), "unsafe font file did not fall back to the embedded face");
+#else
+    {
+        std::ofstream output(destination, std::ios::binary);
+        output << "old";
+    }
+    // Plan Paint's file-change probe can hold the destination open, sharing
+    // read, write and delete, while a save replaces it.
+    HANDLE probe = CreateFileW(destination.c_str(), GENERIC_READ,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                               FILE_ATTRIBUTE_NORMAL, nullptr);
+    require(probe != INVALID_HANDLE_VALUE, "could not open the probe handle");
+    const std::vector<std::uint8_t> replacement = {'p', 'a', 'i', 'n', 't'};
+    bool replaced = true;
+    try {
+        paint::write_file_atomic(replacement, destination.string(), "atomic write test failed");
+    } catch (const std::exception&) {
+        replaced = false;
+    }
+    CloseHandle(probe);
+    require(replaced, "atomic save failed while a shared handle had the destination open");
+    const std::vector<std::uint8_t> saved =
+        paint::read_regular_file_bounded(destination.string(), 64, "replaced file read failed");
+    require(saved == replacement, "atomic save under a shared handle wrote the wrong bytes");
 #endif
     const std::uint8_t gif[] = {'G', 'I', 'F', '8', '9', 'a'};
     bool rejected = false;
