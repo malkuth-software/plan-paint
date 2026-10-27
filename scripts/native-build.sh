@@ -32,6 +32,7 @@ case "$action" in
     fi
     python3 scripts/fetch-gui-forms.py
     sh gui_forms/third_party/fetch_text_stack.sh
+    sh gui_forms/third_party/fetch_linebreak.sh
     set -- -DRAINSTAR_TOOLKIT_SOURCE_DIR="$PWD/gui_forms"
     set -- "$@" -DPAINT_RELEASE_VERSION="${PAINT_RELEASE_VERSION:-$(python3 scripts/release_version.py)}"
     if [ "$platform" = macos-arm64 ]; then
