@@ -88,7 +88,7 @@ add_executable(plan-paint MACOSX_BUNDLE src/forms/main.cpp)
 target_link_libraries(plan-paint PRIVATE paint_forms)
 set_target_properties(plan-paint PROPERTIES
   MACOSX_BUNDLE_BUNDLE_NAME "Plan Paint"
-  MACOSX_BUNDLE_GUI_IDENTIFIER "org.rainstar.paint"
+  MACOSX_BUNDLE_GUI_IDENTIFIER "com.malkuthsoft.planpaint"
   MACOSX_BUNDLE_BUNDLE_VERSION "${PAINT_RELEASE_VERSION}"
   MACOSX_BUNDLE_SHORT_VERSION_STRING "${PAINT_RELEASE_VERSION}")
 # The consumer selects its font pack; optional CJK/emoji and extra mono faces
@@ -114,7 +114,14 @@ if(APPLE)
 endif()
 if(WIN32)
   target_sources(paint_forms PRIVATE src/print_windows.cpp src/desktop_windows.cpp src/file_reveal_windows.cpp)
-  target_sources(plan-paint PRIVATE packaging/windows.rc)
+  # Explorer's Details tab and SmartScreen read the vendor from VERSIONINFO.
+  string(REPLACE "." ";" paint_version_parts "${PAINT_RELEASE_VERSION}")
+  list(GET paint_version_parts 0 PAINT_VERSION_MAJOR)
+  list(GET paint_version_parts 1 PAINT_VERSION_MINOR)
+  list(GET paint_version_parts 2 PAINT_VERSION_PATCH)
+  configure_file("${PROJECT_SOURCE_DIR}/packaging/windows_version.rc.in"
+                 "${CMAKE_CURRENT_BINARY_DIR}/windows_version.rc" @ONLY)
+  target_sources(plan-paint PRIVATE packaging/windows.rc "${CMAKE_CURRENT_BINARY_DIR}/windows_version.rc")
   target_include_directories(plan-paint PRIVATE assets)
   set_target_properties(plan-paint PROPERTIES WIN32_EXECUTABLE TRUE)
   if(MSVC)
@@ -157,7 +164,7 @@ if(APPLE OR WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
   if(APPLE)
     target_sources(paint-forms-native-tests PRIVATE ${toolkit_fonts})
     set_target_properties(paint-forms-native-tests PROPERTIES
-      MACOSX_BUNDLE_GUI_IDENTIFIER "org.rainstar.paint.forms.validation")
+      MACOSX_BUNDLE_GUI_IDENTIFIER "com.malkuthsoft.planpaint.forms.validation")
   endif()
   if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # Follow the executable for custom output directories and multi-config builds.
