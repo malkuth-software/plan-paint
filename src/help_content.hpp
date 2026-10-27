@@ -296,7 +296,9 @@ inline constexpr HelpTopic help_topics[] = {
      "gratitude for the nourishment that sustains human life, the energy that powers our tools, "
      "and the opportunity to weave information into works of use and beauty.\n\n"
      "Author: Astra\nSponsor: Rainstar\nCopyright (c) 2026 "
-     "joshuah.rainstar@gmail.com\n\nPlan Paint is licensed under the PolyForm Noncommercial License 1.0.0: it is free to use, study, change and share for non-commercial purposes. See LICENSE for the terms. The license does not promise a warranty.\n\nYour pictures "
+     "joshuah.rainstar@gmail.com\n\nPlan Paint is licensed under the PolyForm Noncommercial License "
+     "1.0.0: it is free to use, study, change and share for non-commercial purposes. See LICENSE for "
+     "the terms. The license does not promise a warranty.\n\nYour pictures "
      "are yours. There is no account, subscription, advertising, or upload service in the drawing "
      "workflow. The complete source and dependency notices are supplied with the project."},
     {"Gradient fills",

@@ -287,8 +287,8 @@ void EditorDialog::initialize_control_tree() {
         label("about-credits", tr("Author: Astra\nSponsor: Rainstar"), {24, 300, 542, 42});
         label("about-license",
               tr("Copyright (c) 2026 joshuah.rainstar@gmail.com\n"
-"Licensed under the PolyForm Noncommercial License 1.0.0.\n"
-"Free for non-commercial use; see LICENSE for the terms."),
+                 "Licensed under the PolyForm Noncommercial License 1.0.0.\n"
+                 "Free for non-commercial use; see LICENSE for the terms."),
               {24, 358, 542, 72});
         label("about-trademarks",
               tr("An independent implementation inspired by Windows 7/10 Paint.\n"

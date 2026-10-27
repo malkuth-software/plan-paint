@@ -14,7 +14,7 @@ Plan Paint's original code is MIT, Copyright (c) 2026 joshuah.rainstar@gmail.com
 - TinyXML-2 11.0.0: zlib license. Used to inspect SVG structure before rasterization. See packaging/licenses/svg/tinyxml2-LICENSE.txt.
 - libwebp: BSD-style license. https://chromium.googlesource.com/webm/libwebp/+/HEAD/COPYING
 - Portsmouth Regular, Bold, Italic, Bold Italic and Mono: embedded font family. Original source-font copyright and license notices are preserved in [packaging/licenses/Portsmouth-source-notices.txt](packaging/licenses/Portsmouth-source-notices.txt). System fonts selected for artwork are not redistributed.
-- Cairo Unicode dingbat font: freeware by Clark T. Riley, with Unicode mappings by ChristTrekker. Its three original notices are bundled with the unmodified font in `assets/fonts/cairo-unicode/`. Personal distribution must include those notices; commercial distribution requires the author's written permission. Paint's MIT license does not relicense this font.
+- Cairo Unicode dingbat font: freeware by Clark T. Riley, with Unicode mappings by ChristTrekker. Its three original notices are bundled with the unmodified font in `assets/fonts/cairo-unicode/`. Personal distribution must include those notices; commercial distribution requires the author's written permission. Plan Paint's own license does not relicense this font.
 - The vendored Dear ImGui source tree also contains Droid Sans under Apache License 2.0; it is not the application interface font.
 
 Microsoft, Windows and Paint names identify the reference application and belong to their respective owner. Plan Paint is independent and uses newly drawn icons.
