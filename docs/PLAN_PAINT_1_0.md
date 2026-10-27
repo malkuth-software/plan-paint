@@ -8,7 +8,7 @@ Plan Paint is the new name of Rainstar Paint. GUI.Forms is the primary native in
 
 ## Upgrading
 
-Applications, executables, portable folders and release files now use Plan Paint or `plan-paint`. The macOS bundle and installer identifiers retain `org.rainstar.paint`; settings, palettes, custom patterns and recovery records retain the pre-1.0 storage directory. Existing user data stays available without a destructive migration. Internal CMake options retain their `RAINSTAR_` names so build scripts continue to configure the same features.
+Applications, executables, portable folders and release files now use Plan Paint or `plan-paint`. The vendor is Malkuth Software (owner, 2026-10-27): the macOS bundle and installer identifier is `com.malkuthsoft.planpaint` (it was `org.rainstar.paint`; the installer still installs to `/Applications/Plan Paint.app`, so an upgrade replaces the old bundle in place), and the Windows executable's version resource names Malkuth Software as the company. Install locations and the portable `PlanPaint` folders are unchanged. Settings, palettes, custom patterns and recovery records retain the pre-1.0 storage directory. Existing user data stays available without a destructive migration. Internal CMake options retain their `RAINSTAR_` names so build scripts continue to configure the same features.
 
 GitHub's repository rename preserves redirects from the previous repository. The website's old `/rainstar-paint/` route redirects to `/plan-paint/`. Earlier release tags and files remain historical Rainstar Paint artifacts.
 

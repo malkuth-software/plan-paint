@@ -166,7 +166,7 @@ def main():
     architecture = run(["uname", "-m"])
     package_name = "plan-paint"
     package = distribution / f"{package_name}-{args.version}-macos-{architecture}.pkg"
-    run(["pkgbuild", "--component", str(app), "--install-location", "/Applications", "--identifier", "org.rainstar.paint", "--version", args.version, "--compression", "latest", "--min-os-version", plist["LSMinimumSystemVersion"], str(package)])
+    run(["pkgbuild", "--component", str(app), "--install-location", "/Applications", "--identifier", "com.malkuthsoft.planpaint", "--version", args.version, "--compression", "latest", "--min-os-version", plist["LSMinimumSystemVersion"], str(package)])
     (distribution / "macos-bundle-receipt.json").write_text(json.dumps({"package": package.name, "architecture": architecture, "dependencies": bundled, "signature": "ad-hoc; not Developer ID notarized"}, indent=2) + "\n")
     print(package)
 
