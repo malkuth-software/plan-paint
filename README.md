@@ -233,7 +233,7 @@ Tests cover image editing, formats, numerical transforms, transparency, real UI 
 
 **Sponsor:** Rainstar
 
-Original code, documentation and artwork are [MIT licensed](LICENSE), copyright © 2026 joshuah.rainstar@gmail.com. You may use, study, modify and share the software, including commercially. Dependencies retain their [third-party notices](THIRD_PARTY_NOTICES.md).
+Original code, documentation and artwork are copyright © 2026 joshuah.rainstar@gmail.com. You may use, study, modify and share the software, persuant to license terms as established in License. Dependencies retain their [third-party notices](THIRD_PARTY_NOTICES.md).
 
 Plan Paint is an independent implementation. Microsoft and Windows are trademarks of Microsoft Corporation; no Microsoft Paint source code or icon assets are included.
 
