@@ -14,7 +14,7 @@ else()
 # Keep the explicitly selected SDK ahead of ambient /usr/local headers. Mixing
 # installed GUI.Forms headers from another SDK with these libraries breaks ABI.
 set(CMAKE_NO_SYSTEM_FROM_IMPORTED ON)
-find_package(GUIForms 0.1 CONFIG REQUIRED COMPONENTS Application Threading)
+find_package(GUIForms 0.2 CONFIG REQUIRED COMPONENTS Application Threading)
 set_property(TARGET GUIForms::Application PROPERTY IMPORTED_NO_SYSTEM TRUE)
 include(CheckCXXSourceCompiles)
 set(CMAKE_REQUIRED_LIBRARIES GUIForms::Application)
