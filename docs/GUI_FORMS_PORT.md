@@ -1,6 +1,6 @@
 # Plan Paint native build
 
-Plan Paint consumes the standalone [GUI.Forms repository](https://github.com/falseywinchnet/gui_forms)
+Plan Paint consumes the standalone [GUI.Forms repository](https://github.com/malkuth-software/gui_forms)
 at the revision in `third_party/gui-forms.lock.json`. This lock also records the
 provider's tested cache release and the SHA-256 of each platform archive.
 Application sources link `GUIForms::Application`; its shared `GUIForms::Threading`
