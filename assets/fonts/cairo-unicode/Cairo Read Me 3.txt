@@ -1,0 +1,8 @@
+A lot has changed since the early 1990s. With Unicode 6.0 and 7.0, many of the things represented by glyphs in Cairo have officially assigned codepoints. The "radically freeware" comment in Read Me 1 and the email exchange in Read Me 2 seems to grant permission to update the font for changes in technology*, so I have done that, placing copies of the characters into their proper locations. Thus, Cairo Unicode can be used in place of the legacy Cairo dingbat font, but can also display Unicode documents with Cairo-style glyphs.
+
+Other than this, I've made only a few changes. The apostrophe (', die) was not "depixelized" like other glyphs had been, and in the original TTF I had, the seven (7, moon face) seemed to have been corrupted. I corrected these, and updated some metadata (e.g. the Panose classification).
+
+ChristTrekker
+December 2013
+
+*I believe this functionally equivalent to a "CC BY-SA" license.

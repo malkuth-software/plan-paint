@@ -1,0 +1,16 @@
+build*/
+dist/
+.DS_Store
+imgui.ini
+
+# Local authoring notes and development receipts.
+/astra/
+
+__pycache__/
+*.py[cod]
+
+/gui_forms/
+/.build/
+/.ccache/
+/cache-manifest.json
+/gui-forms-cache-*.tar.gz

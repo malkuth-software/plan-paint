@@ -1,0 +1,603 @@
+diff --git a/docs/RAINSTAR_PORT.md b/docs/RAINSTAR_PORT.md
+index 9f9c5ae..8bdf061 100644
+--- a/docs/RAINSTAR_PORT.md
++++ b/docs/RAINSTAR_PORT.md
+@@ -97,9 +97,12 @@ order, then minimizes/restores and hides/shows a window without pointer input.
+ 
+ Consumers can omit the optional CJK/emoji fallback faces and additional Cousine
+ styles while retaining the seven primary UI faces. Skia and HarfBuzz share
+-immutable encoded font storage with explicit ownership; the span-based text
+-registration API still takes a copy from its caller. Font lifetime tests cover
+-caller release and destruction of the final owner.
++immutable encoded font storage with explicit ownership. The macOS and Linux
++hosts keep bundled fonts in read-only file mappings instead of copying each
++file into a private heap buffer for every window. The span-based registration
++API still takes a copy from its caller. File and span registration render the
++same glyphs; lifetime tests cover caller release and destruction of the final
++owner. Bundled mapped files must remain immutable while a window uses them.
+ 
+ ## Clipboard file references
+ 
+diff --git a/src/controls/panel/combo_box/combo_box.cpp b/src/controls/panel/combo_box/combo_box.cpp
+index 8cef071..c70df08 100644
+--- a/src/controls/panel/combo_box/combo_box.cpp
++++ b/src/controls/panel/combo_box/combo_box.cpp
+@@ -288,8 +288,8 @@ void ComboBox::open_drop_down() {
+     const Rect combo = absolute_bounds();
+     const Size client = (*window()).client_size();
+     const std::size_t rows = std::min(maximum_drop_down_items_, items_.size());
+-    const double popup_height = static_cast<double>(rows) *
+-        26.0 * effective_text_scale() + 4.0;
++    const double popup_height = std::min(std::max(0.0, client.height - 8.0),
++        static_cast<double>(rows) * 26.0 * effective_text_scale() + 4.0);
+     const double requested_width = drop_down_width_ > 0.0
+         ? drop_down_width_ : combo.width;
+     const double popup_width = std::min(requested_width, client.width);
+@@ -301,7 +301,7 @@ void ComboBox::open_drop_down() {
+     const std::string prefix(stable_id().value());
+     std::shared_ptr<gui_forms::DropDownLayer> layer = make_control<DropDownLayer>(StableId(prefix + ".popup.layer"));
+     (*layer).set_requested_bounds({0.0, 0.0, client.width, client.height});
+-    std::shared_ptr<gui_forms::ListBox> list = make_control<ListBox>(StableId(prefix + ".popup.list"));
++    std::shared_ptr<gui_forms::ListBox> list = make_control<DropDownList>(StableId(prefix + ".popup.list"));
+     (*list).set_paint_plane(PaintPlane::overlay);
+     (*list).set_items(items_);
+     (*list).set_font(font_);
+diff --git a/src/controls/panel/combo_box/drop_down_layer.cpp b/src/controls/panel/combo_box/drop_down_layer.cpp
+index 7c71fc5..f58a2d5 100644
+--- a/src/controls/panel/combo_box/drop_down_layer.cpp
++++ b/src/controls/panel/combo_box/drop_down_layer.cpp
+@@ -1,9 +1,66 @@
+ #include "drop_down_layer.hpp"
+ 
+ #include <utility>
++#include <algorithm>
++#include <cmath>
+ 
+ namespace gui_forms {
+ 
++DropDownList::DropDownList(StableId id) : ListBox(std::move(id)) {}
++
++void DropDownList::initialize_control_tree() {
++    scrollbar_ = make_control<ScrollBar>(StableId(std::string(stable_id().value()) + ".scrollbar"));
++    (*scrollbar_).set_paint_plane(PaintPlane::overlay);
++    (*scrollbar_).set_accessible_name("Scroll choices");
++    scroll_subscription_ = (*scrollbar_).value_changed().subscribe(
++        *this, Delegate<double>::bind<DropDownList, &DropDownList::scroll_changed>(*this));
++    add_child(scrollbar_);
++}
++
++void DropDownList::synchronize_scroll() {
++    const std::size_t visible = std::max<std::size_t>(1, static_cast<std::size_t>(
++        std::floor(std::max(0.0, local_bounds().height - 4) / (item_height() * effective_text_scale()))));
++    const std::size_t maximum = items().size() > visible ? items().size() - visible : 0;
++    synchronizing_ = true;
++    (*scrollbar_).set_visible(maximum != 0);
++    (*scrollbar_).set_range(0, static_cast<double>(std::max<std::size_t>(1, maximum)));
++    (*scrollbar_).set_small_change(1);
++    (*scrollbar_).set_large_change(static_cast<double>(visible));
++    const std::size_t top = std::min(top_index(), maximum);
++    set_top_index(top);
++    (*scrollbar_).set_value(static_cast<double>(top));
++    synchronizing_ = false;
++}
++
++void DropDownList::arrange(Rect bounds) {
++    ListBox::arrange(bounds);
++    synchronize_scroll();
++    set_child_layout(scrollbar_, {std::max(2.0, bounds.width - 20), 2, 18, std::max(0.0, bounds.height - 4)});
++}
++
++void DropDownList::scroll_changed(double value) {
++    if (!synchronizing_) set_top_index(static_cast<std::size_t>(std::round(value)));
++}
++
++void DropDownList::on_pointer(PointerEvent& event) {
++    if ((*scrollbar_).visible() && (*scrollbar_).absolute_bounds().contains(event.position) &&
++        event.action != PointerAction::wheel) return;
++    ListBox::on_pointer(event);
++    synchronize_scroll();
++}
++
++void DropDownList::on_key(KeyEvent& event) {
++    ListBox::on_key(event);
++    synchronize_scroll();
++}
++
++bool DropDownList::on_semantic_child_action(std::string_view id, SemanticAction action,
++                                           std::string_view value) {
++    const bool result = ListBox::on_semantic_child_action(id, action, value);
++    synchronize_scroll();
++    return result;
++}
++
+ DropDownLayer::DropDownLayer(StableId stable_id) : Panel(std::move(stable_id)) {
+     set_paint_plane(PaintPlane::overlay);
+     set_border_style(BorderStyle::none);
+diff --git a/src/controls/panel/combo_box/drop_down_layer.hpp b/src/controls/panel/combo_box/drop_down_layer.hpp
+index ddd548f..575bf93 100644
+--- a/src/controls/panel/combo_box/drop_down_layer.hpp
++++ b/src/controls/panel/combo_box/drop_down_layer.hpp
+@@ -1,9 +1,29 @@
+ #pragma once
+ 
+ #include "gui_forms/controls/panel/panel.hpp"
++#include "gui_forms/controls/panel/list_box/list_box.hpp"
++#include "gui_forms/controls/range_control/scroll_bar/scroll_bar.hpp"
+ 
+ namespace gui_forms {
+ 
++class DropDownList final : public ListBox {
++public:
++    static constexpr bool initialize_tree_after_construction = true;
++    explicit DropDownList(StableId stable_id);
++    void initialize_control_tree();
++    void arrange(Rect bounds) override;
++    void on_pointer(PointerEvent& event) override;
++    void on_key(KeyEvent& event) override;
++    bool on_semantic_child_action(std::string_view id, SemanticAction action,
++                                  std::string_view value) override;
++private:
++    void synchronize_scroll();
++    void scroll_changed(double value);
++    std::shared_ptr<ScrollBar> scrollbar_;
++    SubscriptionToken scroll_subscription_;
++    bool synchronizing_ = false;
++};
++
+ class DropDownLayer final : public Panel {
+ public:
+     explicit DropDownLayer(StableId stable_id);
+diff --git a/src/host/linux/application/linux_host.cpp b/src/host/linux/application/linux_host.cpp
+index 647092b..3d085ad 100644
+--- a/src/host/linux/application/linux_host.cpp
++++ b/src/host/linux/application/linux_host.cpp
+@@ -149,27 +149,14 @@ void register_fonts(render::SkiaRaster &raster) {
+   const std::filesystem::path directory = fonts_directory();
+   for (std::size_t index = 0; index < std::size(faces); ++index) {
+     const Face &face = faces[index];
+-    std::ifstream file(directory / face.name, std::ios::binary | std::ios::ate);
+-    // UI/content faces are required; optional mono styles and Unicode fallback
+-    // packs may be omitted by consumers that ship a compact font selection.
+-    if (!file && index >= 7)
+-      continue;
+-    if (!file)
+-      throw std::runtime_error("Missing bundled GUI.Forms font: " +
+-                               (directory / face.name).string());
+-    const std::streamsize length = file.tellg();
+-    if (length <= 0 || length > 64 * 1024 * 1024)
+-      throw std::runtime_error("Invalid GUI.Forms font size");
+-    std::vector<std::byte> bytes(static_cast<std::size_t>(length));
+-    file.seekg(0);
+-    file.read(reinterpret_cast<char *>(bytes.data()), length);
+-    const bool accepted =
+-        face.fallback
+-            ? raster.register_fallback_typeface(face.weight, face.italic, bytes)
+-            : raster.register_typeface(face.role, face.weight, face.italic,
+-                                       bytes);
+-    if (!file || !accepted)
+-      throw std::runtime_error("Cannot load bundled GUI.Forms font");
++    const std::filesystem::path path = directory / face.name;
++    // Optional Unicode and mono faces may be omitted by a consumer.
++    if (!std::filesystem::exists(path) && index >= 7) continue;
++    const std::string filename = path.string();
++    const bool accepted = face.fallback
++        ? raster.register_fallback_typeface_file(face.weight, face.italic, filename.c_str())
++        : raster.register_typeface_file(face.role, face.weight, face.italic, filename.c_str());
++    if (!accepted) throw std::runtime_error("Cannot load bundled GUI.Forms font: " + filename);
+   }
+ }
+ struct Closing final {
+diff --git a/src/host/macos/application/macos_host.mm b/src/host/macos/application/macos_host.mm
+index 339c340..19bcd50 100644
+--- a/src/host/macos/application/macos_host.mm
++++ b/src/host/macos/application/macos_host.mm
+@@ -345,15 +345,7 @@ static bool register_bundle_typeface(SkiaRaster& raster,
+     if (url == nil) {
+         return optional;
+     }
+-    NSData* data = [NSData dataWithContentsOfURL:url
+-                                        options:NSDataReadingMappedIfSafe
+-                                          error:nil];
+-    if (data == nil || data.length == 0) {
+-        return false;
+-    }
+-    const std::byte* bytes = static_cast<const std::byte*>(data.bytes);
+-    return raster.register_typeface(role, weight, italic,
+-                                    std::span<const std::byte>(bytes, data.length));
++    return raster.register_typeface_file(role, weight, italic, url.fileSystemRepresentation);
+ }
+ 
+ static bool register_bundle_fallback_typeface(SkiaRaster& raster,
+@@ -365,13 +357,7 @@ static bool register_bundle_fallback_typeface(SkiaRaster& raster,
+                                         withExtension:extension
+                                          subdirectory:@"fonts"];
+     if (url == nil) return true;
+-    NSData* data = [NSData dataWithContentsOfURL:url
+-                                        options:NSDataReadingMappedIfSafe
+-                                          error:nil];
+-    if (data == nil || data.length == 0) return false;
+-    const std::byte* bytes = static_cast<const std::byte*>(data.bytes);
+-    return raster.register_fallback_typeface(
+-        weight, italic, std::span<const std::byte>(bytes, data.length));
++    return raster.register_fallback_typeface_file(weight, italic, url.fileSystemRepresentation);
+ }
+ 
+ namespace {
+diff --git a/src/render/skia/raster/skia_raster.cpp b/src/render/skia/raster/skia_raster.cpp
+index dae4d5b..4bd97bd 100644
+--- a/src/render/skia/raster/skia_raster.cpp
++++ b/src/render/skia/raster/skia_raster.cpp
+@@ -39,6 +39,7 @@
+ #include <algorithm>
+ #include <cmath>
+ #include <limits>
++#include <optional>
+ #include <unordered_map>
+ #include <unordered_set>
+ #include <vector>
+@@ -101,15 +102,6 @@ SkGradient make_sk_gradient(
+     return SkGradient(colors, interpolation);
+ }
+ 
+-using FontBytes = std::shared_ptr<const std::vector<std::byte>>;
+-void release_font_bytes(const void*, void* context) {
+-    delete static_cast<FontBytes*>(context);
+-}
+-sk_sp<SkData> shared_font_data(const FontBytes& bytes) {
+-    return SkData::MakeWithProc((*bytes).data(), (*bytes).size(),
+-                                release_font_bytes, new FontBytes(bytes));
+-}
+-
+ SkPaint make_paint(Color color) {
+     SkPaint paint;
+     paint.setColor(to_sk_color(color));
+@@ -165,6 +157,29 @@ public:
+     std::uint64_t image_registry_revision{std::numeric_limits<std::uint64_t>::max()};
+     bool image_registry_synchronized{true};
+ 
++    [[nodiscard]] bool register_font_data(std::optional<FontRole> role,
++                                          std::uint16_t weight, bool italic,
++                                          sk_sp<SkData> data) {
++        if (!data || (*data).isEmpty() || (*data).size() > 64U * 1024U * 1024U) return false;
++        sk_sp<SkTypeface> face = (*fonts).makeFromData(data);
++        if (!face) return false;
++#if defined(GUI_FORMS_HAS_HARFBUZZ_TEXT)
++        const std::span<const std::byte> bytes(
++            static_cast<const std::byte*>((*data).data()), (*data).size());
++        const std::shared_ptr<const sk_sp<SkData>> owner =
++            std::make_shared<const sk_sp<SkData>>(std::move(data));
++        const std::optional<FontFaceId> text_face = text_engine.register_owned_typeface(
++            role, weight, italic, bytes, owner);
++        if (!text_face) return false;
++        registered_typefaces.push_back(
++            {role.value_or(FontRole::content), weight, italic, !role, std::move(face), *text_face});
++#else
++        registered_typefaces.push_back(
++            {role.value_or(FontRole::content), weight, italic, !role, std::move(face)});
++#endif
++        return true;
++    }
++
+     [[nodiscard]] SkCanvas* canvas() const noexcept {
+         return surface ? (*surface).getCanvas() : nullptr;
+     }
+@@ -275,50 +290,28 @@ public:
+ SkiaRaster::SkiaRaster() : impl_(std::make_unique<Impl>()) {}
+ SkiaRaster::~SkiaRaster() = default;
+ 
+-bool SkiaRaster::register_typeface(FontRole role,
+-                                   std::uint16_t weight,
+-                                   bool italic,
+-                                   std::span<const std::byte> encoded) {
+-    if (encoded.empty()) {
+-        return false;
+-    }
+-    const FontBytes bytes = std::make_shared<const std::vector<std::byte>>(encoded.begin(), encoded.end());
+-    sk_sp<SkData> data = shared_font_data(bytes);
+-    sk_sp<SkTypeface> face = (*(*impl_).fonts).makeFromData(std::move(data));
+-    if (!face) {
+-        return false;
+-    }
+-#if defined(GUI_FORMS_HAS_HARFBUZZ_TEXT)
+-    const std::optional<FontFaceId> text_face =
+-        (*impl_).text_engine.register_shared_typeface(role, weight, italic, bytes);
+-    if (!text_face) return false;
+-    (*impl_).registered_typefaces.push_back(
+-        {role, weight, italic, false, std::move(face), *text_face});
+-#else
+-    (*impl_).registered_typefaces.push_back(
+-        {role, weight, italic, false, std::move(face)});
+-#endif
+-    return true;
++bool SkiaRaster::register_typeface(FontRole role, std::uint16_t weight,
++                                   bool italic, std::span<const std::byte> encoded) {
++    if (encoded.empty() || encoded.size() > 64U * 1024U * 1024U) return false;
++    return (*impl_).register_font_data(role, weight, italic,
++        SkData::MakeWithCopy(encoded.data(), encoded.size()));
+ }
+ 
+ bool SkiaRaster::register_fallback_typeface(
+     std::uint16_t weight, bool italic, std::span<const std::byte> encoded) {
+-    if (encoded.empty()) return false;
+-    const FontBytes bytes = std::make_shared<const std::vector<std::byte>>(encoded.begin(), encoded.end());
+-    sk_sp<SkData> data = shared_font_data(bytes);
+-    sk_sp<SkTypeface> face = (*(*impl_).fonts).makeFromData(std::move(data));
+-    if (!face) return false;
+-#if defined(GUI_FORMS_HAS_HARFBUZZ_TEXT)
+-    const std::optional<FontFaceId> text_face =
+-        (*impl_).text_engine.register_shared_typeface(std::nullopt, weight, italic, bytes);
+-    if (!text_face) return false;
+-    (*impl_).registered_typefaces.push_back(
+-        {FontRole::content, weight, italic, true, std::move(face), *text_face});
+-#else
+-    (*impl_).registered_typefaces.push_back(
+-        {FontRole::content, weight, italic, true, std::move(face)});
+-#endif
+-    return true;
++    if (encoded.empty() || encoded.size() > 64U * 1024U * 1024U) return false;
++    return (*impl_).register_font_data(std::nullopt, weight, italic,
++        SkData::MakeWithCopy(encoded.data(), encoded.size()));
++}
++
++bool SkiaRaster::register_typeface_file(FontRole role, std::uint16_t weight,
++                                        bool italic, const char* path) {
++    return (*impl_).register_font_data(role, weight, italic, SkData::MakeFromFileName(path));
++}
++
++bool SkiaRaster::register_fallback_typeface_file(
++    std::uint16_t weight, bool italic, const char* path) {
++    return (*impl_).register_font_data(std::nullopt, weight, italic, SkData::MakeFromFileName(path));
+ }
+ 
+ bool SkiaRaster::resize(Size logical_size, double scale) {
+diff --git a/src/render/skia/raster/skia_raster.hpp b/src/render/skia/raster/skia_raster.hpp
+index cef8923..60495e5 100644
+--- a/src/render/skia/raster/skia_raster.hpp
++++ b/src/render/skia/raster/skia_raster.hpp
+@@ -27,6 +27,11 @@ public:
+     [[nodiscard]] bool register_fallback_typeface(
+         std::uint16_t weight, bool italic,
+         std::span<const std::byte> encoded);
++    // Bundled files remain read-only mappings shared with the text shaper.
++    [[nodiscard]] bool register_typeface_file(
++        FontRole role, std::uint16_t weight, bool italic, const char* path);
++    [[nodiscard]] bool register_fallback_typeface_file(
++        std::uint16_t weight, bool italic, const char* path);
+     [[nodiscard]] bool synchronize_images(const ImageRegistry& registry);
+     [[nodiscard]] const void* pixels() const noexcept;
+     [[nodiscard]] std::size_t row_bytes() const noexcept;
+diff --git a/src/render/skia/skia_raster_smoke.cpp b/src/render/skia/skia_raster_smoke.cpp
+index 3117944..f935ffc 100644
+--- a/src/render/skia/skia_raster_smoke.cpp
++++ b/src/render/skia/skia_raster_smoke.cpp
+@@ -1,6 +1,7 @@
+ #include "skia_raster.hpp"
+ 
+ #include <array>
++#include <cstring>
+ #include <cstddef>
+ #include <cstdint>
+ #include <cstdio>
+@@ -61,9 +62,39 @@ const std::uint8_t* pixel_at(const std::uint8_t* pixels, std::size_t row_bytes,
+            static_cast<std::size_t>(x * scale) * 4U;
+ }
+ 
++bool mapped_fonts_match_copied_fonts() {
++    gui_forms::render::SkiaRaster copied;
++    gui_forms::render::SkiaRaster mapped;
++    if (!copied.register_typeface(gui_forms::FontRole::control, 400, false,
++            read_file(GUI_FORMS_TEST_CONTROL_FONT)) ||
++        !copied.register_fallback_typeface(400, false, read_file(GUI_FORMS_TEST_CJK_FONT)) ||
++        !mapped.register_typeface_file(gui_forms::FontRole::control, 400, false, GUI_FORMS_TEST_CONTROL_FONT) ||
++        !mapped.register_fallback_typeface_file(400, false, GUI_FORMS_TEST_CJK_FONT) ||
++        mapped.register_fallback_typeface_file(400, false, nullptr) ||
++        mapped.register_fallback_typeface_file(400, false, "/gui-forms-missing-font.otf")) return false;
++    const std::string_view text = "Plan Paint — 漢字 日本語 中文";
++    for (gui_forms::render::SkiaRaster* raster : {&copied, &mapped}) {
++        if (!(*raster).resize({440, 60}, 2)) return false;
++        gui_forms::DamageRegion damage;
++        damage.add({0, 0, 440, 60});
++        (*raster).begin_frame(damage);
++        (*raster).fill_rect({0, 0, 440, 60}, gui_forms::Color::rgba(255, 255, 255));
++        (*raster).draw_text_utf8({8, 36}, text, {gui_forms::FontRole::control, 20, 400, false},
++                               gui_forms::Color::rgba(0, 0, 0));
++        (*raster).end_frame();
++    }
++    return copied.byte_size() == mapped.byte_size() &&
++        std::memcmp(copied.pixels(), mapped.pixels(), copied.byte_size()) == 0;
++}
++
+ } // namespace
+ 
+ int main() {
++    if (!mapped_fonts_match_copied_fonts()) {
++        std::fputs("Mapped fonts changed rendered text or accepted an invalid path\n", stderr);
++        return 20;
++    }
++
+     constexpr std::array<std::uint8_t, 70> png = {
+         0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+         0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+diff --git a/src/render/text/harfbuzz/harfbuzz_font_engine.cpp b/src/render/text/harfbuzz/harfbuzz_font_engine.cpp
+index 2266793..8de7c83 100644
+--- a/src/render/text/harfbuzz/harfbuzz_font_engine.cpp
++++ b/src/render/text/harfbuzz/harfbuzz_font_engine.cpp
+@@ -119,13 +119,13 @@ public:
+         bool italic{};
+         bool fallback{};
+         std::string family;
+-        std::shared_ptr<const std::vector<std::byte>> encoded;
++        std::shared_ptr<const void> encoded;
+         FT_Face face{};
+ 
+         Face(FontFaceId id_value, std::optional<FontRole> role_value,
+              std::uint16_t weight_value, bool italic_value,
+              bool fallback_value, std::string family_value,
+-             std::shared_ptr<const std::vector<std::byte>> bytes, FT_Face face_value)
++             std::shared_ptr<const void> bytes, FT_Face face_value)
+             : id(id_value), role(role_value), weight(weight_value),
+               italic(italic_value), fallback(fallback_value),
+               family(std::move(family_value)), encoded(std::move(bytes)),
+@@ -208,15 +208,16 @@ public:
+ 
+     [[nodiscard]] std::optional<FontFaceId> register_face(
+         std::optional<FontRole> role, std::uint16_t weight, bool italic,
+-        std::shared_ptr<const std::vector<std::byte>> owned, std::uint32_t face_index) {
+-        if (!owned || (*owned).empty() || (*owned).size() > maximum_face_bytes ||
++        std::span<const std::byte> bytes, std::shared_ptr<const void> owned,
++        std::uint32_t face_index) {
++        if (!owned || bytes.empty() || bytes.size() > maximum_face_bytes ||
+             faces.size() >= maximum_faces || face_index > 255U) {
+             return std::nullopt;
+         }
+         FT_Face native{};
+         const FT_Error opened = FT_New_Memory_Face(
+-            library.value, reinterpret_cast<const FT_Byte*>((*owned).data()),
+-            static_cast<FT_Long>((*owned).size()), static_cast<FT_Long>(face_index),
++            library.value, reinterpret_cast<const FT_Byte*>(bytes.data()),
++            static_cast<FT_Long>(bytes.size()), static_cast<FT_Long>(face_index),
+             &native);
+         if (opened != 0 || native == nullptr || (*native).num_glyphs <= 0 ||
+             (*native).num_glyphs > maximum_glyphs ||
+@@ -316,7 +317,16 @@ HarfBuzzFontEngine::~HarfBuzzFontEngine() = default;
+ std::optional<FontFaceId> HarfBuzzFontEngine::register_shared_typeface(
+     std::optional<FontRole> role, std::uint16_t weight, bool italic,
+     std::shared_ptr<const std::vector<std::byte>> encoded, std::uint32_t face_index) {
+-    return (*impl_).register_face(role, weight, italic, std::move(encoded), face_index);
++    if (!encoded) return std::nullopt;
++    const std::span<const std::byte> bytes(*encoded);
++    return register_owned_typeface(role, weight, italic, bytes, std::move(encoded), face_index);
++}
++
++std::optional<FontFaceId> HarfBuzzFontEngine::register_owned_typeface(
++    std::optional<FontRole> role, std::uint16_t weight, bool italic,
++    std::span<const std::byte> encoded, std::shared_ptr<const void> owner,
++    std::uint32_t face_index) {
++    return (*impl_).register_face(role, weight, italic, encoded, std::move(owner), face_index);
+ }
+ 
+ std::optional<FontFaceId> HarfBuzzFontEngine::register_typeface(
+@@ -324,7 +334,7 @@ std::optional<FontFaceId> HarfBuzzFontEngine::register_typeface(
+     std::span<const std::byte> encoded, std::uint32_t face_index) {
+     if (encoded.empty() || encoded.size() > maximum_face_bytes ||
+         (*impl_).faces.size() >= maximum_faces || face_index > 255U) return std::nullopt;
+-    return (*impl_).register_face(role, weight, italic,
++    return register_shared_typeface(role, weight, italic,
+         std::make_shared<const std::vector<std::byte>>(encoded.begin(), encoded.end()), face_index);
+ }
+ 
+@@ -333,7 +343,7 @@ std::optional<FontFaceId> HarfBuzzFontEngine::register_fallback_typeface(
+     std::uint32_t face_index) {
+     if (encoded.empty() || encoded.size() > maximum_face_bytes ||
+         (*impl_).faces.size() >= maximum_faces || face_index > 255U) return std::nullopt;
+-    return (*impl_).register_face(
++    return register_shared_typeface(
+         std::nullopt, weight, italic,
+         std::make_shared<const std::vector<std::byte>>(encoded.begin(), encoded.end()), face_index);
+ }
+diff --git a/src/render/text/harfbuzz/harfbuzz_font_engine.hpp b/src/render/text/harfbuzz/harfbuzz_font_engine.hpp
+index a274ccc..40ebb2b 100644
+--- a/src/render/text/harfbuzz/harfbuzz_font_engine.hpp
++++ b/src/render/text/harfbuzz/harfbuzz_font_engine.hpp
+@@ -70,6 +70,12 @@ public:
+         std::optional<FontRole> role, std::uint16_t weight, bool italic,
+         std::shared_ptr<const std::vector<std::byte>> encoded,
+         std::uint32_t face_index = 0U);
++    // The owner keeps the immutable span alive, including file mappings. This
++    // avoids a private heap copy of every bundled font in each native window.
++    [[nodiscard]] std::optional<FontFaceId> register_owned_typeface(
++        std::optional<FontRole> role, std::uint16_t weight, bool italic,
++        std::span<const std::byte> encoded, std::shared_ptr<const void> owner,
++        std::uint32_t face_index = 0U);
+     [[nodiscard]] ShapedText shape(std::string_view utf8, FontSpec font);
+     [[nodiscard]] ResolvedTextLayout resolve(std::string_view utf8,
+                                              FontSpec font);
+diff --git a/tests/harfbuzz_font_engine_tests.cpp b/tests/harfbuzz_font_engine_tests.cpp
+index 2d112f0..243b0b4 100644
+--- a/tests/harfbuzz_font_engine_tests.cpp
++++ b/tests/harfbuzz_font_engine_tests.cpp
+@@ -84,6 +84,26 @@ void test_shared_font_lifetime() {
+     require(weak.expired(), "font storage releases after the final owner is destroyed");
+ }
+ 
++void test_owned_font_view_lifetime() {
++    struct FontOwner final { std::vector<std::byte> bytes; };
++    std::weak_ptr<const FontOwner> weak;
++    {
++        HarfBuzzFontEngine engine;
++        std::shared_ptr<const FontOwner> owner = std::make_shared<const FontOwner>(
++            FontOwner{read_file(GUI_FORMS_TEST_CARLITO_REGULAR)});
++        weak = owner;
++        require(!engine.register_owned_typeface(FontRole::content, 400, false,
++                    (*owner).bytes, {}).has_value(), "borrowed bytes require a lifetime owner");
++        require(engine.register_owned_typeface(FontRole::content, 400, false,
++                    (*owner).bytes, owner).has_value(), "owned immutable view registers");
++        require(owner.use_count() == 2, "engine retains owner without copying the font");
++        owner.reset();
++        require(!weak.expired() && engine.shape("office", {FontRole::content, 16, 400, false}).width > 0,
++                "owned view stays valid after the caller drops it");
++    }
++    require(weak.expired(), "font mapping owner releases with the last face");
++}
++
+ void test_owned_registration_style_selection_and_ligatures() {
+     HarfBuzzFontEngine engine;
+     std::vector<std::byte> regular = read_file(GUI_FORMS_TEST_CARLITO_REGULAR);
+@@ -363,6 +383,7 @@ void test_public_resolution_record_names_actual_bundled_runs() {
+ int main() {
+     try {
+         test_shared_font_lifetime();
++        test_owned_font_view_lifetime();
+         test_mixed_direction_text();
+         test_owned_registration_style_selection_and_ligatures();
+         test_cluster_fallback_is_bounded_and_absolute();
+diff --git a/tests/input_controls_tests.cpp b/tests/input_controls_tests.cpp
+index bd38119..c993e39 100644
+--- a/tests/input_controls_tests.cpp
++++ b/tests/input_controls_tests.cpp
+@@ -1,4 +1,5 @@
+ #include "gui_forms/input_controls.hpp"
++#include "gui_forms/controls/range_control/scroll_bar/scroll_bar.hpp"
+ #include "gui_forms/window.hpp"
+ #include "headless_host.hpp"
+ #include "support/named_callbacks.hpp"
+@@ -380,6 +381,31 @@ void test_list_box_selection_navigation_and_mutation() {
+             "ListBox top index must bound virtualized row painting");
+ }
+ 
++void test_combo_box_scrollbar_reaches_last_item() {
++    const std::shared_ptr<Panel> root = make_control<Panel>(StableId("scroll.root"));
++    const std::shared_ptr<ComboBox> combo = make_control<ComboBox>(StableId("scroll.combo"));
++    for (int i = 0; i < 24; ++i) (*combo).add_item("Language " + std::to_string(i));
++    (*combo).set_maximum_drop_down_items(64);
++    (*combo).set_requested_bounds({20, 20, 240, 32});
++    (*root).add_child(combo);
++    Window window(root, {300, 220});
++    window.perform_layout();
++    (*combo).set_dropped_down(true);
++    window.perform_layout();
++    const std::shared_ptr<ListBox> list = std::dynamic_pointer_cast<ListBox>(window.find("scroll.combo.popup.list"));
++    const std::shared_ptr<ScrollBar> bar = std::dynamic_pointer_cast<ScrollBar>(window.find("scroll.combo.popup.list.scrollbar"));
++    require(list && bar && (*bar).visible(), "overflow choices have a visible, operable scrollbar");
++    const Rect bounds = (*list).absolute_bounds();
++    require(bounds.y >= 0 && bounds.y + bounds.height <= 220, "tall popup fits a short window");
++    (*bar).set_value((*bar).maximum());
++    require((*list).top_index() > 0, "scrollbar changes the list viewport");
++    const Point last{bounds.x + 15, bounds.y + 2 + (23 - (*list).top_index()) * 26.0 + 13};
++    window.dispatch_pointer({PointerAction::down, PointerButton::primary, last});
++    window.dispatch_pointer({PointerAction::up, PointerButton::primary, last});
++    require((*combo).selected_index() == 23 && !(*combo).dropped_down(),
++            "the last language is reachable without a mouse wheel");
++}
++
+ void test_combo_box_popup_commit_dismiss_and_owner_revocation() {
+     std::shared_ptr<gui_forms::Panel> root = make_control<Panel>(StableId("combo.root"));
+     std::shared_ptr<gui_forms::ComboBox> combo = make_control<ComboBox>(StableId("combo.field"));
+@@ -578,6 +604,7 @@ int main() {
+         test_clipboard_commands_and_protected_text();
+         test_list_box_selection_navigation_and_mutation();
+         test_combo_box_popup_commit_dismiss_and_owner_revocation();
++        test_combo_box_scrollbar_reaches_last_item();
+         test_numeric_up_down_composite_edit_spinner_and_keys();
+         test_list_box_model_stable_item_ids();
+         std::cout << "gui_forms_input_controls_tests: all tests passed\n";

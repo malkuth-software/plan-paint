@@ -1,0 +1,41 @@
+Subj:  Cairo Font T1                         June 14, 1994
+
+AUTHOR:    Clark T. Riley
+EQUIPMENT: Any Mac
+
+TYPE: Freeware
+
+AUTHOR'S NOTES:
+    Surely one of the original reasons many of us bought our first Macintosh was the font Cairo (#11).  Perhaps it was the baby with the bow in the hair or that snazzy dinosaur.  Perhaps it was the ability to make a train across the page.  Beyond the pure zaniness of the characters, though, was the realization that typography was never going to be the same again.  Gone were the days of monospace dot matrix boredom.  Now we had access to real fonts, including all of the dingbats that movable type printers had used since Gutenberg!  And we knew that this computer would let us do a lot of things we wanted to do that others wouldn't let us.  Over nine years, the market has validated our logic.
+    Unfortunately, as Apple grew up, Cairo seems to have been left behind.  Perhaps it was the memories of those tough early days, perhaps the business bullies were making fun of our ornaments.  Whatever the reason, Cairo didn't seem to fit into the new grown up image.  Well, I still play with my kids' toys.  I still enjoy the leap of imagination and the pleasures of simple concepts.  To this end, I have recreated, to the best of my ability, the Cairo font in Adobe type 1 format.  I have tried to be as true to the original Apple author as I could.  In the process, I have gained great appreciation for his/her talents.  Every pixel counts!  
+    If the author of the original Cairo reads this, please contact me, so that we can share the history of this great font's creation.  To the best of my research, Cairo's name is not copyrighted, but the original bitmapped FONT is included in copyrighted System Software.  Hence, this font has been licensed from Apple.  Please see the required legal disclaimers on page 3.  Although this software is being distributed as FREEWARE for any individual user, I still have to pay Apple $50 a year for the privilege of distributing it.  If you'd like to see Cairo continue to be distributed, I'll use any donations toward that end.  Just send one lowest denomination bill of your country (dollars, pound, marks, yen, etc).  As long as I average 50 bills a year, I'll keep renewing the license.  
+    You may NOT distribute this Cairo commercially without written permission.  I'll give any company written permission in return for the donation of a copy of the final product to our lab.  The point of this exercise is to share the wealth of spirit, not money.
+    And now for some trivia.  Cairo was only officially released around 1984 in an "18 point size".  This was really a 24 point face, but the FONT resource ID was set so that it showed up in menus as 18 point.  This created all sorts of weirdnesses for in-line type.  The attached NFNT's give type of the true size specified.  The print looks best between about 18 point and 36 point on a LaserWriter II.  Below 18 point, the details get lost with some letters.  (LaserWriter Pro 600 dpi or equivalent looks good down to 9 point!).  Above 36 point, the images move from type to pictures and the level of detail seems a bit sparse.  My primary goal was to be faithful at 24 point, the true original Apple size.  I've only slightly modified a few of the characters so that they will join as borders, which I think was the original intention.  I also added a character so that you can close the picket fence.  Cairo (Type 1) was created during 1991 and 1992, using Fontographer, by Altsys.  Enjoy this font as you enjoy your Macintosh.
+
+The contents of this file were checked for viruses with SAM 3.5 using March 30, 1994, Virus Definitions.
+
+Send feedback to:
+
+Clark T. Riley	(410) 955-7897
+1205 St. Andrews Way
+Baltimore, Maryland  21239
+
+CIS	75140,1537
+AOL	DRRILEY
+internet	“clark_riley@QMAIL.BS.JHU.EDU”
+
+Required legal stuff:
+
+All names and products mentioned are or may be © their parent company.
+
+Copyright © 1993 Clark Riley and his licensors.  All rights reserved.
+
+Clark Riley’s LICENSOR(S) MAKES NO WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION THE IMPLIED WARRANTIES OF MARCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE, REGARDING THE SOFTWARE.  Clark Riley’s LICENSOR(S) DOES NOT WARRANT, GUARANTEE OR MAKE ANY REPRESENATIONS REGARDING THE USE OR THE RESULTS OF THE USE OF THE SOFTWARE IN TERMS OF ITS CORRECTNESS, ACCURACY, RELIABILITY, CURRENTNESS OR OTHERWISE.  THE ENTIRE RISK AS TO THE RESULTS AND PERFORMANCE OF THE SOFTWARE IS ASSUMED BY YOU.  THE EXCLUSION OF IMPLIED WARRANTIES IS NOT PERMITTED BY SOME JURISDICTIONS.  THE ABOVE EXCLUSION MAY NOT APPLY TO YOU.
+
+IN NO EVENT WILL Clark Riley’s LICENSOR(S), AND THEIR DIRECTORS, OFFICERS, EMPLOYEES OR AGENTS (COLLECTIVELY Clark Riley’s LICENSOR) BE LIABLE TO YOU FOR ANY CONSEQUENTIAL, INCIDENTAL OR INDIRECT DAMAGES (INCLUDING DAMAGES FOR LOSS OF BUSINESS PROFITS, BUSINESS INTERRUPTION, LOSS OF BUSINESS INFORMATION, AND THE LIKE) ARISING OUT OF THE USE OR INABILITY TO USE THE SOFTWARE EVEN IF Clark Riley’s LICENSOR HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.  BECAUSE SOME JURISDICTIONS DO NOT ALLOW THE EXCLUSION OR LIMITATION OF LIABILITY FOR CONSEQUENTIAL OR INCIDENTAL DAMAGES, THE ABOVE LIMITATIONS MAY NOT APPLY TO YOU.  Clark Riley’s Licensor’s liability to you for actual damages from any cause whatsoever, and regardless of the form of the action (whether in contract, tort (including negligence), product liability or otherwise), will be limited to $50.
+
+This product is distributed for the personal use of individuals and may not be distributed commercially without the express written permission of the author.  For the purposes of distribution, bulletin boards and user groups may charge normal download and disk fees without being considered commercial.  This notice MUST be included with any distribution.
+
+Clark Riley
+ 
+

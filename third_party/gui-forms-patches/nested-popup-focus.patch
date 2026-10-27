@@ -1,0 +1,93 @@
+diff --git a/src/core/window/window.cpp b/src/core/window/window.cpp
+index f989e7e..5c10e1c 100644
+--- a/src/core/window/window.cpp
++++ b/src/core/window/window.cpp
+@@ -940,10 +940,24 @@ FocusScopeId Window::begin_focus_scope(const Control::Ptr& root,
+         if (!(*current).active) {
+             continue;
+         }
+-        if ((*current).options.contain_focus &&
+-            !contains_control((*current).root.lock(), root)) {
+-            throw std::logic_error(
+-                "GUI.Forms nested focus scope must remain inside its containing scope");
++        if ((*current).options.contain_focus) {
++            const Control::Ptr containing_root = (*current).root.lock();
++            bool contained = contains_control(containing_root, root);
++            // Window-owned popup roots are outside the layout tree. They belong
++            // to a containing scope only through their registered live owner.
++            // This permits a ComboBox inside a dialog without allowing unrelated
++            // controls or arbitrary overlays to escape modal focus containment.
++            for (const std::shared_ptr<detail::PopupAttachment>& popup : popups_) {
++                if (contains_control((*popup).popup(), root) &&
++                    contains_control(containing_root, (*popup).owner())) {
++                    contained = true;
++                    break;
++                }
++            }
++            if (!contained) {
++                throw std::logic_error(
++                    "GUI.Forms nested focus scope must remain inside its containing scope");
++            }
+         }
+         break;
+     }
+diff --git a/tests/focus_scope_tests.cpp b/tests/focus_scope_tests.cpp
+index 94cb792..bf3f96a 100644
+--- a/tests/focus_scope_tests.cpp
++++ b/tests/focus_scope_tests.cpp
+@@ -1,5 +1,6 @@
+ #include "gui_forms/basic_controls.hpp"
+ #include "gui_forms/window.hpp"
++#include "gui_forms/controls/panel/combo_box/combo_box.hpp"
+ 
+ #include <cstdlib>
+ #include <array>
+@@ -281,6 +282,40 @@ void test_open_callback_may_close_without_late_focus() {
+             "a synchronous open handler may close the scope without a late focus leak");
+ }
+ 
++void test_combo_popup_in_modal_scope() {
++    FocusFixture fixture;
++    std::shared_ptr<ComboBox> combo = make_control<ComboBox>(StableId("modal.combo"));
++    (*combo).set_requested_bounds({4, 35, 100, 25});
++    (*combo).set_items({"RGB", "OKHSL"});
++    (*fixture.popup).add_child(combo);
++    (*fixture.window).perform_layout();
++    FocusScopeId modal = (*fixture.window).begin_focus_scope(fixture.popup, combo);
++    for (int iteration = 0; iteration < 3; ++iteration) {
++        (*combo).set_dropped_down(true);
++        (*fixture.window).perform_layout();
++        require((*fixture.window).focus_scope_depth() == 2 && (*combo).dropped_down(),
++                "owned combo overlay may enter a nested dialog focus scope");
++        require(!(*fixture.window).request_focus(fixture.outside),
++                "open combo still contains focus away from unrelated controls");
++        (*combo).set_dropped_down(false);
++        require((*fixture.window).focus_scope_depth() == 1 && (*fixture.window).focused_control() == combo,
++                "closing a nested combo restores its dialog owner");
++    }
++    std::shared_ptr<Panel> foreign = make_control<Panel>(StableId("foreign.popup"));
++    PopupToken token = (*fixture.window).open_popup(fixture.outside, foreign);
++    bool rejected = false;
++    try { static_cast<void>((*fixture.window).begin_focus_scope(foreign)); }
++    catch (const std::logic_error&) { rejected = true; }
++    require(rejected && (*fixture.window).focus_scope_depth() == 1,
++            "a popup owned outside the modal scope cannot enter it");
++    token.disconnect();
++    (*combo).set_dropped_down(true);
++    (*fixture.popup).set_visible(false);
++    require(!(*combo).dropped_down() && (*fixture.window).focus_scope_depth() == 0,
++            "hiding a modal owner revokes its nested combo and both focus scopes");
++    static_cast<void>((*fixture.window).end_focus_scope(modal));
++}
++
+ void test_tab_index_and_tab_stop_define_deterministic_traversal() {
+     std::shared_ptr<gui_forms::Panel> root = make_control<Panel>(StableId("tab.root"));
+     std::shared_ptr<gui_forms::Button> late = make_control<Button>(StableId("tab.late"), "Late");
+@@ -311,6 +346,7 @@ void test_tab_index_and_tab_stop_define_deterministic_traversal() {
+ 
+ int main() {
+     try {
++        test_combo_popup_in_modal_scope();
+         test_containment_and_tab_traversal();
+         test_nested_out_of_order_close_restores_outer_history();
+         test_owner_unavailable_cleanup_and_nesting_guard();

@@ -1,0 +1,30 @@
+{
+  "version": "0.3.2",
+  "application_commit": "348f16678c4b05c80627cba61adea4c1e7052f56",
+  "captured_at_utc": "2026-09-19T22:16:03.955536+00:00",
+  "platform": "macOS 26, Apple Silicon",
+  "capture": "Native application window captured through CUA. Original JPEG bytes retained; no compositing, retouching or generated interface elements.",
+  "executable_sha256": "f43c7680d01c8d7f470a4448f1c8fb79640db8238018bdec1a4e25663fee8aea",
+  "executable": "Rainstar Paint.app/Contents/MacOS/rainstar-paint-forms",
+  "sample": {
+    "file": "https://paymenottowork.com/rainstar-paint/assets/specimen.png",
+    "sha256": "f602f16cc413e5f1e53e79a5f314b70474071d02180df515337995639e9bb428",
+    "origin": "Brush and lettering artwork created by the v0.3.1 native editor feature gallery in tests/forms_native.cpp, then saved as a PNG and opened in the packaged release. The lettering in this saved PNG is flattened; the Text screenshot shows the available controls, not an active editable text object."
+  },
+  "screenshots": [
+    {
+      "file": "macos-home-0.3.2.jpg",
+      "sha256": "faa7d9171183a31b2ceb6c2c8a0cfa6c2b16c25edbdac52bc56339bd9f20c2ad",
+      "width": 1154,
+      "height": 768
+    },
+    {
+      "file": "macos-guide-0.3.2.jpg",
+      "sha256": "fef871ce3efdab58afc8a53790c1603d2716ccf35cae35c8b2c055c5f0b46faf",
+      "width": 1154,
+      "height": 768
+    }
+  ],
+  "documentation": "Pinned to v0.3.2; local Markdown links adapted where needed.",
+  "release_downloads": "v0.3.2"
+}

@@ -1,0 +1,574 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f4d3a2f..b91cc98 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -94,6 +94,9 @@ enable_testing()
+ add_executable(paint-tests tests/core_tests.cpp)
+ target_link_libraries(paint-tests PRIVATE paint_core)
+ add_test(NAME paint-core COMMAND paint-tests)
++add_executable(paint-state-tracker-tests tests/state_tracker_tests.cpp)
++target_link_libraries(paint-state-tracker-tests PRIVATE paint_core)
++add_test(NAME paint-state-tracker COMMAND paint-state-tracker-tests)
+ if(RAINSTAR_LEGACY_UI)
+     install(TARGETS rainstar-paint BUNDLE DESTINATION . RUNTIME DESTINATION .)
+ endif()
+diff --git a/src/forms/editor.cpp b/src/forms/editor.cpp
+index 16a8286..e5e8821 100644
+--- a/src/forms/editor.cpp
++++ b/src/forms/editor.cpp
+@@ -796,6 +796,9 @@ void Editor::begin(Point point, bool secondary) {
+     gesture_ink_ = secondary ? document.alternate_ink() : document.primary_ink();
+     gesture_fill_ink_ = secondary ? document.primary_ink() : document.body_ink();
+     stabilizer_.reset(point);
++    state_tracker_.reset(point, tracker_noise, tracker_momentum);
++    sparse_tracker_.reset(point, tracker_noise, tracker_momentum);
++    stroke_time_ = std::chrono::steady_clock::now();
+     if (document.tool == Tool::Brush && brush_family == BrushFamily::Heal &&
+         (set_heal_source || !healing_brush_.has_source())) {
+         healing_brush_.capture(document.visible_image(), point);
+@@ -933,8 +936,49 @@ void Editor::begin(Point point, bool secondary) {
+ }
+ void Editor::move(Point point) {
+     if (stabilize && (document.tool == Tool::Pencil || document.tool == Tool::Brush)) {
+-        point = stabilizer_.advance(point, stabilizer_lag);
++        if (use_state_tracker) {
++            const double seconds =
++                std::chrono::duration<double>(std::chrono::steady_clock::now() - stroke_time_).count();
++            if (tracker_sparse) {
++                const std::vector<Point> points = sparse_tracker_.advance(point, seconds);
++                apply_curve(points);
++                // Preserve initial dabs even before the first sparse observation.
++                if (points.empty() && point.x == start_.x && point.y == start_.y) {
++                    apply_move(start_);
++                }
++                return;
++            }
++            point = state_tracker_.advance(point, seconds);
++        } else {
++            point = stabilizer_.advance(point, stabilizer_lag);
++        }
+     }
++    apply_move(point);
++}
++void Editor::apply_curve(const std::vector<Point>& points) {
++    if (points.empty()) {
++        return;
++    }
++    Point low = last_, high = last_;
++    for (Point sample : points) {
++        low.x = std::min(low.x, sample.x);
++        low.y = std::min(low.y, sample.y);
++        high.x = std::max(high.x, sample.x);
++        high.y = std::max(high.y, sample.y);
++        apply_move(sample, false);
++    }
++    constrain_paint(document.image, paint_base_, guide, atlas_painting() && atlas_preserve_alpha);
++    const int margin = gesture_ink_.size + 3;
++    Rect damage = rectangle(low, high);
++    damage.x -= margin;
++    damage.y -= margin;
++    damage.w += 2 * margin;
++    damage.h += 2 * margin;
++    ++canvas_revision;
++    publish_image(document.image, *canvas_, atlas_painting() && atlas_wrap ? Rect{} : damage);
++    update_status();
++}
++void Editor::apply_move(Point point, bool publish) {
+     if (shift_ && document.tool == Tool::Shape && curve_handle_ < 0 &&
+         !(control_ && (document.shape == Shape::Circle || document.shape == Shape::Oval))) {
+         Point anchor = document.curve.base ? document.curve.geometry.start : start_;
+@@ -1010,6 +1054,10 @@ void Editor::move(Point point) {
+             (*canvas_).set_pointer_capture(false);
+         }
+     }
++    if (!publish) {
++        last_ = point;
++        return;
++    }
+     if (document.tool == Tool::Pencil || document.tool == Tool::Brush || document.tool == Tool::Fill ||
+         document.tool == Tool::Stamp) {
+         constrain_paint(document.image, paint_base_, guide, atlas_painting() && atlas_preserve_alpha);
+@@ -1036,7 +1084,14 @@ void Editor::move(Point point) {
+     }
+ }
+ void Editor::end(Point point) {
+-    move(point);
++    if (stabilize && use_state_tracker && tracker_sparse &&
++        (document.tool == Tool::Pencil || document.tool == Tool::Brush)) {
++        const double seconds =
++            std::chrono::duration<double>(std::chrono::steady_clock::now() - stroke_time_).count();
++        apply_curve(sparse_tracker_.finish(point, seconds));
++    } else {
++        move(point);
++    }
+     point = current_;
+     if (curve_handle_ < 0 && !moving_selection_) {
+         if (document.tool == Tool::Select || document.tool == Tool::Lasso) {
+diff --git a/src/forms/editor.hpp b/src/forms/editor.hpp
+index 69769a2..4aa04a7 100644
+--- a/src/forms/editor.hpp
++++ b/src/forms/editor.hpp
+@@ -9,6 +9,7 @@
+ #include "paint_tools.hpp"
+ #include "text_session.hpp"
+ #include "warp_session.hpp"
++#include <chrono>
+ #include <gui_forms/application.hpp>
+ #include <gui_forms/basic_controls.hpp>
+ #include <gui_forms/canvas.hpp>
+@@ -70,7 +71,8 @@ class Editor final : public gui_forms::Control {
+     double effect_strength = 0.75, effect_scale = 24, effect_phase = 0;
+     double heal_hardness = 0.35, heal_correction = 1;
+     bool set_heal_source = true, stabilize = false, glitter = false;
+-    double stabilizer_lag = 5;
++    double stabilizer_lag = 5, tracker_noise = 1.5, tracker_momentum = 60;
++    bool use_state_tracker = false, tracker_sparse = true;
+     void regenerate_stamp();
+     int stamp_width = 80, stamp_height = 80;
+     double stamp_scale = 1, stamp_angle = 0, rotation_angle = 0, mesh_spacing = 60;
+@@ -222,6 +224,9 @@ class Editor final : public gui_forms::Control {
+     TransformStroke transform_brush_;
+     HealingBrush healing_brush_;
+     StrokeStabilizer stabilizer_;
++    StrokeStateTracker state_tracker_;
++    SparseStrokeTracker sparse_tracker_;
++    std::chrono::steady_clock::time_point stroke_time_;
+     bool shift_ = false, control_ = false, alt_ = false;
+     int selection_edit_ = 0;
+     int path_node_ = -1;
+@@ -247,6 +252,8 @@ class Editor final : public gui_forms::Control {
+     gui_forms::MenuItemSpec menu_item(const std::string& id, const std::string& text);
+     void begin(Point point, bool secondary);
+     void move(Point point);
++    void apply_move(Point point, bool publish = true);
++    void apply_curve(const std::vector<Point>& points);
+     void end(Point point);
+     void release_gesture();
+     void finish_controls();
+diff --git a/src/forms/ribbon.cpp b/src/forms/ribbon.cpp
+index b6ca8a4..a4a07aa 100644
+--- a/src/forms/ribbon.cpp
++++ b/src/forms/ribbon.cpp
+@@ -702,9 +702,13 @@ void Ribbon::add_options() {
+     button("heal-source", "Set source", -1, {12, 36, 222, 30});
+     heal_hardness_ = number("heal-hardness", "Hardness", {260, 36, 230, 28}, 0, 1, 0.35, 2);
+     heal_correction_ = number("heal-correction", "OKLab match", {510, 36, 230, 28}, 0, 1, 1, 2);
+-    check("stroke-stabilize", "Stabilizer", {12, 79, 150, 28});
+-    stabilizer_lag_ = number("stroke-lag", "Lag (px)", {180, 79, 220, 28}, 0.1, 50, 5, 1);
+-    check("spray-glitter", "Fine glitter", {920, 79, 200, 28});
++    check("stroke-stabilize", "Stabilizer", {12, 79, 120, 28});
++    stabilizer_lag_ = number("stroke-lag", "Lag (px)", {140, 79, 190, 28}, 0.1, 50, 5, 1);
++    check("stroke-state-tracker", "Use state-tracker", {345, 79, 190, 28});
++    tracker_noise_ = number("stroke-noise", "Noise (px)", {550, 79, 210, 28}, 0.1, 20, 1.5, 1);
++    tracker_momentum_ = number("stroke-momentum", "Momentum (%)", {775, 79, 255, 28}, 0, 100, 60);
++    check("stroke-sparse", "Sparse smoothing", {1045, 79, 225, 28});
++    check("spray-glitter", "Fine glitter", {12, 36, 220, 28});
+     building_page_ = 40;
+     rotation_ = number("rotation-degrees", "Angle (°)", {242, 36, 240, 28}, -360, 360, 15, 1);
+     button("rotate-custom", "Apply rotation", 6, {242, 79, 240, 30});
+@@ -1002,6 +1006,8 @@ void Ribbon::options_changed(double) {
+     (*editor).heal_hardness = (*heal_hardness_).value();
+     (*editor).heal_correction = (*heal_correction_).value();
+     (*editor).stabilizer_lag = (*stabilizer_lag_).value();
++    (*editor).tracker_noise = (*tracker_noise_).value();
++    (*editor).tracker_momentum = (*tracker_momentum_).value();
+     if ((*editor).stamp_hardness != (*stamp_hardness_).value()) {
+         (*editor).stamp_hardness = (*stamp_hardness_).value();
+         (*editor).update_stamp_hardness();
+@@ -1036,6 +1042,13 @@ void Ribbon::apply_choice(const std::string& id) {
+         (*editor).set_heal_source = true;
+     } else if (id == "stroke-stabilize") {
+         (*editor).stabilize = !(*editor).stabilize;
++    } else if (id == "stroke-state-tracker") {
++        (*editor).use_state_tracker = !(*editor).use_state_tracker;
++        if ((*editor).use_state_tracker) {
++            (*editor).stabilize = true;
++        }
++    } else if (id == "stroke-sparse") {
++        (*editor).tracker_sparse = !(*editor).tracker_sparse;
+     } else if (id == "spray-glitter") {
+         (*editor).glitter = !(*editor).glitter;
+     } else if (id == "picker-magnifier") {
+@@ -1542,6 +1555,11 @@ void Ribbon::synchronize() {
+     (*heal_hardness_).set_value((*editor).heal_hardness);
+     (*heal_correction_).set_value((*editor).heal_correction);
+     (*stabilizer_lag_).set_value((*editor).stabilizer_lag);
++    (*stabilizer_lag_).set_enabled((*editor).stabilize && !(*editor).use_state_tracker);
++    (*tracker_noise_).set_value((*editor).tracker_noise);
++    (*tracker_noise_).set_enabled((*editor).stabilize && (*editor).use_state_tracker);
++    (*tracker_momentum_).set_value((*editor).tracker_momentum);
++    (*tracker_momentum_).set_enabled((*editor).stabilize && (*editor).use_state_tracker);
+     (*mix_effect_).set_selected_index(static_cast<std::size_t>((*editor).mix_effect));
+     (*eraser_mode_).set_selected_index(static_cast<std::size_t>((*editor).eraser_mode));
+     std::optional<std::size_t> font_index;
+@@ -1581,6 +1599,8 @@ void Ribbon::synchronize() {
+         }
+         (*check).set_checked(id == "guide-fill"              ? (*editor).guide.fill
+                              : id == "stroke-stabilize"      ? (*editor).stabilize
++                             : id == "stroke-state-tracker"  ? (*editor).use_state_tracker
++                             : id == "stroke-sparse"         ? (*editor).tracker_sparse
+                              : id == "spray-glitter"         ? (*editor).glitter
+                              : id == "picker-magnifier"      ? (*editor).picker_magnifier
+                              : id == "soft-eraser"           ? (*editor).eraser_soft
+diff --git a/src/forms/ribbon.hpp b/src/forms/ribbon.hpp
+index 6bd0285..c710598 100644
+--- a/src/forms/ribbon.hpp
++++ b/src/forms/ribbon.hpp
+@@ -74,7 +74,7 @@ class Ribbon final : public gui_forms::Control {
+         rotation_, mesh_spacing_;
+     std::shared_ptr<gui_forms::ComboBox> font_, word_art_, picker_mode_, mix_effect_, eraser_mode_;
+     std::shared_ptr<gui_forms::NumericUpDown> effect_strength_, effect_scale_, effect_phase_, heal_hardness_,
+-        heal_correction_, stabilizer_lag_, stamp_hardness_;
++        heal_correction_, stabilizer_lag_, tracker_noise_, tracker_momentum_, stamp_hardness_;
+     void mix_effect_changed(std::optional<std::size_t> index);
+     void eraser_mode_changed(std::optional<std::size_t> index);
+     void word_art_changed(std::optional<std::size_t> index);
+diff --git a/src/help_content.hpp b/src/help_content.hpp
+index 0b356f5..b74ba98 100644
+--- a/src/help_content.hpp
++++ b/src/help_content.hpp
+@@ -60,7 +60,12 @@ inline constexpr HelpTopic help_topics[] = {
+      "pixels; its Tool tab offers effects, strength, scale and phase. Heal first captures a source, "
+      "then paints from it with an aligned offset. Hardness 1 copies it; softer settings blend its "
+      "detail with local OKLab color correction. Set source chooses another origin. Additive spray "
+-     "offers Fine glitter. Pencil and Brushes have a configurable Stabilizer to smooth the stroke.\n\n"
++     "offers Fine glitter. Pencil and Brushes have a configurable Stabilizer to smooth the stroke. "
++     "Use state-tracker selects an experimental motion tracker instead of distance lag. Noise (px) "
++     "sets how much pointer variation it should smooth. Momentum (%) resists changes to established "
++     "motion; 0 restores the original tracker. Higher values suppress small deviations but soften turns "
++     "and take longer to settle after stops. Sparse smoothing keeps observations 6 pixels apart, adds "
++     "small noise and draws a smooth curve with a short trailing tail, completed on release.\n\n"
+      "The palette button cycles Basic, Custom and Themed. Custom has 29 saved colors and a red-slash "
+      "Transparency swatch. Themed columns contain "
+      "Primary, Alt and accent. Edit colors offers RGB or OKHSL picking, numeric RGB, hex and OKLab. "
+diff --git a/src/paint_tools.cpp b/src/paint_tools.cpp
+index cc1a88a..bfee221 100644
+--- a/src/paint_tools.cpp
++++ b/src/paint_tools.cpp
+@@ -2,6 +2,7 @@
+ #include <algorithm>
+ #include <array>
+ #include <cmath>
++#include <limits>
+ #include <numbers>
+ namespace paint {
+ namespace {
+@@ -192,6 +193,218 @@ const char* mix_effect_name(MixEffect effect) {
+                                                    "Smudge"};
+     return names.at(static_cast<std::size_t>(effect));
+ }
++void StrokeStateTracker::reset(Point point, double noise_pixels, double momentum) {
++    anchor_ = filtered_ = point;
++    last_time_ = cell_time_ = 0;
++    noise_pixels = std::isfinite(noise_pixels) ? std::clamp(noise_pixels, 0.1, 20.0) : 1.5;
++    variance_ = noise_pixels * noise_pixels;
++    momentum_ = std::isfinite(momentum) ? std::clamp(momentum, 0.0, 100.0) : 0;
++    // Preserve the broad constant-velocity prior, but reduce the local current's
++    // variance and process noise together. Established motion keeps its momentum;
++    // isolated deviations have less authority to bend it. Zero preserves the
++    // original tracker exactly. This changes the prior, not just the output gain.
++    const double local_variance = 40000 * std::exp(-0.10 * momentum_);
++    // Paper's midpoint-cell Matérn-3/2 realization, retuned from metres/seconds
++    // to pointer pixels/seconds. Fixed 240 Hz cells extend for the whole stroke.
++    // No history, dense oracle, or finite-horizon transition table is retained.
++    constexpr double h = 1.0 / 240;
++    constexpr double lengths[5] = {0.03, 0.07, 0.15, 0.3, 0.6};
++    constexpr double velocity_variance = 40000;
++    for (int k = 0; k < 5; ++k) {
++        Branch& branch = branches_[k];
++        branch = {};
++        const double a = std::sqrt(3.0) * h / lengths[k];
++        const double e = std::exp(-a);
++        branch.transition[0][0] = branch.transition[1][1] = 1;
++        branch.transition[0][1] = branch.transition[0][2] = h;
++        branch.transition[2][2] = e * (1 + a);
++        branch.transition[2][3] = e * a;
++        branch.transition[3][2] = -e * a;
++        branch.transition[3][3] = e * (1 - a);
++        branch.covariance[0][0] = variance_;
++        for (int i = 1; i < 4; ++i) {
++            branch.covariance[i][i] = i == 1 ? velocity_variance : local_variance;
++        }
++        for (int i = 2; i < 4; ++i) {
++            for (int j = 2; j < 4; ++j) {
++                double product = 0;
++                for (int d = 2; d < 4; ++d) {
++                    product += branch.transition[i][d] * branch.transition[j][d];
++                }
++                branch.noise[i][j] = local_variance * ((i == j ? 1.0 : 0.0) - product);
++            }
++        }
++    }
++}
++Point StrokeStateTracker::advance(Point point, double seconds) {
++    if (!std::isfinite(seconds) || !std::isfinite(point.x) || !std::isfinite(point.y) ||
++        seconds <= last_time_) {
++        return filtered_;
++    }
++    // A long delivery gap provides no evidence of continued hand motion.
++    // Re-anchor instead of extrapolating a stale velocity across a pause.
++    if (seconds - last_time_ > 0.5) {
++        reset(point, std::sqrt(variance_), momentum_);
++        last_time_ = cell_time_ = seconds;
++        return filtered_;
++    }
++    constexpr double h = 1.0 / 240;
++    while (cell_time_ + h <= seconds) {
++        for (Branch& branch : branches_) {
++            double mean[4][2] = {}, temp[4][4] = {}, covariance[4][4] = {};
++            for (int i = 0; i < 4; ++i) {
++                for (int j = 0; j < 4; ++j) {
++                    for (int d = 0; d < 2; ++d) {
++                        mean[i][d] += branch.transition[i][j] * branch.mean[j][d];
++                    }
++                    for (int d = 0; d < 4; ++d) {
++                        temp[i][d] += branch.transition[i][j] * branch.covariance[j][d];
++                    }
++                }
++            }
++            for (int i = 0; i < 4; ++i) {
++                for (int j = 0; j < 4; ++j) {
++                    covariance[i][j] = branch.noise[i][j];
++                    for (int d = 0; d < 4; ++d) {
++                        covariance[i][j] += temp[i][d] * branch.transition[j][d];
++                    }
++                    branch.covariance[i][j] = covariance[i][j];
++                }
++                for (int d = 0; d < 2; ++d) {
++                    branch.mean[i][d] = mean[i][d];
++                }
++            }
++        }
++        cell_time_ += h;
++    }
++    const double offset = seconds - cell_time_;
++    const double observation[4] = {1, offset, offset, 0};
++    double max_evidence = -std::numeric_limits<double>::infinity();
++    for (Branch& branch : branches_) {
++        double projected[4] = {}, residual[2] = {point.x - anchor_.x, point.y - anchor_.y};
++        double innovation = variance_;
++        for (int i = 0; i < 4; ++i) {
++            for (int j = 0; j < 4; ++j) {
++                projected[i] += branch.covariance[i][j] * observation[j];
++            }
++            innovation += observation[i] * projected[i];
++            for (int d = 0; d < 2; ++d) {
++                residual[d] -= observation[i] * branch.mean[i][d];
++            }
++        }
++        branch.evidence -= 0.5 * (2 * std::log(2 * std::numbers::pi * innovation) +
++                                  (residual[0] * residual[0] + residual[1] * residual[1]) / innovation);
++        max_evidence = std::max(max_evidence, branch.evidence);
++        for (int i = 0; i < 4; ++i) {
++            for (int d = 0; d < 2; ++d) {
++                branch.mean[i][d] += projected[i] / innovation * residual[d];
++            }
++            for (int j = i; j < 4; ++j) {
++                const double value = 0.5 * (branch.covariance[i][j] + branch.covariance[j][i]) -
++                                     projected[i] * projected[j] / innovation;
++                branch.covariance[i][j] = branch.covariance[j][i] = value;
++            }
++        }
++    }
++    Point total{};
++    double weight_sum = 0;
++    for (Branch& branch : branches_) {
++        branch.evidence -= max_evidence;
++        const double weight = std::exp(branch.evidence);
++        weight_sum += weight;
++        for (int i = 0; i < 4; ++i) {
++            total.x += weight * observation[i] * branch.mean[i][0];
++            total.y += weight * observation[i] * branch.mean[i][1];
++        }
++    }
++    filtered_ = {anchor_.x + total.x / weight_sum, anchor_.y + total.y / weight_sum};
++    last_time_ = seconds;
++    return filtered_;
++}
++void SparseStrokeTracker::reset(Point point, double uncertainty, double momentum, double dither) {
++    tracker_.reset(point, uncertainty, momentum);
++    raw_ = retained_ = emitted_ = point;
++    for (Point& knot : knots_) {
++        knot = point;
++    }
++    raw_time_ = 0;
++    remaining_ = 6;
++    seed_ = 1;
++    finished_ = false;
++    dither_ = std::isfinite(dither) ? std::clamp(dither, 0.0, 1.0) : 0;
++}
++double SparseStrokeTracker::noise() {
++    seed_ = 1664525U * seed_ + 1013904223U;
++    return dither_ * (2 * static_cast<double>(seed_ >> 8) / 16777215 - 1);
++}
++void SparseStrokeTracker::append(Point point, std::vector<Point>& output) {
++    // A uniform cubic B-spline stays inside its control hull and shares first
++    // and second derivatives at joins. No posterior correction is drawn as a
++    // discontinuous jump. Tessellate the actual curve, not just its endpoints.
++    const Point p[4] = {knots_[0], knots_[1], knots_[2], point};
++    double length = 0;
++    for (int i = 1; i < 4; ++i) {
++        length += std::hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y);
++    }
++    const int steps = std::clamp(static_cast<int>(std::ceil(length / 0.75)), 4, 4096);
++    for (int i = 1; i <= steps; ++i) {
++        const double t = static_cast<double>(i) / steps, t2 = t * t, t3 = t2 * t;
++        const double b[4] = {(1 - 3 * t + 3 * t2 - t3) / 6, (4 - 6 * t2 + 3 * t3) / 6,
++                             (1 + 3 * t + 3 * t2 - 3 * t3) / 6, t3 / 6};
++        Point value{};
++        for (int j = 0; j < 4; ++j) {
++            value.x += b[j] * p[j].x;
++            value.y += b[j] * p[j].y;
++        }
++        if (std::hypot(value.x - emitted_.x, value.y - emitted_.y) > 1e-9) {
++            output.push_back(value);
++            emitted_ = value;
++        }
++    }
++    knots_[0] = knots_[1];
++    knots_[1] = knots_[2];
++    knots_[2] = point;
++}
++std::vector<Point> SparseStrokeTracker::advance(Point point, double seconds) {
++    std::vector<Point> output;
++    if (finished_ || !std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(seconds) ||
++        seconds <= raw_time_) {
++        return output;
++    }
++    const Point start = raw_;
++    const double distance = std::hypot(point.x - start.x, point.y - start.y);
++    double consumed = 0;
++    while (distance - consumed >= remaining_) {
++        consumed += remaining_;
++        const double fraction = consumed / distance;
++        const Point observation{start.x + fraction * (point.x - start.x),
++                                start.y + fraction * (point.y - start.y)};
++        const double time = raw_time_ + fraction * (seconds - raw_time_);
++        retained_ = tracker_.advance({observation.x + noise(), observation.y + noise()}, time);
++        append(retained_, output);
++        remaining_ = 6;
++    }
++    remaining_ = std::max(1e-9, remaining_ - (distance - consumed));
++    raw_ = point;
++    raw_time_ = seconds;
++    return output;
++}
++std::vector<Point> SparseStrokeTracker::finish(Point point, double seconds) {
++    if (finished_ || !std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(seconds)) {
++        return {};
++    }
++    std::vector<Point> output = advance(point, seconds);
++    // Flush a short gesture and the final partial interval without adding dither
++    // to the endpoint. Repeated knots finish the tail with zero tangent; they
++    // are reconstruction constraints, never additional estimator observations.
++    retained_ = tracker_.advance(point, std::max(seconds, raw_time_) + 1e-6);
++    append(retained_, output);
++    for (int i = 0; i < 3; ++i) {
++        append(retained_, output);
++    }
++    finished_ = true;
++    return output;
++}
+ void StrokeStabilizer::reset(Point point) {
+     filtered_ = pointer_ = point;
+ }
+diff --git a/src/paint_tools.hpp b/src/paint_tools.hpp
+index 8493b11..920f272 100644
+--- a/src/paint_tools.hpp
++++ b/src/paint_tools.hpp
+@@ -25,6 +25,40 @@ class StrokeStabilizer {
+     void reset(Point point);
+     Point advance(Point point, double lag);
+ };
++// Causal 2D adaptation of the relational-current four-state filter.
++// Each branch stores (position, constant current, local current, current derivative).
++class StrokeStateTracker {
++    struct Branch {
++        double mean[4][2] = {};
++        double covariance[4][4] = {};
++        double transition[4][4] = {};
++        double noise[4][4] = {};
++        double evidence = 0;
++    };
++    Branch branches_[5];
++    Point anchor_, filtered_;
++    double last_time_ = 0, cell_time_ = 0, variance_ = 2.25, momentum_ = 0;
++
++  public:
++    void reset(Point point, double noise_pixels = 1.5, double momentum = 0);
++    // Seconds since reset, strictly increasing; duplicate timestamps do not add evidence.
++    Point advance(Point point, double seconds);
++};
++// Sparse spatial observations followed by a delayed, C2 cubic B-spline.
++class SparseStrokeTracker {
++    StrokeStateTracker tracker_;
++    Point knots_[3], raw_, retained_, emitted_;
++    double raw_time_ = 0, remaining_ = 6, dither_ = 0.2;
++    std::uint32_t seed_ = 1;
++    bool finished_ = false;
++    void append(Point point, std::vector<Point>& output);
++    double noise();
++
++  public:
++    void reset(Point point, double uncertainty = 1.5, double momentum = 60, double dither = 0.2);
++    std::vector<Point> advance(Point point, double seconds);
++    std::vector<Point> finish(Point point, double seconds);
++};
+ Color interpolate_pixel(Color base, Color replacement, double amount);
+ Color sample_bilinear(const Image& image, double x, double y, bool wrap = false);
+ class DynamicBrushStroke {
+diff --git a/tests/forms_tests.cpp b/tests/forms_tests.cpp
+index 8e1f1b4..a678d44 100644
+--- a/tests/forms_tests.cpp
++++ b/tests/forms_tests.cpp
+@@ -1473,6 +1473,42 @@ void centered_circle_and_materials() {
+     require((*window.find("grain-angle")).visible() && (*window.find("new-grain")).visible(),
+             "all texture settings are available together in Materials");
+ }
++void state_tracker_controls() {
++    Fixture fixture;
++    paint::forms::Editor& editor = *fixture.editor;
++    gf::Window& window = *fixture.window;
++    open_tab(window, "tool-tab");
++    require(!editor.use_state_tracker && !editor.stabilize &&
++                (*window.find("stroke-state-tracker")).visible(),
++            "state tracker is an opt-in Pencil control");
++    routed_button(window, "stroke-state-tracker");
++    require(editor.use_state_tracker && editor.stabilize && (*window.find("stroke-noise")).enabled() &&
++                (*window.find("stroke-momentum")).enabled() && editor.tracker_momentum == 60 &&
++                !(*window.find("stroke-lag")).enabled(),
++            "state tracker enables smoothing and its own noise control");
++    require(editor.tracker_sparse && (*window.find("stroke-sparse")).visible(),
++            "sparse reconstruction is available and selected for the trial");
++    fixture.click(30, 30);
++    require(!white(editor.document.image.get(30, 30)), "tracker preserves a single-click pencil dot");
++    fixture.drag(10, 60, 100, 60);
++    bool painted = false;
++    for (int x = 30; x < 80; ++x) {
++        painted = painted || !white(editor.document.image.get(x, 60));
++    }
++    require(painted, "sparse stroke flushes a drawn path on release");
++    routed_button(window, "stroke-sparse");
++    require(!editor.tracker_sparse, "sparse checkbox restores dense tracker for comparison");
++    routed_button(window, "stroke-state-tracker");
++    require(!editor.use_state_tracker && editor.stabilize && (*window.find("stroke-lag")).enabled() &&
++                !(*window.find("stroke-noise")).enabled() && !(*window.find("stroke-momentum")).enabled(),
++            "unchecking state tracker restores the original lag model");
++    editor.choose_tool(paint::Tool::Brush);
++    open_tab(window, "tool-tab");
++    require((*window.find("stroke-state-tracker")).visible(), "Brush offers state tracker");
++    editor.choose_tool(paint::Tool::Eraser);
++    open_tab(window, "tool-tab");
++    require(!(*window.find("stroke-state-tracker")).visible(), "other tools do not offer state tracker");
++}
+ void independent_color_materials_and_no_color() {
+     Fixture fixture;
+     paint::forms::Editor& editor = *fixture.editor;
+@@ -2293,6 +2329,7 @@ int main() {
+         path_hover_snap_and_controls();
+         path_node_drag_and_overlap();
+         centered_circle_and_materials();
++        state_tracker_controls();
+         independent_color_materials_and_no_color();
+         select_all_delete_without_drag();
+         ribbon_collapse_and_reopen();

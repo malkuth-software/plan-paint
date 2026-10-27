@@ -1,0 +1,1024 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 03cf9b0..c714d12 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -77,6 +77,7 @@ add_library(gui_forms_core STATIC
+     src/core/host/types/host_services_snapshot/host_services_snapshot.cpp
+     src/core/host/types/host_session_snapshot/host_session_snapshot.cpp
+     src/core/host/services/host_services.cpp
++    src/core/types/cursor_image/cursor_image.cpp
+     src/core/host/session/host_session.cpp
+     src/core/feedback/semantic_feedback/semantic_feedback.cpp
+     src/core/display/chunk/display_chunk.cpp
+@@ -755,6 +756,9 @@ if(GUI_FORMS_ENABLE_LINUX_HOST)
+         message(FATAL_ERROR "The Linux X11 host requires Linux and the private CPU Skia adapter")
+     endif()
+     find_package(X11 REQUIRED)
++    if(TARGET X11::Xcursor)
++        set(GUI_FORMS_XCURSOR_AVAILABLE ON)
++    endif()
+     add_library(gui_forms_host_linux STATIC
+         src/host/linux/application/linux_host.cpp
+         src/host/linux/services/linux_services.cpp
+@@ -762,6 +766,10 @@ if(GUI_FORMS_ENABLE_LINUX_HOST)
+         src/host/linux/services/linux_dialogs.cpp)
+     set_target_properties(gui_forms_host_linux PROPERTIES POSITION_INDEPENDENT_CODE ON)
+     target_link_libraries(gui_forms_host_linux PUBLIC gui_forms_core gui_forms_controls gui_forms_skia PRIVATE X11::X11)
++    if(GUI_FORMS_XCURSOR_AVAILABLE)
++        target_link_libraries(gui_forms_host_linux PUBLIC X11::Xcursor)
++        target_compile_definitions(gui_forms_host_linux PRIVATE GUI_FORMS_HAS_XCURSOR=1)
++    endif()
+     add_library(gui_forms_application SHARED src/runtime/application_bundle.cpp src/runtime/application/application.cpp)
+     add_library(GUIForms::Application ALIAS gui_forms_application)
+     set_target_properties(gui_forms_application PROPERTIES EXPORT_NAME Application OUTPUT_NAME gui_forms_application VERSION 0.1.0 SOVERSION 0)
+@@ -772,6 +780,9 @@ if(GUI_FORMS_ENABLE_LINUX_HOST)
+     target_link_libraries(gui_forms_application PRIVATE
+         "-Wl,--whole-archive" gui_forms_core gui_drawing_core gui_forms_controls gui_forms_host_linux gui_forms_skia
+         "-Wl,--no-whole-archive" X11::X11)
++    if(GUI_FORMS_XCURSOR_AVAILABLE)
++        target_link_libraries(gui_forms_application PRIVATE X11::Xcursor)
++    endif()
+     if(TARGET gui_forms_text_engine)
+         target_link_libraries(gui_forms_application PRIVATE gui_forms_text_engine freetype harfbuzz)
+     endif()
+@@ -1446,6 +1457,23 @@ endif()
+ 
+ if(GUI_FORMS_BUILD_TESTS)
+     enable_testing()
++    if(WIN32)
++        add_executable(gui_forms_windows_cursor_tests tests/windows_cursor_tests.cpp)
++        target_link_libraries(gui_forms_windows_cursor_tests PRIVATE gui_forms_core user32 gdi32)
++        add_test(NAME gui_forms_windows_cursors COMMAND gui_forms_windows_cursor_tests)
++    endif()
++    if(GUI_FORMS_ENABLE_LINUX_HOST)
++        find_package(X11 QUIET)
++        if(TARGET X11::Xcursor AND TARGET X11::Xfixes)
++            add_executable(gui_forms_x11_cursor_tests tests/x11_cursor_tests.cpp)
++            target_link_libraries(gui_forms_x11_cursor_tests PRIVATE gui_forms_core X11::Xcursor X11::Xfixes X11::X11)
++            add_test(NAME gui_forms_x11_cursors COMMAND gui_forms_x11_cursor_tests)
++        endif()
++    endif()
++    add_executable(gui_forms_cursor_image_tests tests/cursor_image_tests.cpp)
++    target_link_libraries(gui_forms_cursor_image_tests PRIVATE gui_forms_core)
++    add_test(NAME gui_forms_cursor_images COMMAND gui_forms_cursor_image_tests)
++
+     add_executable(gui_forms_application_contract_tests tests/application_contract_tests.cpp)
+     target_link_libraries(gui_forms_application_contract_tests PRIVATE gui_forms_core)
+     add_test(NAME gui_forms_application_contract_tests COMMAND gui_forms_application_contract_tests)
+diff --git a/docs/CUSTOM_CURSORS.md b/docs/CUSTOM_CURSORS.md
+new file mode 100644
+index 0000000..71c377b
+--- /dev/null
++++ b/docs/CUSTOM_CURSORS.md
+@@ -0,0 +1,74 @@
++# Custom cursor images
++
++`CursorImages` owns immutable, top-down, straight-alpha sRGB representations.
++Each `CursorImage` has pixel width, height, scale and `std::vector<Color> rgba`.
++The common logical size is `width / scale` by `height / scale`. A single hotspot
++uses fractions of that logical width and height, measured from the top-left.
++For example, the contact pixel `(3,3)` in a 32-pixel cursor has hotspot
++`(3.0/32, 3.0/32)`. Fractions must be finite and in `[0,1)`.
++
++```cpp
++std::vector<gui_forms::CursorImage> variants;
++// Supply owned RGBA representations in strictly increasing scale order.
++variants.push_back({32, 32, 1.0, pixels_32});
++variants.push_back({64, 64, 2.0, pixels_64});
++gui_forms::CursorImagesPtr cursor = gui_forms::CursorImages::create(
++    std::move(variants), 3.0 / 32, 3.0 / 32);
++control.set_custom_cursor(cursor, gui_forms::CursorKind::crosshair);
++// Restore a stock role, or nullopt to inherit the parent's whole cursor.
++control.set_cursor(gui_forms::CursorKind::arrow);
++```
++
++The factory rejects missing or oversized buffers, mismatched logical sizes,
++nonfinite/out-of-range scales, duplicate or unordered scales and invalid
++hotspots. It accepts at most eight representations, at most 256 pixels per
++axis and 256 logical pixels per axis. It throws `std::invalid_argument` for
++invalid input. Consumers loading optional assets should catch errors and select
++a stock role. A fully transparent image can intentionally hide a pointer within
++a control; restore it with `set_cursor`, without global hide/unhide counters.
++
++The host chooses the smallest source representation at or above the display
++scale, then performs common nearest-neighbor sampling to the requested physical
++size. Sampling is anchored at the rounded contact pixel so a narrow nib does
++not disappear under its hotspot. Dimensions remain bounded to 256 pixels. This
++is a pixel-art policy; callers can supply authored representations to control
++appearance. AppKit receives a multi-representation NSImage with the original
++logical size and hotspot in points. Win32 and X11 receive the common prepared
++raster and rounded physical-pixel hotspot.
++
++Each native service caches up to 32 cursor handles, owning image references so
++pointer identities cannot be recycled under a live cache entry. Repeated mouse
++movement reuses the prepared raster and native handle. Reaffirming an installed
++cursor does not advance the snapshot's cursor-change counter. Native failures
++are remembered for the most recently failed image/scale and fall back to the
++requested system role. Unsupported hosts use the same fallback. The returned
++success status means a usable pointer was installed; it does not prove that the
++host displayed a custom image. Thread and shutdown checks remain authoritative.
++
++An explicit stock cursor on a child overrides its parent's image. Pointer
++capture keeps the captured control's cursor while dragging outside its bounds.
++AppKit also projects the cursor through its tracking-area cursor-update callback,
++so system cursor refreshes use the retained control state.
++Returning to the stock fallback clears a custom cursor even when its enum role
++has not changed. Windows keeps its ordinary arrow in the native class-cursor
++path. Native caches release their owned resources at service shutdown; stock
++shared resources are never destroyed.
++
++## Platform coverage
++
++- AppKit: NSCursor over a multi-representation NSImage; straight RGBA data.
++- Win32: CreateDIBSection/CreateIconIndirect, with premultiplied BGRA and a
++  monochrome mask; stock LoadCursor fallback.
++- Linux: optional Xcursor ARGB support in the existing X11 host, including
++  operation under XWayland. Builds without Xcursor retain font cursors.
++  A direct Wayland host/surface implementation is not introduced here.
++- Headless: validated service request followed by stock-cursor fallback.
++
++Focused checks live in `tests/cursor_image_tests.cpp`,
++`tests/macos_host_close_tests.mm`, `tests/windows_cursor_tests.cpp` and
++`tests/x11_cursor_tests.cpp`. X11 checks require an X server, such as Xvfb.
++
++Native API references: [AppKit hotspot coordinates](https://developer.apple.com/documentation/appkit/nscursor/hotspot),
++[Win32 cursor creation and bitmap ownership](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-createiconindirect),
++[nonshared cursor destruction](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-destroycursor),
++and [Xcursor](https://www.x.org/releases/current/doc/man/man3/Xcursor.3.xhtml).
+diff --git a/include/gui_forms/control/control/control.hpp b/include/gui_forms/control/control/control.hpp
+index b0b0460..d8d7fa3 100644
+--- a/include/gui_forms/control/control/control.hpp
++++ b/include/gui_forms/control/control/control.hpp
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "gui_forms/types/cursor_image/cursor_image.hpp"
+ 
+ #include "gui_forms/component.hpp"
+ #include "gui_forms/control/stable_id/stable_id.hpp"
+@@ -540,6 +541,9 @@ public:
+     void set_double_buffered(bool enabled);
+     [[nodiscard]] std::optional<CursorKind> cursor() const noexcept { return cursor_; }
+     void set_cursor(std::optional<CursorKind> cursor);
++    // A stock assignment clears the image override. Null images select fallback.
++    void set_custom_cursor(CursorImagesPtr images, CursorKind fallback = CursorKind::arrow);
++    [[nodiscard]] CursorImagesPtr effective_cursor_images() const noexcept;
+     [[nodiscard]] const std::string& accessible_name() const noexcept {
+         return accessible_name_;
+     }
+@@ -837,6 +841,7 @@ private:
+                           ControlStyles::selectable |
+                           ControlStyles::all_painting_in_one_pass};
+     std::optional<CursorKind> cursor_;
++    CursorImagesPtr cursor_images_;
+     std::shared_ptr<const Theme> theme_override_;
+     std::optional<SurfaceMaterial> authored_surface_material_;
+     std::vector<OwnerDecorationRecipe> owned_decorations_;
+diff --git a/include/gui_forms/host/services/host_services.hpp b/include/gui_forms/host/services/host_services.hpp
+index 9aa79c8..c834b1e 100644
+--- a/include/gui_forms/host/services/host_services.hpp
++++ b/include/gui_forms/host/services/host_services.hpp
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "gui_forms/types/cursor_image/cursor_image.hpp"
+ 
+ #include "gui_forms/host/types/host_types.hpp"
+ 
+@@ -27,6 +28,10 @@ public:
+ 
+     [[nodiscard]] HostMonitorResult query_monitors();
+     [[nodiscard]] HostServiceStatus set_cursor(CursorKind cursor);
++    // Native failure/unsupported images immediately install fallback. Success
++    // then means a usable pointer; it does not promise custom-image support.
++    [[nodiscard]] HostServiceStatus set_custom_cursor(CursorImagesPtr images,
++        double device_scale, CursorKind fallback = CursorKind::arrow);
+     [[nodiscard]] HostServiceStatus set_pointer_capture(
+         bool captured, std::uint64_t pointer_id = 1);
+     [[nodiscard]] HostClipboardTextResult read_clipboard_text();
+@@ -63,6 +68,8 @@ public:
+ protected:
+     [[nodiscard]] virtual HostMonitorResult query_monitors_impl() = 0;
+     [[nodiscard]] virtual HostServiceStatus set_cursor_impl(CursorKind cursor) = 0;
++    [[nodiscard]] virtual HostServiceStatus set_custom_cursor_impl(
++        const CursorImagesPtr& images, const CursorImage& image);
+     [[nodiscard]] virtual HostServiceStatus set_pointer_capture_impl(
+         bool captured, std::uint64_t pointer_id) = 0;
+     [[nodiscard]] virtual HostClipboardTextResult read_clipboard_text_impl() = 0;
+@@ -81,6 +88,14 @@ private:
+     [[nodiscard]] HostServiceStatus validate_request(
+         HostCapability capability) noexcept;
+ 
++    CursorImagesPtr prepared_cursor_images_;
++    CursorImage prepared_cursor_;
++    double prepared_request_scale_{};
++    CursorImagesPtr active_cursor_images_;
++    CursorImagesPtr failed_cursor_images_;
++    double active_cursor_scale_{};
++    double failed_cursor_scale_{};
++    bool cursor_applied_{};
+     std::thread::id ui_thread_;
+     HostServicesSnapshot snapshot_;
+     Event<const HostModalTransition&> modal_changed_;
+diff --git a/include/gui_forms/types/cursor_image/cursor_image.hpp b/include/gui_forms/types/cursor_image/cursor_image.hpp
+new file mode 100644
+index 0000000..c51a211
+--- /dev/null
++++ b/include/gui_forms/types/cursor_image/cursor_image.hpp
+@@ -0,0 +1,35 @@
++#pragma once
++#include "gui_forms/types/paint_types/paint_types.hpp"
++#include <memory>
++#include <vector>
++
++namespace gui_forms {
++// Top-down, straight-alpha sRGB. No native handles or platform byte ordering.
++struct CursorImage final {
++    int width{};
++    int height{};
++    double scale{1.0};
++    std::vector<Color> rgba;
++};
++
++// Immutable owned representations of one logical cursor. Hotspots use fractions
++// of logical width/height from the top-left, not fractions of width minus one.
++class CursorImages final {
++public:
++    static std::shared_ptr<const CursorImages> create(
++        std::vector<CursorImage> images, double hotspot_x, double hotspot_y);
++    [[nodiscard]] const std::vector<CursorImage>& images() const noexcept { return images_; }
++    [[nodiscard]] const CursorImage& select(double device_scale) const noexcept;
++    [[nodiscard]] CursorImage rasterize(double device_scale) const;
++    [[nodiscard]] int hotspot_x(const CursorImage& image) const noexcept;
++    [[nodiscard]] int hotspot_y(const CursorImage& image) const noexcept;
++    [[nodiscard]] double normalized_x() const noexcept { return hotspot_x_; }
++    [[nodiscard]] double normalized_y() const noexcept { return hotspot_y_; }
++private:
++    CursorImages(std::vector<CursorImage> images, double x, double y);
++    std::vector<CursorImage> images_;
++    double hotspot_x_{};
++    double hotspot_y_{};
++};
++using CursorImagesPtr = std::shared_ptr<const CursorImages>;
++} // namespace gui_forms
+diff --git a/src/core/control/control/control.cpp b/src/core/control/control/control.cpp
+index dda8708..46877f9 100644
+--- a/src/core/control/control/control.cpp
++++ b/src/core/control/control/control.cpp
+@@ -1803,13 +1803,33 @@ void Control::set_hit_test_transparent(bool transparent) {
+ 
+ void Control::set_cursor(std::optional<CursorKind> cursor) {
+     require_mutable();
+-    if (cursor_ == cursor) {
++    if (cursor_ == cursor && !cursor_images_) {
+         return;
+     }
++    cursor_images_.reset();
+     cursor_ = cursor;
+     invalidate(Dirty::semantics);
+ }
+ 
++void Control::set_custom_cursor(CursorImagesPtr images, CursorKind fallback) {
++    require_mutable();
++    if (cursor_images_ == images && cursor_ == fallback) return;
++    cursor_images_ = std::move(images);
++    cursor_ = fallback;
++    invalidate(Dirty::semantics);
++}
++
++CursorImagesPtr Control::effective_cursor_images() const noexcept {
++    const Control* current = this;
++    Ptr owner;
++    while (current != nullptr) {
++        if ((*current).cursor_.has_value()) return (*current).cursor_images_;
++        owner = (*current).parent_.lock();
++        current = owner.get();
++    }
++    return {};
++}
++
+ void Control::set_accessible_name(std::string name) {
+     require_mutable();
+     if (accessible_name_ == name) return;
+diff --git a/src/core/host/services/host_services.cpp b/src/core/host/services/host_services.cpp
+index 52825c6..2abb34f 100644
+--- a/src/core/host/services/host_services.cpp
++++ b/src/core/host/services/host_services.cpp
+@@ -357,19 +357,58 @@ HostMonitorResult HostServices::query_monitors() {
+ 
+ HostServiceStatus HostServices::set_cursor(CursorKind cursor) {
+     HostServiceStatus status = validate_request(HostCapability::cursor);
+-    if (!status.accepted() || snapshot_.cursor == cursor) {
++    if (!status.accepted()) {
+         return status;
+     }
+     status = set_cursor_impl(cursor);
+     if (status.accepted()) {
++        if (!cursor_applied_ || active_cursor_images_ || snapshot_.cursor != cursor)
++            ++snapshot_.cursor_updates;
++        cursor_applied_ = true;
++        active_cursor_images_.reset();
+         snapshot_.cursor = cursor;
+-        ++snapshot_.cursor_updates;
+     } else {
+         ++snapshot_.rejected_requests;
+     }
+     return status;
+ }
+ 
++HostServiceStatus HostServices::set_custom_cursor_impl(const CursorImagesPtr&, const CursorImage&) {
++    return {HostServiceError::unsupported};
++}
++
++HostServiceStatus HostServices::set_custom_cursor(CursorImagesPtr images,
++                                                 double scale, CursorKind fallback) {
++    HostServiceStatus status = validate_request(HostCapability::cursor);
++    if (!status.accepted()) return status;
++    if (!images) return set_cursor(fallback);
++    if (!std::isfinite(scale) || scale <= 0) scale = 1;
++    if (prepared_cursor_images_ != images || prepared_request_scale_ != scale) {
++        try {
++            prepared_cursor_ = (*images).rasterize(scale);
++            prepared_cursor_images_ = images;
++            prepared_request_scale_ = scale;
++        } catch (const std::exception&) { return set_cursor(fallback); }
++    }
++    const CursorImage& selected = prepared_cursor_;
++    if (failed_cursor_images_ == images && failed_cursor_scale_ == selected.scale)
++        return set_cursor(fallback);
++    try { status = set_custom_cursor_impl(images, selected); }
++    catch (const std::exception&) { status = {HostServiceError::backend_failure}; }
++    if (!status.accepted()) {
++        failed_cursor_images_ = images;
++        failed_cursor_scale_ = selected.scale;
++        return set_cursor(fallback);
++    }
++    if (active_cursor_images_ != images || active_cursor_scale_ != selected.scale)
++        ++snapshot_.cursor_updates;
++    active_cursor_images_ = images;
++    active_cursor_scale_ = selected.scale;
++    cursor_applied_ = true;
++    snapshot_.cursor = fallback;
++    return status;
++}
++
+ HostServiceStatus HostServices::set_pointer_capture(bool captured,
+                                                     std::uint64_t pointer_id) {
+     HostServiceStatus status = validate_request(HostCapability::pointer_capture);
+@@ -671,6 +710,10 @@ void HostServices::shutdown() noexcept {
+     }
+     snapshot_.shutdown = true;
+     shutdown_impl();
++    active_cursor_images_.reset();
++    failed_cursor_images_.reset();
++    prepared_cursor_images_.reset();
++    prepared_cursor_ = {};
+ }
+ 
+ HostServicesSnapshot HostServices::snapshot() const {
+diff --git a/src/core/types/cursor_image/cursor_image.cpp b/src/core/types/cursor_image/cursor_image.cpp
+new file mode 100644
+index 0000000..04beabc
+--- /dev/null
++++ b/src/core/types/cursor_image/cursor_image.cpp
+@@ -0,0 +1,70 @@
++#include "gui_forms/types/cursor_image/cursor_image.hpp"
++#include <algorithm>
++#include <cmath>
++#include <stdexcept>
++#include <utility>
++
++namespace gui_forms {
++CursorImages::CursorImages(std::vector<CursorImage> images, double x, double y)
++    : images_(std::move(images)), hotspot_x_(x), hotspot_y_(y) {}
++CursorImagesPtr CursorImages::create(std::vector<CursorImage> images, double x, double y) {
++    if (images.empty() || images.size() > 8 || !std::isfinite(x) ||
++        !std::isfinite(y) || x < 0 || y < 0 || x >= 1 || y >= 1) {
++        throw std::invalid_argument("Invalid cursor representations or hotspot");
++    }
++    double prior = 0;
++    double logical_width = 0;
++    double logical_height = 0;
++    for (const CursorImage& image : images) {
++        if (image.width < 1 || image.height < 1 || image.width > 256 ||
++            image.height > 256 || !std::isfinite(image.scale) ||
++            image.scale < 0.5 || image.scale > 8 || image.scale <= prior ||
++            image.width / image.scale > 256 || image.height / image.scale > 256 ||
++            image.rgba.size() != static_cast<std::size_t>(image.width) * image.height) {
++            throw std::invalid_argument("Invalid cursor dimensions, scale or RGBA length");
++        }
++        if (prior != 0 && (std::abs(image.width / image.scale - logical_width) > 0.001 ||
++                           std::abs(image.height / image.scale - logical_height) > 0.001)) {
++            throw std::invalid_argument("Cursor variants must have the same logical size");
++        }
++        logical_width = image.width / image.scale;
++        logical_height = image.height / image.scale;
++        prior = image.scale;
++    }
++    return CursorImagesPtr(new CursorImages(std::move(images), x, y));
++}
++const CursorImage& CursorImages::select(double scale) const noexcept {
++    if (!std::isfinite(scale) || scale <= 0) scale = 1;
++    for (const CursorImage& image : images_) {
++        if (image.scale >= scale) return image;
++    }
++    return images_.back();
++}
++CursorImage CursorImages::rasterize(double scale) const {
++    if (!std::isfinite(scale) || scale <= 0) scale = 1;
++    const double logical_width = images_.front().width / images_.front().scale;
++    const double logical_height = images_.front().height / images_.front().scale;
++    scale = std::clamp(scale, 0.5, std::min(8.0, 256.0 / std::max(logical_width, logical_height)));
++    const CursorImage& source = select(scale);
++    const int width = std::clamp(static_cast<int>(std::lround(logical_width * scale)), 1, 256);
++    const int height = std::clamp(static_cast<int>(std::lround(logical_height * scale)), 1, 256);
++    CursorImage result{width, height, scale, {}};
++    result.rgba.reserve(static_cast<std::size_t>(width) * height);
++    for (int y = 0; y < height; ++y) {
++        const int sy = std::clamp(hotspot_y(source) + static_cast<int>(std::lround(
++            (y - hotspot_y(result)) * static_cast<double>(source.height) / height)), 0, source.height - 1);
++        for (int x = 0; x < width; ++x) {
++            const int sx = std::clamp(hotspot_x(source) + static_cast<int>(std::lround(
++                (x - hotspot_x(result)) * static_cast<double>(source.width) / width)), 0, source.width - 1);
++            result.rgba.push_back(source.rgba[static_cast<std::size_t>(sy) * source.width + sx]);
++        }
++    }
++    return result;
++}
++int CursorImages::hotspot_x(const CursorImage& image) const noexcept {
++    return std::clamp(static_cast<int>(std::lround(hotspot_x_ * image.width)), 0, image.width - 1);
++}
++int CursorImages::hotspot_y(const CursorImage& image) const noexcept {
++    return std::clamp(static_cast<int>(std::lround(hotspot_y_ * image.height)), 0, image.height - 1);
++}
++} // namespace gui_forms
+diff --git a/src/host/linux/application/linux_host.cpp b/src/host/linux/application/linux_host.cpp
+index 091ed97..20f39b1 100644
+--- a/src/host/linux/application/linux_host.cpp
++++ b/src/host/linux/application/linux_host.cpp
+@@ -612,8 +612,10 @@ void NativeWindow::event(XEvent &event) {
+     }
+     pointer.modifiers = modifiers(state);
+     static_cast<void>(dispatch(pointer));
+-    const Control::Ptr target = (*entry.model).hit_test(pointer.position);
+-    static_cast<void>((*services).set_cursor(
++    const Control::Ptr captured = (*entry.model).captured_control();
++    const Control::Ptr target = captured ? captured : (*entry.model).hit_test(pointer.position);
++    static_cast<void>((*services).set_custom_cursor(
++        target ? (*target).effective_cursor_images() : CursorImagesPtr{}, 1.0,
+         target ? (*target).effective_cursor() : CursorKind::arrow));
+     return;
+   }
+diff --git a/src/host/linux/application/linux_host_internal.hpp b/src/host/linux/application/linux_host_internal.hpp
+index 1c9fbd5..4599abc 100644
+--- a/src/host/linux/application/linux_host_internal.hpp
++++ b/src/host/linux/application/linux_host_internal.hpp
+@@ -14,10 +14,13 @@ DragFileListData local_files(const std::vector<std::byte>& data);
+ class Services final : public HostServices {
+ public:
+   explicit Services(NativeWindow &window);
++  ~Services() override;
+ 
+ protected:
+   HostMonitorResult query_monitors_impl() override;
+   HostServiceStatus set_cursor_impl(CursorKind cursor) override;
++  HostServiceStatus set_custom_cursor_impl(const CursorImagesPtr&, const CursorImage&) override;
++  void shutdown_impl() noexcept override;
+   HostServiceStatus set_pointer_capture_impl(bool captured,
+                                              std::uint64_t) override;
+   HostClipboardTextResult read_clipboard_text_impl() override;
+@@ -29,6 +32,12 @@ protected:
+   HostServiceStatus play_sound_cue_impl(const HostSoundCueRequest &) override;
+ 
+ private:
++  struct CursorEntry final {
++    CursorImagesPtr images;
++    double scale;
++    ::Cursor native;
++  };
++  std::vector<CursorEntry> cursors_;
+   NativeWindow &window_;
+ };
+ struct Wake final {
+diff --git a/src/host/linux/services/linux_services.cpp b/src/host/linux/services/linux_services.cpp
+index 687454e..1c10ff4 100644
+--- a/src/host/linux/services/linux_services.cpp
++++ b/src/host/linux/services/linux_services.cpp
+@@ -4,6 +4,9 @@
+ #include "x11_foreign_window.hpp"
+ #include <X11/Xatom.h>
+ #include <X11/cursorfont.h>
++#ifdef GUI_FORMS_HAS_XCURSOR
++#include "x11_cursor.hpp"
++#endif
+ #include <algorithm>
+ #include <chrono>
+ #include <cstring>
+@@ -36,6 +39,37 @@ int ForeignWindowScope::handle(Display *display, XErrorEvent *error) {
+ }
+ Services::Services(NativeWindow &window)
+     : HostServices(linux_capabilities()), window_(window) {}
++Services::~Services() { shutdown(); }
++void Services::shutdown_impl() noexcept {
++  for (const CursorEntry& entry : cursors_) XFreeCursor(window_.runtime.display, entry.native);
++  cursors_.clear();
++}
++HostServiceStatus Services::set_custom_cursor_impl(const CursorImagesPtr& images, const CursorImage& image) {
++#ifdef GUI_FORMS_HAS_XCURSOR
++  for (const CursorEntry& entry : cursors_) {
++    if (entry.images == images && entry.scale == image.scale) {
++      XDefineCursor(window_.runtime.display, window_.xid, entry.native);
++      window_.cursor_set = false;
++      return {};
++    }
++  }
++  if (!XcursorSupportsARGB(window_.runtime.display)) return {HostServiceError::unsupported};
++  if (cursors_.capacity() < 32) cursors_.reserve(32);
++  const ::Cursor cursor = create_image_cursor(window_.runtime.display, *images, image);
++  if (cursor == None) return {HostServiceError::backend_failure};
++  XDefineCursor(window_.runtime.display, window_.xid, cursor);
++  window_.cursor_set = false;
++  if (cursors_.size() >= 32) {
++    XFreeCursor(window_.runtime.display, cursors_.front().native);
++    cursors_.erase(cursors_.begin());
++  }
++  cursors_.push_back({images, image.scale, cursor});
++  return {};
++#else
++  static_cast<void>(images); static_cast<void>(image);
++  return {HostServiceError::unsupported};
++#endif
++}
+ HostMonitorResult Services::query_monitors_impl() {
+   const int screen = DefaultScreen(window_.runtime.display);
+   const Rect frame{
+diff --git a/src/host/linux/services/x11_cursor.hpp b/src/host/linux/services/x11_cursor.hpp
+new file mode 100644
+index 0000000..b7927fa
+--- /dev/null
++++ b/src/host/linux/services/x11_cursor.hpp
+@@ -0,0 +1,21 @@
++#pragma once
++#include "gui_forms/types/cursor_image/cursor_image.hpp"
++#include <X11/Xcursor/Xcursor.h>
++namespace gui_forms::host::linux_detail {
++// Caller provides an already validated immutable cursor and UI-owned display.
++inline ::Cursor create_image_cursor(Display* display, const CursorImages& images, const CursorImage& image) {
++  XcursorImage* pixels = XcursorImageCreate(image.width, image.height);
++  if (pixels == nullptr) return None;
++  (*pixels).xhot = images.hotspot_x(image); (*pixels).yhot = images.hotspot_y(image);
++  for (std::size_t i = 0; i < image.rgba.size(); ++i) {
++    const Color c = image.rgba[i];
++    (*pixels).pixels[i] = (std::uint32_t(c.alpha) << 24) |
++        (((std::uint32_t(c.red) * c.alpha + 127) / 255) << 16) |
++        (((std::uint32_t(c.green) * c.alpha + 127) / 255) << 8) |
++         ((std::uint32_t(c.blue) * c.alpha + 127) / 255);
++  }
++  const ::Cursor cursor = XcursorImageLoadCursor(display, pixels);
++  XcursorImageDestroy(pixels);
++  return cursor;
++}
++} // namespace gui_forms::host::linux_detail
+diff --git a/src/host/macos/application/macos_host.mm b/src/host/macos/application/macos_host.mm
+index a764eb9..6cf4c90 100644
+--- a/src/host/macos/application/macos_host.mm
++++ b/src/host/macos/application/macos_host.mm
+@@ -1193,7 +1193,7 @@ private:
+         [self removeTrackingArea:_trackingArea];
+     }
+     const NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited |
+-        NSTrackingMouseMoved | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
++        NSTrackingMouseMoved | NSTrackingCursorUpdate | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+     _trackingArea = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+                                                  options:options
+                                                    owner:self
+@@ -1529,15 +1529,27 @@ private:
+     const GFPoint position = input.position;
+     static_cast<void>([self dispatchHostPayload:std::move(input)
+                                timestampNanoseconds:host_event_nanoseconds(event)]);
++    [self updateCursorAtPoint:position];
++    [self collectDamage];
++}
++
++- (void)updateCursorAtPoint:(GFPoint)position {
+     if (_hostServices != nullptr) {
+-        const gui_forms::Control::Ptr target = (*_model).hit_test(position);
+-        static_cast<void>((*_hostServices).set_cursor(
++        const gui_forms::Control::Ptr captured = (*_model).captured_control();
++        const gui_forms::Control::Ptr target = captured ? captured : (*_model).hit_test(position);
++        static_cast<void>((*_hostServices).set_custom_cursor(
++            target ? (*target).effective_cursor_images() : gui_forms::CursorImagesPtr{},
++            self.window.backingScaleFactor,
+             target ? (*target).effective_cursor() : CursorKind::arrow));
+     }
+-    [self collectDamage];
++}
++
++- (void)cursorUpdate:(NSEvent*)event {
++    [self updateCursorAtPoint:[self modelPointForEvent:event]];
+ }
+ 
+ - (void)mouseExited:(NSEvent*)event {
++    if (_model && (*_model).captured_control()) return;
+     if (_hostServices != nullptr) {
+         static_cast<void>((*_hostServices).set_cursor(CursorKind::arrow));
+     }
+diff --git a/src/host/macos/services/appkit_host_services.mm b/src/host/macos/services/appkit_host_services.mm
+index 05d1e0e..09c2537 100644
+--- a/src/host/macos/services/appkit_host_services.mm
++++ b/src/host/macos/services/appkit_host_services.mm
+@@ -259,6 +259,42 @@ protected:
+         return {};
+     }
+ 
++    HostServiceStatus set_custom_cursor_impl(const gui_forms::CursorImagesPtr& images,
++                                              const gui_forms::CursorImage& selected) override {
++        for (const CursorEntry& entry : cursors_) {
++            if (entry.images == images && entry.scale == selected.scale) {
++                [entry.native set];
++                return {};
++            }
++        }
++        const gui_forms::CursorImage& first = (*images).images().front();
++        const NSSize size = NSMakeSize(first.width / first.scale, first.height / first.scale);
++        NSImage* image = [[NSImage alloc] initWithSize:size];
++        for (const gui_forms::CursorImage& pixels : (*images).images()) {
++            NSBitmapImageRep* rep = [[NSBitmapImageRep alloc]
++                initWithBitmapDataPlanes:nullptr pixelsWide:pixels.width pixelsHigh:pixels.height
++                bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO
++                colorSpaceName:NSDeviceRGBColorSpace bitmapFormat:NSBitmapFormatAlphaNonpremultiplied
++                bytesPerRow:pixels.width * 4 bitsPerPixel:32];
++            if (rep == nil || rep.bitmapData == nullptr) return {HostServiceError::backend_failure};
++            unsigned char* bytes = rep.bitmapData;
++            for (std::size_t i = 0; i < pixels.rgba.size(); ++i) {
++                const gui_forms::Color color = pixels.rgba[i];
++                bytes[i * 4] = color.red; bytes[i * 4 + 1] = color.green;
++                bytes[i * 4 + 2] = color.blue; bytes[i * 4 + 3] = color.alpha;
++            }
++            rep.size = size;
++            [image addRepresentation:rep];
++        }
++        NSCursor* cursor = [[NSCursor alloc] initWithImage:image hotSpot:NSMakePoint(
++            (*images).normalized_x() * size.width, (*images).normalized_y() * size.height)];
++        if (cursor == nil) return {HostServiceError::backend_failure};
++        [cursor set];
++        if (cursors_.size() >= 32) cursors_.erase(cursors_.begin());
++        cursors_.push_back({images, selected.scale, cursor});
++        return {};
++    }
++
+     HostServiceStatus set_pointer_capture_impl(bool, std::uint64_t) override {
+         // AppKit owns mouse-drag delivery from mouseDown through mouseUp. This
+         // acknowledgment keeps that native sequence synchronized with the
+@@ -535,10 +571,20 @@ protected:
+     }
+ 
+     void shutdown_impl() noexcept override {
++        for (const CursorEntry& entry : cursors_) {
++            if ([NSCursor currentCursor] == entry.native) [[NSCursor arrowCursor] set];
++        }
++        cursors_.clear();
+         pasteboard_ = nil;
+     }
+ 
+ private:
++    struct CursorEntry final {
++        gui_forms::CursorImagesPtr images;
++        double scale;
++        __strong NSCursor* native;
++    };
++    std::vector<CursorEntry> cursors_;
+     __strong NSPasteboard* pasteboard_{};
+     bool cancel_dialogs_for_testing_{};
+ };
+diff --git a/src/host/windows/application/windows_host.cpp b/src/host/windows/application/windows_host.cpp
+index 7ca00bb..8afaa34 100644
+--- a/src/host/windows/application/windows_host.cpp
++++ b/src/host/windows/application/windows_host.cpp
+@@ -1,5 +1,6 @@
+ #include "windows_host.hpp"
+ #include "../services/windows_clipboard_image.hpp"
++#include "../services/windows_cursor.hpp"
+ 
+ #include "gui_forms/live_surface.hpp"
+ #include "gui_forms/text.hpp"
+@@ -2509,6 +2510,7 @@ private:
+         }
+         dispatch(std::move(event));
+         synchronize_capture();
++        if (!update_cursor(client_point(lparam))) apply_system_cursor(CursorKind::arrow);
+         collect_damage();
+     }
+ 
+@@ -2558,14 +2560,16 @@ private:
+         if (!requested && GetCapture() == hwnd_) ReleaseCapture();
+     }
+ 
+-    bool update_cursor(Point position) const {
+-        const Control::Ptr target = (*model_).hit_test(position);
++    bool update_cursor(Point position) {
++        const Control::Ptr captured = (*model_).captured_control();
++        const Control::Ptr target = captured ? captured : (*model_).hit_test(position);
+         const CursorKind cursor = target ? (*target).effective_cursor() : CursorKind::arrow;
+         // The class cursor is authoritative for the ordinary pointer. Let
+         // DefWindowProc complete WM_SETCURSOR for that case instead of writing
+         // process-global cursor state again from every WM_MOUSEMOVE turn.
+-        if (cursor == CursorKind::arrow) return false;
+-        return apply_system_cursor(cursor);
++        const CursorImagesPtr images = target ? (*target).effective_cursor_images() : CursorImagesPtr{};
++        if (cursor == CursorKind::arrow && !images) return false;
++        return services_.set_custom_cursor(images, scale_, cursor).accepted();
+     }
+ 
+     void minimum_size(MINMAXINFO* info) const {
+diff --git a/src/host/windows/services/windows_cursor.hpp b/src/host/windows/services/windows_cursor.hpp
+new file mode 100644
+index 0000000..8d52872
+--- /dev/null
++++ b/src/host/windows/services/windows_cursor.hpp
+@@ -0,0 +1,42 @@
++#pragma once
++#include "gui_forms/types/cursor_image/cursor_image.hpp"
++#include <windows.h>
++namespace gui_forms::host::windows_detail {
++// Native resources are created only from the validated, immutable image set.
++inline HCURSOR create_image_cursor(const CursorImages& images, const CursorImage& image) {
++        const std::vector<unsigned char> zeros(static_cast<std::size_t>((image.width + 15) / 16 * 2) * image.height, 0);
++        BITMAPV5HEADER header{};
++        header.bV5Size = sizeof(header);
++        header.bV5Width = image.width; header.bV5Height = -image.height;
++        header.bV5Planes = 1; header.bV5BitCount = 32;
++        header.bV5Compression = BI_BITFIELDS;
++        header.bV5RedMask = 0x00ff0000; header.bV5GreenMask = 0x0000ff00;
++        header.bV5BlueMask = 0x000000ff; header.bV5AlphaMask = 0xff000000;
++        void* bits = nullptr;
++        HDC dc = GetDC(nullptr);
++        HBITMAP color = CreateDIBSection(dc, reinterpret_cast<BITMAPINFO*>(&header),
++                                         DIB_RGB_COLORS, &bits, nullptr, 0);
++        ReleaseDC(nullptr, dc);
++        if (color == nullptr || bits == nullptr) {
++            if (color != nullptr) DeleteObject(color);
++            return nullptr;
++        }
++        std::uint32_t* pixels = static_cast<std::uint32_t*>(bits);
++        for (std::size_t i = 0; i < image.rgba.size(); ++i) {
++            const Color c = image.rgba[i];
++            pixels[i] = (std::uint32_t(c.alpha) << 24) |
++                (((std::uint32_t(c.red) * c.alpha + 127) / 255) << 16) |
++                (((std::uint32_t(c.green) * c.alpha + 127) / 255) << 8) |
++                 ((std::uint32_t(c.blue) * c.alpha + 127) / 255);
++        }
++        HBITMAP mask = CreateBitmap(image.width, image.height, 1, 1, zeros.data());
++        ICONINFO info{};
++        info.fIcon = FALSE; info.xHotspot = images.hotspot_x(image);
++        info.yHotspot = images.hotspot_y(image); info.hbmColor = color; info.hbmMask = mask;
++        HCURSOR cursor = mask == nullptr ? nullptr : static_cast<HCURSOR>(CreateIconIndirect(&info));
++        DeleteObject(color);
++        if (mask != nullptr) DeleteObject(mask);
++        if (cursor == nullptr) return nullptr;
++        return cursor;
++}
++} // namespace gui_forms::host::windows_detail
+diff --git a/src/host/windows/services/windows_host_services.hpp b/src/host/windows/services/windows_host_services.hpp
+index 884555c..97a5536 100644
+--- a/src/host/windows/services/windows_host_services.hpp
++++ b/src/host/windows/services/windows_host_services.hpp
+@@ -7,6 +7,8 @@ class WindowsHostServices final : public HostServices {
+ public:
+     WindowsHostServices() : HostServices(windows_capabilities()) {}
+ 
++    ~WindowsHostServices() override { shutdown(); }
++
+     void bind_owner(HWND owner) noexcept { owner_ = owner; }
+ 
+ protected:
+@@ -27,6 +29,35 @@ protected:
+             : HostServiceStatus{HostServiceError::backend_failure};
+     }
+ 
++    HostServiceStatus set_custom_cursor_impl(const CursorImagesPtr& images,
++                                              const CursorImage& image) override {
++        for (const CursorEntry& entry : cursors_) {
++            if (entry.images == images && entry.scale == image.scale) {
++                SetCursor(entry.native);
++                return {};
++            }
++        }
++        if (cursors_.capacity() < 32) cursors_.reserve(32);
++        HCURSOR cursor = windows_detail::create_image_cursor(*images, image);
++        if (cursor == nullptr) return {HostServiceError::backend_failure};
++        SetCursor(cursor);
++        if (cursors_.size() >= 32) {
++            DestroyCursor(cursors_.front().native);
++            cursors_.erase(cursors_.begin());
++        }
++        cursors_.push_back({images, image.scale, cursor});
++        return {};
++    }
++
++    void shutdown_impl() noexcept override {
++        for (const CursorEntry& entry : cursors_) {
++            if (GetCursor() == entry.native) apply_system_cursor(CursorKind::arrow);
++            DestroyCursor(entry.native);
++        }
++        cursors_.clear();
++        owner_ = nullptr;
++    }
++
+     HostServiceStatus set_pointer_capture_impl(bool captured,
+                                                std::uint64_t) override {
+         if (owner_ == nullptr) return {HostServiceError::backend_failure};
+@@ -177,9 +208,14 @@ protected:
+                                  : HostServiceStatus{HostServiceError::backend_failure};
+     }
+ 
+-    void shutdown_impl() noexcept override { owner_ = nullptr; }
+ 
+ private:
++    struct CursorEntry final {
++        CursorImagesPtr images;
++        double scale;
++        HCURSOR native;
++    };
++    std::vector<CursorEntry> cursors_;
+     static BOOL CALLBACK collect_monitor(HMONITOR monitor, HDC, LPRECT,
+                                          LPARAM context) {
+         std::vector<HostMonitor>& monitors =
+diff --git a/tests/cursor_image_tests.cpp b/tests/cursor_image_tests.cpp
+new file mode 100644
+index 0000000..b0769aa
+--- /dev/null
++++ b/tests/cursor_image_tests.cpp
+@@ -0,0 +1,86 @@
++#include "gui_forms/host.hpp"
++#include "gui_forms/control.hpp"
++#include <iostream>
++#include <limits>
++#include <stdexcept>
++#include <thread>
++using namespace gui_forms;
++namespace {
++void require(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
++CursorImage pixels(int size, double scale) {
++    return {size, size, scale, std::vector<Color>(static_cast<std::size_t>(size * size), {12, 34, 56, 128})};
++}
++class Services final : public HostServices {
++public:
++    Services() : HostServices({HostCapabilities::current_protocol_version, "cursor-test", HostCapability::cursor}) {}
++    bool fail{};
++    int custom_calls{};
++    int stock_calls{};
++    int width{};
++    CursorKind stock{CursorKind::arrow};
++protected:
++    HostMonitorResult query_monitors_impl() override { return {}; }
++    HostServiceStatus set_cursor_impl(CursorKind value) override { ++stock_calls; stock = value; return {}; }
++    HostServiceStatus set_custom_cursor_impl(const CursorImagesPtr&, const CursorImage& image) override {
++        ++custom_calls; width = image.width;
++        return {fail ? HostServiceError::backend_failure : HostServiceError::none};
++    }
++    HostServiceStatus set_pointer_capture_impl(bool, std::uint64_t) override { return {}; }
++    HostClipboardTextResult read_clipboard_text_impl() override { return {}; }
++    HostServiceStatus write_clipboard_text_impl(std::string_view) override { return {}; }
++    HostDialogResult show_dialog_impl(const HostDialogRequest&) override { return {}; }
++    HostServiceStatus play_sound_cue_impl(const HostSoundCueRequest&) override { return {}; }
++};
++struct WrongThread {
++    Services& services;
++    CursorImagesPtr images;
++    void operator()() const { require(!services.set_custom_cursor(images, 1).accepted(), "wrong thread accepted"); }
++};
++void rejected(std::vector<CursorImage> images, double x, double y) {
++    bool caught = false;
++    try { static_cast<void>(CursorImages::create(std::move(images), x, y)); }
++    catch (const std::invalid_argument&) { caught = true; }
++    require(caught, "invalid cursor accepted");
++}
++}
++int main() {
++    try {
++        const CursorImagesPtr images = CursorImages::create({pixels(16, 1), pixels(24, 1.5), pixels(32, 2), pixels(64, 4)}, .25, .75);
++        require((*images).select(1.25).width == 24 && (*images).select(8).width == 64, "scale variant selection");
++        const CursorImage fractional = (*images).rasterize(1.25);
++        require(fractional.width == 20 && fractional.height == 20 &&
++                (*images).hotspot_x(fractional) == 5 && (*images).hotspot_y(fractional) == 15,
++                "fractional DPI must preserve logical size and contact");
++        require((*images).hotspot_x((*images).select(2)) == 8 && (*images).hotspot_y((*images).select(2)) == 24, "hotspot alignment");
++        require((*images).select(std::numeric_limits<double>::quiet_NaN()).width == 16, "nonfinite host scale");
++        rejected({}, 0, 0); rejected({pixels(16, 1)}, 1, 0);
++        rejected({pixels(16, 1)}, 0, std::numeric_limits<double>::infinity());
++        rejected({pixels(16, 0)}, 0, 0); rejected({pixels(16, 1), pixels(32, 1)}, 0, 0);
++        rejected({pixels(16, 1), pixels(24, 2)}, 0, 0);
++        CursorImage short_image = pixels(16, 1); short_image.rgba.pop_back();
++        rejected({short_image}, 0, 0); rejected({pixels(257, 1)}, 0, 0);
++        Services services;
++        require(services.set_custom_cursor(images, 2, CursorKind::crosshair).accepted() && services.width == 32, "native dispatch");
++        require(services.set_cursor(CursorKind::crosshair).accepted() && services.stock_calls == 1, "same fallback must clear custom cursor");
++        services.fail = true;
++        require(services.set_custom_cursor(images, 4, CursorKind::text).accepted() && services.stock == CursorKind::text, "native failure fallback");
++        const int attempts = services.custom_calls;
++        static_cast<void>(services.set_custom_cursor(images, 4, CursorKind::text));
++        require(services.custom_calls == attempts, "failed native cursor retried on every move");
++        std::thread worker(WrongThread{services, images}); worker.join();
++        const Control::Ptr parent = make_control<Control>(StableId("parent"));
++        const Control::Ptr child = make_control<Control>(StableId("child"));
++        (*parent).add_child(child);
++        (*parent).set_custom_cursor(images, CursorKind::crosshair);
++        require((*child).effective_cursor_images() == images && (*child).effective_cursor() == CursorKind::crosshair, "custom inheritance");
++        (*child).set_cursor(CursorKind::hand);
++        require(!(*child).effective_cursor_images(), "stock override leaks parent image");
++        (*child).set_cursor(std::nullopt);
++        require((*child).effective_cursor_images() == images, "inherit reset");
++        (*parent).set_cursor(CursorKind::crosshair);
++        require(!(*child).effective_cursor_images(), "same stock fallback fails to reset");
++        services.shutdown();
++        require(!services.set_custom_cursor(images, 1).accepted(), "shutdown accepted mutation");
++        std::cout << "Cursor validation, scaling, inheritance, fallback and lifetime passed\n";
++    } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
++}
+diff --git a/tests/macos_host_close_tests.mm b/tests/macos_host_close_tests.mm
+index a065dd0..180b2fe 100644
+--- a/tests/macos_host_close_tests.mm
++++ b/tests/macos_host_close_tests.mm
+@@ -380,6 +380,21 @@ bool test_isolated_macos_services() {
+     if (!services) {
+         return false;
+     }
++    const gui_forms::CursorImage pixels{32, 32, 1.0,
++        std::vector<gui_forms::Color>(1024, {30, 60, 90, 255})};
++    const gui_forms::CursorImage retina{64, 64, 2.0,
++        std::vector<gui_forms::Color>(4096, {30, 60, 90, 255})};
++    const gui_forms::CursorImagesPtr images = gui_forms::CursorImages::create({pixels, retina}, .25, .75);
++    if (!(*services).set_custom_cursor(images, 2, gui_forms::CursorKind::crosshair).accepted()) return false;
++    NSCursor* native = [NSCursor currentCursor];
++    if (native == [NSCursor crosshairCursor] || native.hotSpot.x != 8 || native.hotSpot.y != 24 ||
++        native.image.size.width != 32 || native.image.representations.count != 2) return false;
++    for (int i = 0; i < 200; ++i) {
++        if (!(*services).set_custom_cursor(images, 2, gui_forms::CursorKind::crosshair).accepted() ||
++            [NSCursor currentCursor] != native) return false;
++    }
++    if (!(*services).set_cursor(gui_forms::CursorKind::crosshair).accepted() ||
++        [NSCursor currentCursor] != [NSCursor crosshairCursor]) return false;
+     const gui_forms::HostMonitorResult monitors = (*services).query_monitors();
+     if (!monitors.status.accepted() || monitors.monitors.empty()) {
+         return false;
+diff --git a/tests/windows_cursor_tests.cpp b/tests/windows_cursor_tests.cpp
+new file mode 100644
+index 0000000..db78fd7
+--- /dev/null
++++ b/tests/windows_cursor_tests.cpp
+@@ -0,0 +1,23 @@
++#include "../src/host/windows/services/windows_cursor.hpp"
++#include <iostream>
++int main() {
++    const gui_forms::CursorImagesPtr images = gui_forms::CursorImages::create(
++        {{32, 32, 1, std::vector<gui_forms::Color>(1024, {200, 100, 50, 128})}}, .25, .75);
++    const gui_forms::CursorImage raster = (*images).rasterize(1.25);
++    const DWORD before = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
++    for (int i = 0; i < 200; ++i) {
++        HCURSOR cursor = gui_forms::host::windows_detail::create_image_cursor(*images, raster);
++        if (cursor == nullptr) return 1;
++        ICONINFO info{};
++        if (!GetIconInfo(cursor, &info)) return 2;
++        BITMAP bitmap{};
++        GetObject(info.hbmColor, sizeof(bitmap), &bitmap);
++        const bool valid = !info.fIcon && info.xHotspot == 10 && info.yHotspot == 30 &&
++            bitmap.bmWidth == 40 && bitmap.bmHeight == 40;
++        DeleteObject(info.hbmColor); DeleteObject(info.hbmMask);
++        if (!DestroyCursor(cursor) || !valid) return 3;
++    }
++    const DWORD after = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
++    if (after > before) return 4;
++    std::cout << "Win32 cursor dimensions, fractional DPI, hotspot and 200 resource lifecycles passed\n";
++}
+diff --git a/tests/x11_cursor_tests.cpp b/tests/x11_cursor_tests.cpp
+new file mode 100644
+index 0000000..06f5b9a
+--- /dev/null
++++ b/tests/x11_cursor_tests.cpp
+@@ -0,0 +1,27 @@
++#include "../src/host/linux/services/x11_cursor.hpp"
++#include <X11/extensions/Xfixes.h>
++#include <iostream>
++int main() {
++    Display* display = XOpenDisplay(nullptr);
++    if (display == nullptr || !XcursorSupportsARGB(display)) return 1;
++    const gui_forms::CursorImagesPtr images = gui_forms::CursorImages::create(
++        {{32, 32, 1, std::vector<gui_forms::Color>(1024, {200, 100, 50, 128})}}, .25, .75);
++    const gui_forms::CursorImage raster = (*images).rasterize(1.25);
++    const ::Cursor cursor = gui_forms::host::linux_detail::create_image_cursor(display, *images, raster);
++    if (cursor == None) return 2;
++    const ::Window window = XCreateSimpleWindow(display, DefaultRootWindow(display), 0, 0, 100, 100, 0, 0, 0);
++    XDefineCursor(display, window, cursor);
++    XMapWindow(display, window);
++    XWarpPointer(display, None, window, 0, 0, 0, 0, 50, 50);
++    XSync(display, False);
++    XFixesCursorImage* actual = XFixesGetCursorImage(display);
++    const bool valid = actual != nullptr && (*actual).width == 40 && (*actual).height == 40 &&
++        (*actual).xhot == 10 && (*actual).yhot == 30 && ((*actual).pixels[0] & 0xffffffffUL) == 0x80643219UL;
++    if (actual != nullptr) XFree(actual);
++    XUndefineCursor(display, window);
++    XFreeCursor(display, cursor);
++    XDestroyWindow(display, window);
++    XCloseDisplay(display);
++    if (!valid) return 3;
++    std::cout << "X11 native cursor pixels, premultiplication, fractional DPI and hotspot passed\n";
++}

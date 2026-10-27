@@ -1,0 +1,194 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index bbb7d97..5acd8b3 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1539,6 +1539,14 @@ if(GUI_FORMS_BUILD_TESTS)
+         target_link_libraries(gui_forms_windows_canvas_raster_tests PRIVATE
+             gui_forms_controls gui_forms_host_windows)
+         add_test(NAME gui_forms_windows_canvas_raster_tests COMMAND gui_forms_windows_canvas_raster_tests)
++        add_executable(gui_forms_windows_text_tests tests/windows_text_tests.cpp)
++        target_compile_definitions(gui_forms_windows_text_tests PRIVATE
++            WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE _WIN32_WINNT=0x0601)
++        target_link_libraries(gui_forms_windows_text_tests PRIVATE
++            gui_forms_controls gui_forms_host_windows)
++        add_test(NAME gui_forms_windows_text_tests COMMAND gui_forms_windows_text_tests
++            "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts")
++
+     endif()
+ 
+ 
+diff --git a/src/host/windows/application/windows_host.cpp b/src/host/windows/application/windows_host.cpp
+index ab7a6fc..37ac23c 100644
+--- a/src/host/windows/application/windows_host.cpp
++++ b/src/host/windows/application/windows_host.cpp
+@@ -1124,7 +1124,14 @@ public:
+             if (missing_face) break;
+         }
+         RestoreDC(memory_dc_, saved);
+-        if (missing_face || (result.primary_family.empty() && !text.empty())) {
++        // A fallback-only string still has a valid requested primary face.
++        // Resolve that identity separately instead of discarding its layout.
++        if (!missing_face && result.primary_family.empty()) {
++            const ResolvedTextLayout primary = resolve_text_layout_utf8({}, font);
++            if (primary.status != TextResolutionStatus::exact) return primary;
++            result.primary_family = primary.primary_family;
++        }
++        if (missing_face) {
+             result = {};
+             result.effective_font = font;
+             result.status = TextResolutionStatus::missing_primary_face;
+@@ -1715,7 +1722,11 @@ private:
+         }
+         const int saved = SaveDC(memory_dc_);
+         HGDIOBJ old = SelectObject(memory_dc_, font);
+-        const bool shaped_coverage = selected_font_shapes(text);
++        std::array<wchar_t, LF_FACESIZE> selected_family{};
++        const bool requested_face = GetTextFaceW(memory_dc_,
++            static_cast<int>(selected_family.size()), selected_family.data()) > 0 &&
++            _wcsicmp(selected_family.data(), requested_family) == 0;
++        const bool shaped_coverage = requested_face && selected_font_shapes(text);
+         std::vector<WORD> glyphs(text.size(), 0xffffU);
+         const DWORD count = GetGlyphIndicesW(
+             memory_dc_, text.data(), static_cast<int>(text.size()),
+@@ -1735,6 +1746,7 @@ private:
+         }
+         SelectObject(memory_dc_, old);
+         RestoreDC(memory_dc_, saved);
++        if (!requested_face) return false;
+         if (shaped_coverage) return true;
+         if (count == GDI_ERROR) return false;
+         for (std::size_t index = 0; index < text.size(); ++index) {
+@@ -1758,15 +1770,13 @@ private:
+         if (utf8.empty() || memory_dc_ == nullptr || !validate_utf8(utf8).valid()) {
+             return runs;
+         }
+-        constexpr std::array<const wchar_t*, 2> fallback_families{
+-            L"Noto Sans CJK JP", L"Noto Emoji"};
+-        std::array<HFONT, 3> candidates{
+-            create_font(font, primary_font_family(font.role)),
+-            create_font(font, fallback_families[0]),
+-            create_font(font, fallback_families[1])};
+-        const std::array<const wchar_t*, 3> families{
+-            primary_font_family(font.role), fallback_families[0],
+-            fallback_families[1]};
++        // Prefer the bundled UI companion for Cyrillic/Greek before CJK,
++        // and use the shipped script faces rather than implicit GDI substitutes.
++        const std::array<const wchar_t*, 9> families{
++            primary_font_family(font.role), L"Carlito", L"Noto Sans CJK JP",
++            L"Noto Sans Arabic", L"Noto Sans Hebrew", L"Noto Sans Devanagari",
++            L"Noto Sans Bengali", L"Noto Sans Gurmukhi", L"Noto Emoji"};
++        std::array<HFONT, 9> candidates{};
+         TextStore store(utf8);
+         for (std::size_t index = 0; index < store.grapheme_count().value();
+              ++index) {
+@@ -1778,6 +1788,9 @@ private:
+             std::size_t selected{};
+             bool covered{};
+             for (; selected < candidates.size(); ++selected) {
++                if (candidates[selected] == nullptr) {
++                    candidates[selected] = create_font(font, families[selected]);
++                }
+                 covered = font_covers(candidates[selected], families[selected],
+                                       cluster);
+                 if (covered) break;
+diff --git a/tests/windows_text_tests.cpp b/tests/windows_text_tests.cpp
+new file mode 100644
+index 0000000..43d59e7
+--- /dev/null
++++ b/tests/windows_text_tests.cpp
+@@ -0,0 +1,95 @@
++// Exercise the actual Windows measurement and retained-button rendering path.
++#include "gui_forms/basic_controls.hpp"
++#include "gui_forms/window.hpp"
++#include "../src/host/windows/application/windows_host.cpp"
++#include <filesystem>
++#include <fstream>
++#include <iostream>
++#include <iterator>
++
++using namespace gui_forms;
++
++static void require_text(bool condition, const char* message) {
++    if (!condition) { throw std::runtime_error(message); }
++}
++
++class PrivateFonts final {
++public:
++    explicit PrivateFonts(const std::filesystem::path& directory) {
++        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(directory)) {
++            const std::filesystem::path path = entry.path();
++            if (path.extension() != ".ttf" && path.extension() != ".otf") continue;
++            const std::wstring name = path.wstring();
++            require_text(AddFontResourceExW(name.c_str(), FR_PRIVATE, nullptr) > 0,
++                         "Could not load fixture font");
++            paths_.push_back(name);
++        }
++    }
++    ~PrivateFonts() {
++        for (const std::wstring& path : paths_) RemoveFontResourceExW(path.c_str(), FR_PRIVATE, nullptr);
++    }
++private:
++    std::vector<std::wstring> paths_;
++};
++
++static void check_caption(const std::string& text, double scale, std::uint16_t weight) {
++    host::DibPainter painter;
++    require_text(painter.resize({240, 32}, scale), "DIB allocation failed");
++    painter.set_bundled_fonts_ready(true);
++    const FontSpec font{FontRole::control, 14, weight, false, 0.05};
++    const ResolvedTextLayout layout = painter.resolve_text_layout_utf8(text, font);
++    std::cout << text << " scale=" << scale << " weight=" << weight
++              << " width=" << layout.logical_size.width << " status=" << int(layout.status) << std::endl;
++    require_text(layout.status == TextResolutionStatus::exact, "Fallback-only caption rejected");
++    require_text(layout.logical_size.width > 0 && layout.logical_size.height > 0,
++                 "Caption has empty layout");
++    require_text(!layout.primary_family.empty() && !layout.runs.empty(), "Font provenance missing");
++    const Size direct = painter.measure_text_utf8(text, font);
++    require_text(std::abs(layout.logical_size.width - direct.width) < 0.01,
++                 "Retained and direct widths differ");
++    const std::shared_ptr<Button> button = make_control<Button>(StableId("caption"), text);
++    (*button).set_font(font);
++    (*button).set_use_mnemonic(false);
++    BasicControlStyle style = (*button).style();
++    style.text = Color::rgba(255, 0, 255);
++    (*button).set_style(style);
++    Window window(button, {240, 32});
++    window.set_text_metrics_provider(&painter);
++    window.perform_layout();
++    painter.begin_frame();
++    require_text(window.paint(painter).has_value(), "Retained caption did not paint");
++    require_text(painter.save_bmp(L"windows-text-test.bmp"), "Capture failed");
++    if (text == "Главная" && scale == 1.5 && weight == 700) {
++        require_text(painter.save_bmp(L"windows-russian-tab.bmp"), "Russian evidence capture failed");
++    }
++    std::ifstream stream("windows-text-test.bmp", std::ios::binary);
++    const std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(stream)), {});
++    require_text(bytes.size() > 54, "Empty capture");
++    const std::size_t start = bytes[10] | (bytes[11] << 8) | (bytes[12] << 16) | (bytes[13] << 24);
++    std::size_t ink{};
++    for (std::size_t i = start; i + 3 < bytes.size(); i += 4) {
++        if (bytes[i] > 170 && bytes[i + 2] > 170 && bytes[i + 1] < 100) ++ink;
++    }
++    require_text(ink >= 8, "Caption has no visible text pixels");
++    stream.close();
++    std::filesystem::remove("windows-text-test.bmp");
++}
++
++int main(int argc, char** argv) {
++    try {
++        require_text(argc == 2, "Pass fixture font directory");
++        const PrivateFonts fonts{std::filesystem::path(argv[1])};
++        for (const double scale : {1.0, 1.5, 2.0}) {
++            for (const std::uint16_t weight : {400, 700}) {
++                for (const std::string& text : std::vector<std::string>{
++                         "Главная", "File", "Файл 123", "Українська", "Вид", "Материалы", "Инструменты", "Вставить",
++                         "Основной", "日本語", "العربية", "עברית", "हिन्दी", "বাংলা", "ਪੰਜਾਬੀ"}) {
++                    check_caption(text, scale, weight);
++                }
++            }
++        }
++    } catch (const std::exception& error) {
++        std::cerr << error.what() << std::endl;
++        return 1;
++    }
++}

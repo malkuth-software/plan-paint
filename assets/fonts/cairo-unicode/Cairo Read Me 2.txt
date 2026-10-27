@@ -1,0 +1,18 @@
+CAIRO TRUETYPE
+
+This is a TrueType version of the popular freeware font Cairo, which was designed by Clark Riley and uploeaded to America Online as a PostScript Type 1 typeface. I used Ares FontMonger 1.5.7 to convert Cairo to TrueType format; otherwise, I have made no changes to the font.
+
+Riley has given permission for this conversion by the following e-mail message:
+
+Date:  Jul 7, 1994 08:54 EST
+From:  DrRiley
+Subj:  Re: A TrueType Cairo?
+To:      RussMSEN
+
+Greetings, fellow Tar Heel (BS chem 72, MS chem 73).  You are free to make a TrueType version and continue its distribution, as long as the read-me accompanies it.  You will get almost instantaneous response if you use my InterNet address (can be used within America Online) - clark.riley@qmail.bs.jhu.edu.
+
+If you have any problems converting it with FontMonger, please let me know.  I can convert it and send it to you right away.
+
+Enjoy.  Cairo is fully licensed and radically freeware!
+
+clark riley, baltimore

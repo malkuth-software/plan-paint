@@ -1,0 +1,5 @@
+# Keep upstream licenses and the checksummed source patch byte-for-byte.
+assets/fonts/poster/*-OFL.txt -text whitespace=-blank-at-eol
+third_party/gui-forms-patches/*.patch -text whitespace=-blank-at-eol
+# Retain the reference implementation's whitespace conventions.
+vendor/ok_color/ok_color.h whitespace=-blank-at-eol

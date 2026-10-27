@@ -1,0 +1,49 @@
+--- a/src/host/windows/accessibility/windows_accessibility.cpp
++++ b/src/host/windows/accessibility/windows_accessibility.cpp
+@@ -145,6 +145,13 @@
+         if (!result) { return E_POINTER; }
+         VariantInit(result);
+         if (!found) { return S_FALSE; }
++        // MSAA clients descend through VT_DISPATCH. Returning a new wrapper for
++        // this same object makes focus and hit-test traversal recurse forever.
++        if ((*found).runtime_id == id_) {
++            (*result).vt = VT_I4;
++            (*result).lVal = CHILDID_SELF;
++            return S_OK;
++        }
+         (*result).vt = VT_DISPATCH;
+         return dispatch((*found).runtime_id, &(*result).pdispVal);
+     }
+--- a/tests/windows_accessibility_tests.cpp
++++ b/tests/windows_accessibility_tests.cpp
+@@ -38,7 +38,7 @@
+     Probe* probe;
+     std::shared_ptr<NumericUpDown> number;
+     std::shared_ptr<TextBox> text;
+-    void operator()(gui_forms::Window&, ApplicationWindowHandle handle) const {
++    void operator()(gui_forms::Window& window, ApplicationWindowHandle handle) const {
+         HWND hwnd = FindWindowW(L"GUIForms.Window.v1", L"GUI.Forms accessibility fixture");
+         require(hwnd != nullptr, "native window exists");
+         AccessibleOwner root;
+@@ -59,6 +59,21 @@
+         LONG x = 0, y = 0, width = 0, height = 0;
+         require(SUCCEEDED((*coordinate.value).accLocation(&x, &y, &width, &height, self())) && width > 0 && height > 0,
+             "native accessibility reports screen geometry");
++        require(window.request_focus(window.find("button")), "button takes focus");
++        VARIANT focused{};
++        require((*root.value).get_accFocus(&focused) == S_OK && focused.vt == VT_DISPATCH,
++            "root focus identifies a descendant accessible object");
++        AccessibleOwner focused_child;
++        require(SUCCEEDED((*focused.pdispVal).QueryInterface(IID_IAccessible,
++            reinterpret_cast<void**>(&focused_child.value))), "focused descendant exposes IAccessible");
++        VariantClear(&focused);
++        require((*focused_child.value).get_accFocus(&focused) == S_OK && focused.vt == VT_I4 &&
++            focused.lVal == CHILDID_SELF, "focus descent terminates with CHILDID_SELF rather than a new self object");
++        VariantClear(&focused);
++        VARIANT hit{};
++        require((*coordinate.value).accHitTest(x + width / 2, y + height / 2, &hit) == S_OK &&
++            hit.vt == VT_I4 && hit.lVal == CHILDID_SELF, "hit testing a leaf returns CHILDID_SELF");
++        VariantClear(&hit);
+         require(handle.request_close().accepted(), "fixture closes");
+     }
+ };

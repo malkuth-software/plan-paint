@@ -1,0 +1,69 @@
+--- a/src/host/windows/application/windows_host.cpp
++++ b/src/host/windows/application/windows_host.cpp
+@@ -2183,7 +2183,13 @@
+         case WM_LBUTTONUP: case WM_RBUTTONUP: case WM_MBUTTONUP:
+             pointer(message, PointerAction::up, wparam, lparam); return 0;
+         case WM_MOUSEWHEEL: wheel(wparam, lparam); return 0;
+-        case WM_KEYDOWN: case WM_SYSKEYDOWN: key(KeyAction::down, wparam, lparam); return 0;
++        case WM_SYSKEYDOWN:
++            // Preserve the native close gesture. Swallowing all system keys
++            // prevents DefWindowProc from producing the ordinary WM_CLOSE,
++            // including its existing cancellation and owned-window policy.
++            if (wparam == VK_F4 && (lparam & (1LL << 29)) != 0) break;
++            key(KeyAction::down, wparam, lparam); return 0;
++        case WM_KEYDOWN: key(KeyAction::down, wparam, lparam); return 0;
+         case WM_KEYUP: case WM_SYSKEYUP: key(KeyAction::up, wparam, lparam); return 0;
+         case WM_CHAR: character(static_cast<wchar_t>(wparam)); return 0;
+         case WM_GETOBJECT:
+--- a/tests/application_native_tests.cpp
++++ b/tests/application_native_tests.cpp
+@@ -3,6 +3,13 @@
+ 
+ #include <iostream>
+ #include <stdexcept>
++
++#if defined(_WIN32)
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++#endif
+ 
+ namespace {
+ using namespace gui_forms;
+@@ -22,6 +29,7 @@
+     bool attached_services{};
+     bool primary_hide_rejected{};
+     bool recursive_rejected{};
++    bool system_close{};
+ };
+ struct Ready final {
+     Probe* probe{};
+@@ -32,6 +40,14 @@
+         (*probe).primary_hide_rejected = handle.hide().error == HostServiceError::invalid_argument;
+         (*probe).recursive_rejected = Application::run(make_window()).error == ApplicationError::already_running;
+         if ((*probe).fail) throw std::runtime_error("intentional ready failure");
++#if defined(_WIN32)
++        if ((*probe).system_close) {
++            const HWND native = FindWindowW(L"GUIForms.Window.v1", L"GUI.Forms portable application contract");
++            require(native != nullptr && PostMessageW(native, WM_SYSKEYDOWN, VK_F4,
++                static_cast<LPARAM>(1ULL << 29U)) != 0, "native close gesture was not posted");
++            return;
++        }
++#endif
+         require(handle.active() && handle.request_close().accepted(), "ready close request failed");
+     }
+ };
+@@ -63,6 +79,12 @@
+ }
+ }
+ int main() {
++#if defined(_WIN32)
++    Probe system_close;
++    system_close.system_close = true;
++    require(run_probe(system_close).accepted() && system_close.closing == 2U && system_close.closed == 1U,
++            "Alt+F4 must reach ordinary close cancellation and teardown");
++#endif
+     Probe normal;
+     const ApplicationResult result = run_probe(normal);
+     require(result.accepted(), "native application run failed");
