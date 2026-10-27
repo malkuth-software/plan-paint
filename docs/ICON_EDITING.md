@@ -961,6 +961,6 @@ byte count, one-based image ordinal, scale mode, scale/opacity percentages,
 offsets, foreground/background order and matte settings. `anchor` is zero-based
 in a row-major 3 × 3 grid, from top-left (0) to bottom-right (8), with center (4).
 
-The broader [icon production interview](icon-editor-study/mockups.html) covers
+The broader [icon production interview](https://github.com/malkuth-software/notes/tree/plan-paint/interviews/icon-editor) covers
 additional palette, alpha, batch and asset-browsing capabilities. It documents the broader design scope; this page describes the currently
 implemented behavior.
