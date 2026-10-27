@@ -3,12 +3,6 @@
   "commit": "e077f9d5a5117312e65e8c3b741c4edd24013d56",
   "cache_release": "build-e077f9d5a5117312e65e8c3b741c4edd24013d56",
   "compiler": "22.1.8",
-  "windows_toolchain": {
-    "archive": "gui-forms-toolchain-windows-x64.tar.zst",
-    "sha256": "de97be8abaf87c943ac627e7fdb16f7688b188015bd3bbd23112498433ed2182",
-    "manifest": "gui-forms-toolchain-windows-x64.json",
-    "manifest_sha256": "800fca5cdb4880feb61d2a7486a19a07ac8d6603aa6701d85fe207602eb83389"
-  },
   "caches": {
     "linux-arm64": {
       "asset": "gui-forms-cache-linux-arm64.tar.gz",

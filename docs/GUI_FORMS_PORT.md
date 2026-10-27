@@ -27,9 +27,9 @@ Put the selected compiler first in PATH and use `clang`/`clang++` for C,
 C++ and Objective-C++. A new compiler requires a fresh build directory.
 Do not mix MINGW64 GCC headers with CLANG64 libc++ headers.
 
-Windows CI restores the hash-locked GUI.Forms toolchain archive with
-`scripts/restore-windows-toolchain.py` (bootstrap Python 3.14), reusing the
-harness's extraction and MSYS2 shell wrapper. Codec installation does not
+Windows CI restores GUI.Forms' published, hash-checked CLANG64 toolchain
+with the harness (`template_harness/harness/windows_toolchain.py restore`,
+bootstrap Python 3.14), which extracts it and writes the MSYS2 shell wrapper. Codec installation does not
 upgrade the compiler. Rolling MSYS2 compiler packages may have moved beyond
 the required LLVM version and must not replace this pinned toolchain.
 
@@ -66,6 +66,8 @@ selects an alternative build directory and `BUILD_JOBS` controls concurrency.
 The `ci-*.sh` wrappers call this same recipe. The workflow supplies dependencies,
 imports the provider cache, caches fetched dependency sources and Skia, then
 saves compiler objects immediately after a successful build.
+Its `Plan Paint CI summary` job always reports and passes only when every
+other job passed; it is the check branch protection requires.
 
 Before configuring macOS or Linux, fetch and build the toolkit's CPU Skia
 archive into `gui_forms/third_party/skia/out/paint`, using
