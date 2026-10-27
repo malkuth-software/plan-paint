@@ -13,7 +13,7 @@ Click ? or press F1 for the drawing guide and keyboard shortcuts.
 Close Help with its upper-left × or the yellow ? button.
 
 Downloads, release notes and source:
-https://github.com/falseywinchnet/plan-paint
+https://github.com/malkuth-software/plan-paint
 
 This software is dedicated to the Holy One, blessed be He, in gratitude for
 the sustenance of human life, the energy that powers our tools, and the
@@ -23,4 +23,5 @@ Author: Astra
 Sponsor: Rainstar
 
 Copyright (c) 2026 joshuah.rainstar@gmail.com
-MIT licensed. See LICENSE and THIRD_PARTY_NOTICES.md.
+Licensed under the PolyForm Noncommercial License 1.0.0. See LICENSE and
+THIRD_PARTY_NOTICES.md.

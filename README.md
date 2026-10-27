@@ -2,8 +2,8 @@ To the Holy One, blessed be He, from whom all good things come. We dedicate this
 
 # Plan Paint
 
-[![Native platform builds](https://github.com/falseywinchnet/plan-paint/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/falseywinchnet/plan-paint/actions/workflows/build.yml)
-[![Latest release](https://img.shields.io/github/v/release/falseywinchnet/plan-paint)](https://github.com/falseywinchnet/plan-paint/releases/latest)
+[![Native platform builds](https://github.com/malkuth-software/plan-paint/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/malkuth-software/plan-paint/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/malkuth-software/plan-paint)](https://github.com/malkuth-software/plan-paint/releases/latest)
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE)
 
 A free, native paint program for Mac, Windows and Linux, with the familiar Windows 7/10 Paint ribbon. Make a meme, sketch an idea, or finish a picture: crop, caption, draw polygons, adjust curves and paint with a brush. Plan Paint keeps everyday drawing tools close at hand, with a clear interface built for direct editing.
@@ -16,12 +16,12 @@ Plan Paint 1.1 on Apple Silicon Mac. This picture was drawn in the native applic
 
 | Platform | Download | Requirements |
 | --- | --- | --- |
-| Apple Silicon Mac | [Latest release: macOS installer](https://github.com/falseywinchnet/plan-paint/releases/latest) | macOS 14 or newer. Download the `macos-arm64.pkg`, install, then open Plan Paint from Applications. |
-| Windows x64 | [Latest release: portable ZIP](https://github.com/falseywinchnet/plan-paint/releases/latest) | Download the `windows-x64.zip`, extract the folder and run `plan-paint.exe`. |
-| Linux x64 | [Latest release: portable archive](https://github.com/falseywinchnet/plan-paint/releases/latest) | Download the `linux-x64.tar.gz`. Ubuntu 24.04 or a compatible newer glibc system, with X11 or XWayland. Extract the complete folder and launch `Plan Paint`. |
-| Linux ARM64 | [Latest release: portable archive](https://github.com/falseywinchnet/plan-paint/releases/latest) | Download the `linux-arm64.tar.gz`; the same Linux requirements apply. |
+| Apple Silicon Mac | [Latest release: macOS installer](https://github.com/malkuth-software/plan-paint/releases/latest) | macOS 14 or newer. Download the `macos-arm64.pkg`, install, then open Plan Paint from Applications. |
+| Windows x64 | [Latest release: portable ZIP](https://github.com/malkuth-software/plan-paint/releases/latest) | Download the `windows-x64.zip`, extract the folder and run `plan-paint.exe`. |
+| Linux x64 | [Latest release: portable archive](https://github.com/malkuth-software/plan-paint/releases/latest) | Download the `linux-x64.tar.gz`. Ubuntu 24.04 or a compatible newer glibc system, with X11 or XWayland. Extract the complete folder and launch `Plan Paint`. |
+| Linux ARM64 | [Latest release: portable archive](https://github.com/malkuth-software/plan-paint/releases/latest) | Download the `linux-arm64.tar.gz`; the same Linux requirements apply. |
 
-[Release notes and SHA-256 checksums](https://github.com/falseywinchnet/plan-paint/releases/latest) · [Report a problem](https://github.com/falseywinchnet/plan-paint/issues)
+[Release notes and SHA-256 checksums](https://github.com/malkuth-software/plan-paint/releases/latest) · [Report a problem](https://github.com/malkuth-software/plan-paint/issues)
 
 Every successful main build automatically publishes all four tested packages and `SHA256SUMS` as a numbered release. Publication waits for every platform's tests and packaged startup checks. PR builds produce Actions artifacts without publishing.
 
@@ -233,7 +233,7 @@ Tests cover image editing, formats, numerical transforms, transparency, real UI 
 
 **Sponsor:** Rainstar
 
-Original code, documentation and artwork are copyright © 2026 joshuah.rainstar@gmail.com. You may use, study, modify and share the software, persuant to license terms as established in License. Dependencies retain their [third-party notices](THIRD_PARTY_NOTICES.md).
+Original code, documentation and artwork are copyright © 2026 joshuah.rainstar@gmail.com. You may use, study, modify and share the software, pursuant to the terms in [LICENSE](LICENSE) (PolyForm Noncommercial License 1.0.0). Dependencies retain their [third-party notices](THIRD_PARTY_NOTICES.md).
 
 Plan Paint is an independent implementation. Microsoft and Windows are trademarks of Microsoft Corporation; no Microsoft Paint source code or icon assets are included.
 
