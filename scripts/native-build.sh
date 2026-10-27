@@ -12,6 +12,11 @@ export CCACHE_COMPILERCHECK=content
 export CMAKE_C_COMPILER_LAUNCHER=ccache
 export CMAKE_CXX_COMPILER_LAUNCHER=ccache
 export CMAKE_OBJCXX_COMPILER_LAUNCHER=ccache
+# The harness toolchain file (harness.lock pins it at template_harness/) reads
+# the macOS LLVM runtime prefix from HARNESS_LLVM_RUNTIME.
+if [ -n "${GUI_FORMS_LLVM_RUNTIME:-}" ]; then
+  export HARNESS_LLVM_RUNTIME="${HARNESS_LLVM_RUNTIME:-$GUI_FORMS_LLVM_RUNTIME}"
+fi
 if command -v cygpath >/dev/null 2>&1; then
   CCACHE_DIR=$(cygpath -m "$CCACHE_DIR")
   CCACHE_BASEDIR=$(cygpath -m "$CCACHE_BASEDIR")
@@ -43,7 +48,7 @@ case "$action" in
       *) echo "Unsupported native platform: $platform" >&2; exit 1 ;;
     esac
     cmake -S . -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_TOOLCHAIN_FILE="$PWD/gui_forms/cmake/llvm22.cmake" \
+      -DCMAKE_TOOLCHAIN_FILE="$PWD/template_harness/harness/cmake/llvm22.cmake" \
       -DCMAKE_C_COMPILER="$compiler_c" -DCMAKE_CXX_COMPILER="$compiler_cxx" \
       -DRAINSTAR_BUNDLED_TIFF=ON "$@"
     ;;

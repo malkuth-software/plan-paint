@@ -39,5 +39,5 @@ CC="ccache clang" CFLAGS="-mmacosx-version-min=14.0" LDFLAGS="-mmacosx-version-m
     -Denable_tools=false -Denable_tests=false
 meson compile -C "$sources/dav1d-build" -j "$jobs"
 meson install -C "$sources/dav1d-build"
-python3 gui_forms/tools/audit_macos_minimum.py "$prefix/lib"
+python3 template_harness/harness/audit_macos_minimum.py "$prefix/lib"
 touch "$prefix/complete"

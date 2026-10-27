@@ -83,7 +83,7 @@ def restore(platform, archive=None):
 
 
 def prepare_runtime():
-    tools = ROOT / "gui_forms/tools"
+    tools = ROOT / "template_harness/harness"
     runtime = ROOT / RUNTIME
     check = subprocess.run([sys.executable, str(tools / "macos_runtime_manifest.py"), str(runtime)], check=False)
     if check.returncode:

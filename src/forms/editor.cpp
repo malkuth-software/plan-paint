@@ -2018,7 +2018,7 @@ Image Editor::read_alpha_mask() {
     if (!result.status.accepted()) {
         throw std::runtime_error(tr("Could not read the image clipboard"));
     }
-    return result.has_image ? validated_clipboard_image(result.image) : Image{};
+    return result.image.has_value() ? validated_clipboard_image(*result.image) : Image{};
 }
 void Editor::copy() {
     Image image = document.selection.active ? document.selected_image() : document.visible_image();
@@ -2049,10 +2049,10 @@ void Editor::paste() {
     if (!result.status.accepted()) {
         throw std::runtime_error(tr("Could not read the image clipboard"));
     }
-    if (!result.has_image) {
+    if (!result.image.has_value()) {
         return;
     }
-    Image image = validated_clipboard_image(result.image);
+    Image image = validated_clipboard_image(*result.image);
     finish_controls();
     const Point origin = canvas().visible_paste_origin(document.image.width, document.image.height);
     document.paste(image, static_cast<int>(origin.x), static_cast<int>(origin.y));

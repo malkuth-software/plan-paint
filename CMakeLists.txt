@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(PlanPaint VERSION 1.1.4 LANGUAGES C CXX)
+project(PlanPaint VERSION 1.2.0 LANGUAGES C CXX)
 set(PAINT_RELEASE_VERSION "${PROJECT_VERSION}" CACHE STRING "Tested publication version")
 if(NOT PAINT_RELEASE_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
   message(FATAL_ERROR "PAINT_RELEASE_VERSION must be numeric major.minor.patch")

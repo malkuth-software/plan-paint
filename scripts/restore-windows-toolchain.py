@@ -36,8 +36,11 @@ def main():
     manifest = json.loads((staging / pin['manifest']).read_text())
     if manifest['spec']['llvm'] != lock['compiler'] or manifest['archive_sha256'] != pin['sha256']:
         raise ValueError('Toolchain manifest does not match the consumer lock')
-    # Reuse the provider's validated extraction and MSYS2 wrapper contract.
-    sys.path.insert(0, str(ROOT / 'gui_forms/tools'))
+    # Reuse the harness's validated extraction and MSYS2 wrapper contract; its
+    # modules read Plan Paint's project file (harness.lock pins the harness).
+    os.environ.setdefault('HARNESS_PROJECT', str(ROOT / 'template_harness/projects/plan-paint.toml'))
+    os.environ.setdefault('HARNESS_WORKSPACE', str(ROOT))
+    sys.path.insert(0, str(ROOT / 'template_harness/harness'))
     import windows_toolchain
     destination = args.destination.resolve()
     msys_root = windows_toolchain.extract(staging / pin['archive'], manifest, destination)
