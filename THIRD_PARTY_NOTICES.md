@@ -19,7 +19,7 @@ Plan Paint's original code is MIT, Copyright (c) 2026 joshuah.rainstar@gmail.com
 
 Microsoft, Windows and Paint names identify the reference application and belong to their respective owner. Plan Paint is independent and uses newly drawn icons.
 
-Binary packages also carry the notices for their bundled codec dependencies. macOS bundles zstd under its BSD option, liblzma under 0BSD, and libjpeg-turbo under the IJG/BSD terms. This software is based in part on the work of the Independent JPEG Group. The native release uses GUI.Forms under its retained MIT license. The GUI.Forms package carries the notices for its Skia, HarfBuzz, FreeType, Unicode, PNG/zlib and bundled font resources. Windows uses the native Win32 CPU renderer. macOS and Linux use the private CPU Skia/text adapter.
+Binary packages also carry the notices for their bundled codec dependencies. macOS bundles zstd under its BSD option, liblzma under 0BSD, and libjpeg-turbo under the IJG/BSD terms. This software is based in part on the work of the Independent JPEG Group. The native release uses GUI.Forms under its retained MIT license. The GUI.Forms package carries the notices for its Skia, HarfBuzz, FreeType, Unicode, stx_zlib, stx_png, stx_conv and bundled font resources. Windows uses the native Win32 CPU renderer. macOS and Linux use the private CPU Skia/text adapter.
 
 Portable Linux packages include musl and X11 client libraries, with their notices in `licenses/runtime`; X11 locale data comes from libX11. Linux and MinGW Windows packages carry GCC runtime notices and the GCC Runtime Library Exception. MinGW-w64 and winpthreads notices are also included. Runtime source locations are listed in [packaging/licenses/runtime/SOURCES.md](packaging/licenses/runtime/SOURCES.md).
 
