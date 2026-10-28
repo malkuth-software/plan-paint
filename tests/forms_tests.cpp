@@ -16,6 +16,8 @@
 #include <thread>
 namespace {
 namespace gf = gui_forms;
+// gui_forms::ToolTip's default initial delay, which the ribbon's tooltips keep.
+constexpr std::chrono::milliseconds tool_tip_initial_delay{500};
 void require(bool condition, const char* message) {
     if (!condition) {
         throw std::runtime_error(message);
@@ -677,8 +679,17 @@ void ribbon_tabs_status_and_context() {
     gf::Rect rectangle = (*window.find("popup-shape-3")).absolute_bounds();
     static_cast<void>(window.dispatch_pointer(
         {gf::PointerAction::move, gf::PointerButton::none, {rectangle.x + 12, rectangle.y + 12}}));
-    require(window.next_wake().has_value(), "shape hover arms tooltip deadline");
-    static_cast<void>(window.poll_frame_schedule(*window.next_wake()));
+    // The tooltip shows one initial delay after the hover. The window's next
+    // wake is not necessarily that deadline: the editor's one-second file and
+    // recovery timers start with the fixture, and when this point is reached
+    // more than half a second later (a slow or sanitized run) they are due
+    // first, so polling at the next wake fires them and not the tooltip.
+    // Poll at the tooltip's own deadline, which is at most one initial delay
+    // from now.
+    const gf::FrameTime tooltip_due = gf::FrameClock::now() + tool_tip_initial_delay;
+    require(window.next_wake().has_value() && *window.next_wake() <= tooltip_due,
+            "shape hover arms tooltip deadline");
+    static_cast<void>(window.poll_frame_schedule(tooltip_due));
     window.perform_layout();
     require(window.semantic_snapshot().to_json().find("\"role\":\"tool_tip\"") != std::string::npos,
             "expanded shape hover displays an accessible tooltip");
