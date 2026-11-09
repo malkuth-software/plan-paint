@@ -176,10 +176,14 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     gf::RibbonTabSpec tab;
     tab.stable_id = "home-tab";
     tab.text = tr("Home");
-    // Save, Undo and Redo at the plane's left, as the original ribbon, with
-    // no caption beneath.
+    // The original Home plane: Save over Undo and Redo, Paste on its own,
+    // then one Tools group whose upper row holds the image and clipboard
+    // commands and whose lower row holds the drawing tools; none of the first
+    // two groups has a caption.
     gf::RibbonGroupSpec quick = group("quick", "");
     quick.layouts = {paired_rows()};
+    // Stacked groups fill column by column, so Save stands over Undo with
+    // Redo beside it (the original's Save spanned both; GUI.Forms gap).
     quick.commands.push_back(button("save", tr("Save"), 14, Size::small));
     gf::RibbonCommandSpec undo = button("undo", tr("Undo (Ctrl/Command+Z)"), 15, Size::small);
     gf::RibbonCommandSpec redo = button("redo", tr("Redo (Ctrl/Command+Y)"), 16, Size::small);
@@ -188,17 +192,15 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     quick.commands.push_back(std::move(undo));
     quick.commands.push_back(std::move(redo));
     tab.groups.push_back(std::move(quick));
-    gf::RibbonGroupSpec clipboard = group("clipboard", tr("Clipboard"));
+
+    gf::RibbonGroupSpec clipboard = group("clipboard", "");
     gf::RibbonCommandSpec paste = button("paste", tr("Paste"), 0, Size::large, Kind::split);
     paste.drop_down = {menu_item("paste", tr("Paste")), menu_item("open", tr("Open image…"))};
     clipboard.commands.push_back(std::move(paste));
-    clipboard.commands.push_back(button("cut", tr("Cut"), 1, Size::small));
-    clipboard.commands.push_back(button("copy", tr("Copy"), 2, Size::small));
-    clipboard.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::large, 3),
-                         sized_layout(gf::RibbonGroupSize::small, 3, Size::small, 3), collapsed_layout()};
     tab.groups.push_back(std::move(clipboard));
 
-    gf::RibbonGroupSpec image = group("image", tr("Image"));
+    // The upper row, left to right: Select, Crop, Resize, Rotate, Cut, Copy;
+    // the lower row: Pencil, Fill, Text, Eraser, Color picker, Magnifier.
     gf::RibbonCommandSpec select = button("tool-0", tr("Select"), 3, Size::small, Kind::split);
     select.drop_down = {menu_item("tool-0", tr("Rectangular selection")),
                         menu_item("lasso-free", tr("Free-form selection")),
@@ -209,9 +211,6 @@ gf::RibbonTabSpec Ribbon::home_tab() {
                         menu_item("invert-selection", tr("Invert selection")),
                         menu_item("transparent-selection", tr("Transparent selection")),
                         menu_item("selection-dither", tr("Dither / posterize…"))};
-    image.commands.push_back(std::move(select));
-    image.commands.push_back(button("crop", tr("Crop"), 4, Size::small));
-    image.commands.push_back(button("resize", tr("Resize"), 5, Size::small));
     gf::RibbonCommandSpec rotate = button("rotate-menu", tr("Rotate"), 6, Size::small, Kind::drop_down);
     rotate.drop_down = {menu_item("rotate-right", tr("Rotate right 90°")),
                         menu_item("rotate-left", tr("Rotate left 90°")),
@@ -219,22 +218,13 @@ gf::RibbonTabSpec Ribbon::home_tab() {
                         menu_item("flip-horizontal", tr("Flip horizontal")),
                         menu_item("flip-vertical", tr("Flip vertical")),
                         menu_item("numeric-transform", tr("Transform") + "…")};
-    image.commands.push_back(std::move(rotate));
-    image.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3), collapsed_layout()};
-    tab.groups.push_back(std::move(image));
-
-    gf::RibbonGroupSpec tools = group("tools", tr("Tools"));
-    tools.commands.push_back(button("tool-2", tr("Pencil"), 7, Size::small, Kind::toggle));
     gf::RibbonCommandSpec fill = button("tool-3", tr("Fill with color"), 8, Size::small, Kind::split);
     fill.drop_down = {menu_item("bucket-solid", tr("Solid / material fill")),
                       menu_item("bucket-gradient", tr("Use gradient"))};
-    tools.commands.push_back(std::move(fill));
-    tools.commands.push_back(button("text", tr("Text"), 9, Size::small, Kind::toggle));
     gf::RibbonCommandSpec eraser = button("tool-4", tr("Eraser"), 10, Size::small, Kind::split);
     eraser.drop_down = {menu_item("eraser-0", tr("Hard eraser")), menu_item("eraser-1", tr("Soft eraser")),
                         menu_item("eraser-2", tr("Blur")), menu_item("eraser-3", tr("Sharpen")),
                         menu_item("eraser-4", tr("Smudge"))};
-    tools.commands.push_back(std::move(eraser));
     gf::RibbonCommandSpec picker = button("tool-5", tr("Color picker"), -1, Size::small, Kind::toggle);
     if (attached_window()) {
         std::map<std::string, gf::ImageId>::iterator found = images_.find("dropper");
@@ -249,14 +239,29 @@ gf::RibbonTabSpec Ribbon::home_tab() {
             picker.image = (*found).second;
         }
     }
-    tools.commands.push_back(std::move(picker));
-    tools.commands.push_back(button("tool-6", tr("Magnifier"), 12, Size::small, Kind::toggle));
-    for (gf::RibbonCommandSpec& each : tools.commands) {
-        icon_only(each);
+    gf::RibbonCommandSpec upper[] = {std::move(select),
+                                     button("crop", tr("Crop"), 4, Size::small),
+                                     button("resize", tr("Resize"), 5, Size::small),
+                                     std::move(rotate),
+                                     button("cut", tr("Cut"), 1, Size::small),
+                                     button("copy", tr("Copy"), 2, Size::small)};
+    gf::RibbonCommandSpec lower[] = {button("tool-2", tr("Pencil"), 7, Size::small, Kind::toggle),
+                                     std::move(fill),
+                                     button("text", tr("Text"), 9, Size::small, Kind::toggle),
+                                     std::move(eraser),
+                                     std::move(picker),
+                                     button("tool-6", tr("Magnifier"), 12, Size::small, Kind::toggle)};
+    static_assert(std::size(upper) == std::size(lower));
+    gf::RibbonGroupSpec tools = group("tools", tr("Tools"));
+    // Two rows filled column by column: each upper command, then the tool
+    // beneath it.
+    for (std::size_t column = 0; column < std::size(upper); ++column) {
+        icon_only(upper[column]);
+        icon_only(lower[column]);
+        tools.commands.push_back(std::move(upper[column]));
+        tools.commands.push_back(std::move(lower[column]));
     }
-    // The tools and the brushes group never collapse (the original ribbon
-    // kept them on the plane at the minimum window).
-    tools.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3)};
+    tools.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 2), collapsed_layout()};
     tab.groups.push_back(std::move(tools));
 
     gf::RibbonGroupSpec brushes = group("brushes", tr("Brushes"));
@@ -292,6 +297,9 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     shapes.commands.push_back(gallery_command("shapes-gallery", shapes_));
     shapes.commands.push_back(button("edge-switch", tr("Edge"), -1, Size::small, Kind::toggle));
     shapes.commands.push_back(button("fill-switch", tr("Fill"), -1, Size::small, Kind::toggle));
+    // Edge, Fill and Size stand in one column beside the shapes, as in the
+    // original.
+    shapes.commands.push_back(button("size-menu", tr("Size"), 23, Size::small));
     // Collapsed, the group shows its first shape (its first command is the
     // gallery, which has no image of its own).
     if (shapes_.gallery && !(*shapes_.gallery).items().empty()) {
@@ -300,9 +308,6 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     shapes.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3), collapsed_layout()};
     tab.groups.push_back(std::move(shapes));
 
-    gf::RibbonGroupSpec size = group("size", tr("Size"));
-    size.commands.push_back(button("size-menu", tr("Size"), 23, Size::large));
-    tab.groups.push_back(std::move(size));
 
     gf::RibbonGroupSpec colors = group("colors", tr("Colors"));
     gf::RibbonCommandSpec primary = button("primary", tr("Primary"), -1, Size::large, Kind::toggle);
@@ -325,9 +330,9 @@ gf::RibbonTabSpec Ribbon::home_tab() {
                       sized_layout(gf::RibbonGroupSize::medium, 4, Size::small, 3)};
     tab.groups.push_back(std::move(colors));
     // The minimum window keeps the tools, brushes, path, stamp, guide and
-    // the colours on the plane: galleries give way first, then the clipboard,
-    // image and shapes groups shrink and fold into buttons, then the colours
-    // and brushes shrink to small commands.
+    // the colours on the plane: galleries give way first, then the shapes
+    // group folds into a button, then the colours and brushes shrink to
+    // small commands.
     // (A gallery step gives up one column: the shapes go from seven columns
     // to three, the palette from ten to four.)
     tab.reduction_order.reserve(18);
@@ -337,10 +342,7 @@ gf::RibbonTabSpec Ribbon::home_tab() {
         }
         tab.reduction_order.push_back({"colors", gf::RibbonReductionKind::gallery_column});
     }
-    const gf::RibbonReductionStep layouts[] = {{"clipboard", gf::RibbonReductionKind::layout},
-                                               {"image", gf::RibbonReductionKind::layout},
-                                               {"clipboard", gf::RibbonReductionKind::layout},
-                                               {"shapes", gf::RibbonReductionKind::layout},
+    const gf::RibbonReductionStep layouts[] = {{"shapes", gf::RibbonReductionKind::layout},
                                                {"colors", gf::RibbonReductionKind::layout},
                                                {"brushes", gf::RibbonReductionKind::layout}};
     tab.reduction_order.insert(tab.reduction_order.end(), std::begin(layouts), std::end(layouts));
