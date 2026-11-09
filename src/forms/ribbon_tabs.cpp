@@ -160,9 +160,16 @@ gf::ImageId Ribbon::artwork(const std::string& name, const Image& image) {
     const std::vector<std::uint8_t> png = encode_png(image);
     const std::span<const std::byte> encoded = std::as_bytes(std::span(png));
     std::map<std::string, gf::ImageId>::iterator found = images_.find(name);
+    // A replacement retires the old generational ImageId and returns the
+    // new one, which the next tab specs carry; a refused replacement (a
+    // stale id) loads the artwork afresh.
     if (found != images_.end()) {
-        static_cast<void>((*attached_window()).replace_png((*found).second, encoded));
-        return (*found).second;
+        const gf::ImageLoadResult replaced = (*attached_window()).replace_png((*found).second, encoded);
+        if (replaced) {
+            (*found).second = replaced.image;
+            return replaced.image;
+        }
+        images_.erase(found);
     }
     const gf::ImageLoadResult loaded = (*attached_window()).load_png(encoded);
     if (!loaded) {
@@ -284,6 +291,7 @@ gf::RibbonTabSpec Ribbon::home_tab() {
                               {menu_item("path-swap-bezier", tr("Bézier")), menu_item("path-swap-arc", tr("Arc"))})};
     brushes.commands.push_back(std::move(path));
     gf::RibbonCommandSpec guide = button("tool-11", tr("Guide"), -1, Size::large, Kind::split);
+    guide.image = guide_image();
     guide.drop_down = {menu_item("guide-edit", tr("Edit guide")),
                        submenu("choice-guide-swap", tr("Swap segment"),
                                {menu_item("guide-swap-bezier", tr("Bézier")), menu_item("guide-swap-arc", tr("Arc"))}),
@@ -779,9 +787,10 @@ void Ribbon::apply_tabs() {
     for (const gf::RibbonTabSpec& tab : tabs) {
         signature += "|" + tab.stable_id + "=" + tab.text;
         for (const gf::RibbonGroupSpec& each : tab.groups) {
-            signature += "/" + each.stable_id + (each.image.value != 0U ? "*" : "");
+            // Image IDs, not their presence: a replaced artwork has a new ID.
+            signature += "/" + each.stable_id + "@" + std::to_string(each.image.value);
             for (const gf::RibbonCommandSpec& spec : each.commands) {
-                signature += "," + spec.stable_id + (spec.image.value != 0U ? "*" : "");
+                signature += "," + spec.stable_id + "@" + std::to_string(spec.image.value);
                 for (const std::string& choice : spec.choices) {
                     signature += ";" + choice;
                 }

@@ -21,7 +21,64 @@ namespace {
 const Tool ribbon_tools[] = {Tool::Select, Tool::Lasso,  Tool::Pencil,    Tool::Fill,
                              Tool::Eraser, Tool::Picker, Tool::Magnifier, Tool::Brush,
                              Tool::Shape,  Tool::Path,   Tool::Stamp,     Tool::Guide};
+// Blends a line of `width` pixels from `start` to `end` into `image`, each
+// pixel covered by its distance from the segment (a one-pixel soft edge).
+void glyph_line(Image& image, double x0, double y0, double x1, double y1, double width, Color color) {
+    const double dx = x1 - x0;
+    const double dy = y1 - y0;
+    const double length_squared = dx * dx + dy * dy;
+    const double reach = width * 0.5 + 1.0;
+    const int left = std::max(0, static_cast<int>(std::floor(std::min(x0, x1) - reach)));
+    const int right = std::min(image.width - 1, static_cast<int>(std::ceil(std::max(x0, x1) + reach)));
+    const int top = std::max(0, static_cast<int>(std::floor(std::min(y0, y1) - reach)));
+    const int bottom = std::min(image.height - 1, static_cast<int>(std::ceil(std::max(y0, y1) + reach)));
+    for (int y = top; y <= bottom; ++y) {
+        for (int x = left; x <= right; ++x) {
+            const double px = x + 0.5 - x0;
+            const double py = y + 0.5 - y0;
+            const double along = length_squared > 0 ? std::clamp((px * dx + py * dy) / length_squared, 0.0, 1.0) : 0.0;
+            const double ex = px - along * dx;
+            const double ey = py - along * dy;
+            const double distance = std::sqrt(ex * ex + ey * ey);
+            const double coverage = std::clamp(width * 0.5 + 0.5 - distance, 0.0, 1.0);
+            if (coverage > 0) {
+                Color covered = color;
+                covered.a = static_cast<std::uint8_t>(std::lround(color.a * coverage));
+                image.blend(x, y, covered);
+            }
+        }
+    }
+}
+// The Guide command's set-square, as the original's GuideGlyph drew it: a
+// right triangle with an inner cut-out and four ruler ticks, at the
+// ribbon's large icon size.
+Image guide_glyph() {
+    Image glyph;
+    glyph.reset(32, 32, {255, 255, 255, 0});
+    const Color ink{38, 95, 140, 255};
+    const double left = 2;
+    const double top = 1;
+    const double size = 29;
+    glyph_line(glyph, left, top, left, top + size, 2, ink);
+    glyph_line(glyph, left, top + size, left + size, top + size, 2, ink);
+    glyph_line(glyph, left + size, top + size, left, top, 2, ink);
+    glyph_line(glyph, left + size * 0.2, top + size * 0.47, left + size * 0.2, top + size * 0.8, 1, ink);
+    glyph_line(glyph, left + size * 0.2, top + size * 0.8, left + size * 0.53, top + size * 0.8, 1, ink);
+    glyph_line(glyph, left + size * 0.53, top + size * 0.8, left + size * 0.2, top + size * 0.47, 1, ink);
+    for (int tick = 1; tick < 5; ++tick) {
+        const double y = top + size * tick / 5;
+        glyph_line(glyph, left, y, left + 3, y, 1, ink);
+    }
+    return glyph;
+}
 } // namespace
+gf::ImageId Ribbon::guide_image() {
+    const std::map<std::string, gf::ImageId>::const_iterator found = images_.find("guide-glyph");
+    if (found != images_.end()) {
+        return (*found).second;
+    }
+    return artwork("guide-glyph", guide_glyph());
+}
 Color ribbon_color(int index) {
     return office_color(std::clamp(index, 0, 29));
 }
@@ -594,7 +651,8 @@ void Ribbon::synchronize_commands() {
 }
 
 // The Primary and Alt commands show their material; the image is replaced
-// in place (same ImageId) when the material changes.
+// when the material changes (a replacement has a new generational ImageId,
+// which the rebuilt tab specs carry).
 void Ribbon::update_color_images() {
     const std::shared_ptr<Editor> editor = editor_.lock();
     if (!editor || !attached_window()) {
@@ -607,17 +665,23 @@ void Ribbon::update_color_images() {
     stored_alt.secondary.a = 0;
     stored_alt.transparent_pattern = true;
     const Ink secondary = document.tool == Tool::Pencil ? pencil_ink(stored_alt) : stored_alt;
+    // A material counts as shown only once its image exists: before the
+    // window has attached, artwork() makes none, and the next pass retries.
     if (!primary_shown_ || !same_material(*primary_shown_, primary)) {
+        if (artwork("primary-material", material_sample(primary)).value == 0U) {
+            return;
+        }
         primary_shown_ = primary;
-        static_cast<void>(artwork("primary-material", material_sample(primary)));
         const OpacityIndicator indicator = opacity_indicator(primary.primary);
         (*command("primary", tr("Primary")))
             .set_description(tr("Opacity") + ": " + std::to_string(indicator.percent) + "% (" +
                              std::to_string(primary.primary.a) + "/255)");
     }
     if (!secondary_shown_ || !same_material(*secondary_shown_, secondary)) {
+        if (artwork("secondary-material", material_sample(secondary)).value == 0U) {
+            return;
+        }
         secondary_shown_ = secondary;
-        static_cast<void>(artwork("secondary-material", material_sample(secondary)));
         const OpacityIndicator indicator = opacity_indicator(secondary.primary);
         (*command("secondary", tr("Alt")))
             .set_description(tr("Opacity") + ": " + std::to_string(indicator.percent) + "% (" +
