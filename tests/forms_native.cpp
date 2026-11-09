@@ -392,7 +392,14 @@ struct NativeExercise {
         control.invalidate_subtree(gf::Dirty::paint);
     }
     paint::Image render_snapshot(gf::Window& window, gf::Size size, bool& painted) {
-        std::unique_ptr<gf::PaintFramebuffer> framebuffer = window.create_framebuffer(size, window.scale());
+        // PAINT_NATIVE_CAPTURE_SCALE renders the inspected frame at another
+        // device scale (1 for screenshots comparable with the shipped ones).
+        double scale = window.scale();
+        const char* scale_override = std::getenv("PAINT_NATIVE_CAPTURE_SCALE");
+        if (scale_override && *scale_override) {
+            scale = std::clamp(std::atof(scale_override), 0.5, 4.0);
+        }
+        std::unique_ptr<gf::PaintFramebuffer> framebuffer = window.create_framebuffer(size, scale);
         if (!framebuffer || !(*framebuffer).begin(window.image_resources(), {0, 0, size.width, size.height})) {
             throw std::runtime_error("Native framebuffer is unavailable");
         }
@@ -425,6 +432,12 @@ struct NativeExercise {
             repaint_tree(*window.find("editor-dialog"));
         }
         const gf::Size size = corners_review || sticky_review || opacity_review || asset_browser_review || external_file_review || icon_effects_review || numeric_transform_review || toolbar_strip_review || icon_validation_review || icon_export_review ? window.client_size() : gf::Size{1280,820};
+        // PAINT_NATIVE_CAPTURE_TAB selects a ribbon tab for the captured frame.
+        const char* capture_tab = std::getenv("PAINT_NATIVE_CAPTURE_TAB");
+        if (capture_tab && *capture_tab) {
+            static_cast<void>(select_ribbon_tab(window, capture_tab));
+            window.perform_layout();
+        }
         bool painted = false;
         paint::Image image = render_snapshot(window, size, painted);
         const gf::Rect pixel = (*editor).canvas().bitmap_to_client({120, 120, 1, 1});

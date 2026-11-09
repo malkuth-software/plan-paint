@@ -25,6 +25,20 @@ gf::RibbonGroupLayout paired_rows() {
     layout.rows = 2;
     return layout;
 }
+// A layout of `size` with every listed command at `command_size`.
+gf::RibbonGroupLayout sized_layout(gf::RibbonGroupSize size, std::size_t commands, gf::RibbonCommandSize command_size,
+                                   std::size_t rows) {
+    gf::RibbonGroupLayout layout;
+    layout.size = size;
+    layout.command_sizes.assign(commands, command_size);
+    layout.rows = rows;
+    return layout;
+}
+gf::RibbonGroupLayout collapsed_layout() {
+    gf::RibbonGroupLayout layout;
+    layout.size = gf::RibbonGroupSize::collapsed;
+    return layout;
+}
 gf::RibbonGroupSpec group(const std::string& id, const std::string& caption) {
     gf::RibbonGroupSpec result;
     result.stable_id = id;
@@ -168,6 +182,8 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     clipboard.commands.push_back(std::move(paste));
     clipboard.commands.push_back(button("cut", tr("Cut"), 1, Size::small));
     clipboard.commands.push_back(button("copy", tr("Copy"), 2, Size::small));
+    clipboard.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::large, 3),
+                         sized_layout(gf::RibbonGroupSize::small, 3, Size::small, 3), collapsed_layout()};
     tab.groups.push_back(std::move(clipboard));
 
     gf::RibbonGroupSpec image = group("image", tr("Image"));
@@ -252,6 +268,8 @@ gf::RibbonTabSpec Ribbon::home_tab() {
                                {menu_item("guide-swap-bezier", tr("Bézier")), menu_item("guide-swap-arc", tr("Arc"))}),
                        menu_item("guide-clear", tr("Unset guide"))};
     brushes.commands.push_back(std::move(guide));
+    brushes.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::large, 3),
+                       sized_layout(gf::RibbonGroupSize::medium, 4, Size::small, 2), collapsed_layout()};
     tab.groups.push_back(std::move(brushes));
 
     gf::RibbonGroupSpec shapes = group("shapes", tr("Shapes"));
@@ -279,7 +297,18 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     colors.commands.push_back(std::move(secondary));
     colors.commands.push_back(gallery_command("palette-gallery", palette_));
     colors.commands.push_back(button("edit-colors", tr("Edit colors"), 24, Size::large));
+    colors.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::large, 3),
+                      sized_layout(gf::RibbonGroupSize::medium, 4, Size::small, 3), collapsed_layout()};
     tab.groups.push_back(std::move(colors));
+    // The minimum window keeps the tools, brushes, path, stamp and guide on
+    // the plane: galleries and colours give way first, then the clipboard
+    // and brushes shrink to small commands.
+    tab.reduction_order = {{"shapes", gf::RibbonReductionKind::gallery_column},
+                           {"colors", gf::RibbonReductionKind::gallery_column},
+                           {"shapes", gf::RibbonReductionKind::gallery_column},
+                           {"colors", gf::RibbonReductionKind::layout},
+                           {"clipboard", gf::RibbonReductionKind::layout},
+                           {"brushes", gf::RibbonReductionKind::layout}};
     return tab;
 }
 
