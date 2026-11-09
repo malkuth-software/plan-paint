@@ -8,14 +8,14 @@
    never bulged (RB decision 23), so only command faces are styled here. */
 
 :root {
-  bubble-ink: #1c2733 on #f5f8fc;
+  ink-on-soft-paper: #1c2733 on #f5f8fc;
 }
 
 ribbon::part(command-face) {
   border-radius: 14px;
   border: 1px solid transparent;
   background-color: transparent;
-  transition: background-color 120ms ease, box-shadow 120ms ease;
+  transition: face 120ms ease;
 }
 
 ribbon::part(command-face):hover {
@@ -37,5 +37,5 @@ ribbon::part(command-face):checked {
 }
 
 ribbon::part(command-label) {
-  color: role(bubble-ink);
+  color: role(ink-on-soft-paper);
 }

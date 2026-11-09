@@ -23,7 +23,7 @@ class AtlasThumbnail final : public gui_forms::Button {
     gui_forms::SubscriptionToken click_;
     void update_image();
     void clicked(gui_forms::ButtonBase& control);
-    void on_detaching_from_window(gui_forms::Window& window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& window) noexcept override;
 };
 class AtlasPanel final : public gui_forms::Control {
   public:

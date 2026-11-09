@@ -217,7 +217,7 @@ void EditorDialog::clear_asset_preview() {
     (*asset_canvas_).clear_bitmap();
     const bool previous = synchronizing_;
     synchronizing_ = true;
-    (*asset_representations_).items = {};
+    (*asset_representations_).items.clear();
     synchronizing_ = previous;
     (*asset_details_).text = "";
     (*asset_open_).enabled = false;
@@ -238,7 +238,7 @@ void EditorDialog::request_assets(bool scan) {
         (*request).query = (*asset_search_).text.read();
         (*request).filter = static_cast<AssetFilter>((*asset_filter_).selected_index.read().value_or(0));
         synchronizing_ = true;
-        (*asset_list_).clear_items();
+        (*asset_list_).items.clear();
         synchronizing_ = false;
         asset_listing_ = {};
     } else {

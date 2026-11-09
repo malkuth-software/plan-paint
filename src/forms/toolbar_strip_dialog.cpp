@@ -118,7 +118,7 @@ void EditorDialog::initialize_toolbar_strip() {
     (*strip_canvas_).accessible_name = tr("Preview");
     put(strip_canvas_, {20, 228, 740, 120});
     strip_report_ = gf::make_control<gf::TextBox>(gf::StableId("strip-report"));
-    (*strip_report_).font = {gf::FontRole::control, 11, 400, false};
+    (*strip_report_).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
     (*strip_report_).read_only = true;
     (*strip_report_).multiline = true;
     (*strip_report_).word_wrap = true;
@@ -193,7 +193,7 @@ void EditorDialog::start_toolbar_strip() {
         job.options.columns = int((*strip_values_[2]).value.read());
         job.options.gap_x = int((*strip_values_[3]).value.read());
         job.options.gap_y = int((*strip_values_[4]).value.read());
-        job.options.fit = (*strip_fit_).checked();
+        job.options.fit = (*strip_fit_).checked.read();
         job.bmp = (*strip_format_).selected_index.read().value_or(0) == 1;
         job.options.opaque = job.bmp || (*strip_background_).selected_index.read().value_or(0) == 1;
         if (job.options.opaque && !from_hex(std::string((*strip_matte_).text.read()), job.options.matte)) {

@@ -302,7 +302,7 @@ void EditorDialog::icon_target_clicked(gf::ButtonBase& control) {
         if (control.stable_id().value() == "icon-target-discard" && icon_targets_[index].custom) {
             icon_targets_.erase(icon_targets_.begin() + static_cast<std::ptrdiff_t>(index));
         } else if (control.stable_id().value() == "icon-target-replace") {
-            icon_targets_[index].generate = (*icon_target_replace_).checked();
+            icon_targets_[index].generate = (*icon_target_replace_).checked.read();
         }
         render_icon_targets();
     }

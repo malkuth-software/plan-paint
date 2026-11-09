@@ -77,7 +77,7 @@ void EditorDialog::initialize_icon_export() {
     export_scope_ = gf::make_control<gf::ComboBox>(gf::StableId("export-scope"));
     for (const std::string& name :
          {tr("All representations"), tr("Current image"), tr("Selected sequence")}) {
-        (*export_scope_).add_item(name);
+        (*export_scope_).items.append(name);
     }
     (*export_scope_).selected_index = 0;
     put(export_scope_, {165, 52, 300, 28});
@@ -92,7 +92,7 @@ void EditorDialog::initialize_icon_export() {
     label("export-collision-label", tr("Existing files"), {20, 180, 135, 28});
     export_collision_ = gf::make_control<gf::ComboBox>(gf::StableId("export-collision"));
     for (const std::string& name : {tr("Skip existing"), tr("Rename outputs"), tr("Replace existing")}) {
-        (*export_collision_).add_item(name);
+        (*export_collision_).items.append(name);
     }
     (*export_collision_).selected_index = 0;
     put(export_collision_, {165, 178, 300, 28});

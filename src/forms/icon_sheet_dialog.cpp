@@ -57,7 +57,7 @@ void EditorDialog::initialize_icon_sheet() {
     (*sheet_scope_).accessible_name = tr("Images");
     for (const std::string& text :
          {tr("All representations"), tr("Current image"), tr("Selected sequence")}) {
-        (*sheet_scope_).add_item(text);
+        (*sheet_scope_).items.append(text);
     }
     (*sheet_scope_).selected_index = 0;
     put(sheet_scope_, {145, 52, 240, 28});
@@ -66,7 +66,7 @@ void EditorDialog::initialize_icon_sheet() {
     (*sheet_background_).accessible_name = tr("Background");
     for (const std::string& text :
          {tr("Light"), tr("Dark"), tr("Checkerboard"), tr("Transparent"), tr("Primary color")}) {
-        (*sheet_background_).add_item(text);
+        (*sheet_background_).items.append(text);
     }
     (*sheet_background_).selected_index = 0;
     put(sheet_background_, {528, 52, 232, 28});
@@ -85,12 +85,12 @@ void EditorDialog::initialize_icon_sheet() {
     sheet_zoom_ = gf::make_control<gf::ComboBox>(gf::StableId("sheet-zoom"));
     (*sheet_zoom_).accessible_name = tr("Preview scale");
     for (const std::string& text : {tr("Fit sheet"), tr("Actual pixels"), tr("4× pixels")}) {
-        (*sheet_zoom_).add_item(text);
+        (*sheet_zoom_).items.append(text);
     }
     (*sheet_zoom_).selected_index = 0;
     put(sheet_zoom_, {145, 136, 210, 28});
     sheet_status_ = gf::make_control<gf::Label>(gf::StableId("sheet-status"));
-    (*sheet_status_).font = {gf::FontRole::control, 11, 400, false};
+    (*sheet_status_).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
     put(sheet_status_, {375, 136, 385, 32});
     const std::shared_ptr<gf::FlowLayoutPanelCompat> viewport =
         gf::make_control<gf::FlowLayoutPanelCompat>(gf::StableId("sheet-viewport"));

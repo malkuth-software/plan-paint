@@ -158,7 +158,7 @@ OpacityIndicator opacity_indicator(Color color) {
 }
 SwatchButton::SwatchButton(gf::StableId id, std::string text, Color color)
     : Button(std::move(id), std::move(text)), color_(color) {
-    if ((*this).text().empty()) {
+    if ((*this).text.read().empty()) {
         set_theme_override(gallery_theme());
     }
 }
@@ -488,8 +488,13 @@ void Ribbon::update_panels() {
     invalidate(gf::Dirty::layout | gf::Dirty::paint);
 }
 
+// Choosing another tab reopens a collapsed plane (the help's "click again or
+// choose another tab to reopen"); a click on the selected tab collapses it.
 void Ribbon::tab_changed(const gf::RibbonTabChange&) {
     close_popup();
+    if ((*bar_).minimized.read()) {
+        (*bar_).minimized = false;
+    }
     update_panels();
 }
 

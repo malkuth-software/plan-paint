@@ -93,7 +93,7 @@ void EditorDialog::initialize_icon_states() {
     label("state-policy-note", tr("Indexed: 1/4/8 bpp; 2→4. Alpha <128 transparent; otherwise white matte."),
           {20, 162, 740, 26});
     const std::shared_ptr<gf::Label> policy_note = std::static_pointer_cast<gf::Label>(controls_.back());
-    (*policy_note).font = {gf::FontRole::control, 11, 400, false, 0.05};
+    (*policy_note).font = gf::FontSpec{gf::FontRole::control, 11, 400, false, 0.05};
     (*policy_note).text_wrapping = gf::TextWrapping::word;
     label("state-before-label", tr("Original"), {20, 190, 355, 22});
     label("state-after-label", tr("Preview"), {405, 190, 355, 22});
@@ -180,7 +180,7 @@ void EditorDialog::render_icon_states() {
     (*state_save_report_).enabled = false;
     (*state_before_).clear_bitmap();
     (*state_after_).clear_bitmap();
-    (*state_image_).items = {};
+    (*state_image_).items.clear();
     (*state_report_).text = tr("Preparing preview…");
     (*error_).text = "";
     state_job_ = std::make_shared<IconStateJob>();

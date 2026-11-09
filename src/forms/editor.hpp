@@ -71,14 +71,13 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
 
   protected:
     void on_attached_to_window() override;
-    void on_detaching_from_window(gui_forms::Window& former_window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& former_window) noexcept override;
     void on_dispose() noexcept override;
 
   public:
     void on_paint_overlay(gui_forms::Painter& painter, gui_forms::Rect damage) override;
     void on_text_input(gui_forms::TextInputEvent& event) override;
     void on_focus_changed(bool focused) override;
-    void on_frame(gui_forms::FrameTime now) override;
     gui_forms::SemanticDescriptor semantic_descriptor() const override;
     bool on_semantic_action(gui_forms::SemanticAction action, std::string_view value) override;
 
@@ -210,6 +209,15 @@ class Editor final : public gui_forms::Control {
     void text_focus(bool focused);
     void text_frame();
     void selection_frame();
+    // The repeating UI timers of the caret blink and the selection's marching ants.
+    // The timer calls the named member of the Editor that owns its token; the token
+    // is disconnected on detach and by the Editor's destruction, so the callback
+    // never outlives its target.
+    struct FrameTick final {
+        Editor* editor;
+        void (Editor::*tick)();
+        void operator()(gui_forms::FrameTime) const { ((*editor).*tick)(); }
+    };
     bool show_help = false, eraser_soft = false;
     SampleMode picker_mode = SampleMode::Exact;
     bool picker_magnifier = false;
@@ -253,7 +261,7 @@ class Editor final : public gui_forms::Control {
     void execute(const std::string& command);
     void choose_tool(Tool tool);
     void on_attached_to_window() override;
-    void on_detaching_from_window(gui_forms::Window& former_window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& former_window) noexcept override;
     void choose_shape(Shape shape);
     void begin_path_swap(CurveKind kind);
     void begin_guide_swap(CurveKind kind);

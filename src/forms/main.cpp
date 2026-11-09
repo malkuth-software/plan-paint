@@ -14,8 +14,7 @@ void report_theme_findings(const std::vector<gui_forms::ThemeCompileDiagnostic>&
     for (const gui_forms::ThemeCompileDiagnostic& finding : findings) {
         std::cerr << "Plan Paint theme: " << finding.code << ' ' << finding.file << ':' << finding.line << ':'
                   << finding.column << ' ' << finding.rule << ' ' << finding.property << ' ' << finding.detail
-                  << '
-';
+                  << '\n';
     }
 }
 // The application comes first (GUI.Forms' Application-first lifecycle): it
@@ -58,8 +57,7 @@ int main(int argc, char** argv) {
         paint::initialize_language(paint::application_language_directory(), session_language);
         gui_forms::ApplicationCreateResult created = create_application();
         if (!created) {
-            std::cerr << "Plan Paint: the GUI.Forms application could not be created.
-";
+            std::cerr << "Plan Paint: the GUI.Forms application could not be created.\n";
             return 1;
         }
         gui_forms::Application& application = *created.application;

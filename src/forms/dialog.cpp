@@ -62,7 +62,7 @@ void ColorPlane::on_paint(gf::Painter& painter, gf::Rect) {
     }
     painter.stroke_rect({0.5, 0.5, bounds.width - 1, bounds.height - 1}, gf::Color::rgba(132, 153, 176), 1);
 }
-void ColorPlane::on_detaching_from_window(gf::Window& owner) noexcept {
+void ColorPlane::on_detaching_from_window(gf::SurfaceRoot& owner) noexcept {
     if (mosaic_image_.value) {
         static_cast<void>(owner.remove_image(mosaic_image_));
     }
@@ -189,9 +189,9 @@ void EditorDialog::put(gf::Control::Ptr control, gf::Rect bounds) {
     add_child(control);
 }
 void EditorDialog::style_label(gf::Label& control, bool heading) {
-    control.font = {gf::FontRole::control, heading ? 14.0 : 13.0, static_cast<std::uint16_t>(heading ? 600 : 400),
+    control.font = gf::FontSpec{gf::FontRole::control, heading ? 14.0 : 13.0, static_cast<std::uint16_t>(heading ? 600 : 400),
                     false, 0.05};
-    control.set_foreground(gf::Color::rgba(45, 66, 88));
+    control.fore_color = gf::Color::rgba(45, 66, 88);
     if (current_language().right_to_left && kind_ != EditorDialogKind::english_help) {
         control.alignment = gf::HorizontalAlignment::far;
     }
@@ -223,7 +223,7 @@ void EditorDialog::adopt_form(gf::Control& form, const std::string& heading_id, 
 std::shared_ptr<gf::Button> EditorDialog::button(const std::string& id, const std::string& text,
                                                  gf::Rect bounds) {
     std::shared_ptr<gf::Button> control = gf::make_control<gf::Button>(gf::StableId(id), text);
-    (*control).font = {gf::FontRole::control, 13, 400, false, 0.05};
+    (*control).font = gf::FontSpec{gf::FontRole::control, 13, 400, false, 0.05};
     (*control).use_mnemonic = false;
     subscriptions_.push_back((*control).clicked().subscribe(
         *this, gf::Delegate<gf::ButtonBase&>::bind<EditorDialog, &EditorDialog::clicked>(*this)));
@@ -385,10 +385,11 @@ void EditorDialog::initialize_control_tree() {
         put(plane_, {296, 91, 290, 224});
         put(hue_strip_, {602, 91, 24, 224});
         const char* names[] = {"Red", "Green", "Blue", "Alpha"};
+        const char* field_ids[] = {"color-red", "color-green", "color-blue", "color-alpha"};
         std::shared_ptr<gf::NumericUpDown>* fields[] = {&red_, &green_, &blue_, &alpha_};
         for (int i = 0; i < 4; ++i) {
             label("channel-label-" + std::to_string(i), tr(names[i]), {296 + i * 84.0, 325, 78, 20});
-            *fields[i] = number("color-" + std::string(names[i]), {296 + i * 84.0, 348, 77, 28}, 0, 255, 0);
+            *fields[i] = number(std::string(field_ids[i]), {296 + i * 84.0, 348, 77, 28}, 0, 255, 0);
             (**fields[i]).accessible_name = tr(names[i]);
             subscriptions_.push_back(
                 (**fields[i])
@@ -418,11 +419,11 @@ void EditorDialog::initialize_control_tree() {
         (*language_).accessible_name = tr("Language");
         (*language_).maximum_drop_down_items = 64;
         (*language_).drop_down_width = 300;
-        (*language_).add_item(tr("Use system language"));
+        (*language_).items.append(tr("Use system language"));
         std::size_t language_index = 0;
         const std::vector<LanguageInfo>& choices = available_languages();
         for (std::size_t index = 0; index < choices.size(); ++index) {
-            (*language_).add_item(choices[index].name);
+            (*language_).items.append(choices[index].name);
             if (choices[index].tag == (*editor).settings.language) { language_index = index + 1; }
         }
         (*language_).selected_index = language_index;
@@ -441,14 +442,14 @@ void EditorDialog::initialize_control_tree() {
         label("settings-background-label", tr("Canvas surround"), {24, 96, 220, 28});
         background_ = gf::make_control<gf::ComboBox>(gf::StableId("settings-background"));
         for (int index = 0; index < canvas_backing_count; ++index) {
-            (*background_).add_item(tr(canvas_backing_name(static_cast<CanvasBacking>(index))));
+            (*background_).items.append(tr(canvas_backing_name(static_cast<CanvasBacking>(index))));
         }
         (*background_).selected_index = static_cast<std::size_t>((*editor).settings.canvas_backing);
         put(background_, {230, 96, 230, 30});
         label("settings-alpha-label", tr("Transparency display"), {24, 134, 200, 28});
         alpha_background_ = gf::make_control<gf::ComboBox>(gf::StableId("settings-alpha-background"));
-        (*alpha_background_).add_item(tr("Checkerboard"));
-        (*alpha_background_).add_item(tr("Solid color"));
+        (*alpha_background_).items.append(tr("Checkerboard"));
+        (*alpha_background_).items.append(tr("Solid color"));
         (*alpha_background_).selected_index = (*editor).settings.solid_transparency ? 1 : 0;
         put(alpha_background_, {230, 134, 230, 30});
         label("settings-alpha-color-label", tr("Solid color (hex)"), {24, 172, 200, 28});
@@ -458,8 +459,8 @@ void EditorDialog::initialize_control_tree() {
         put(alpha_background_color_, {230, 172, 230, 30});
         label("settings-shape-label", tr("Lines and shapes"), {24, 210, 200, 28});
         shape_gesture_ = gf::make_control<gf::ComboBox>(gf::StableId("settings-shape-gesture"));
-        (*shape_gesture_).add_item(tr("Click, move, click"));
-        (*shape_gesture_).add_item(tr("Click, hold, release"));
+        (*shape_gesture_).items.append(tr("Click, move, click"));
+        (*shape_gesture_).items.append(tr("Click, hold, release"));
         (*shape_gesture_).selected_index = (*editor).settings.drag_shapes ? 1 : 0;
         put(shape_gesture_, {230, 210, 230, 30});
         rotate_view_ = gf::make_control<gf::CheckBox>(gf::StableId("settings-rotate-view"),
@@ -602,9 +603,9 @@ void EditorDialog::initialize_control_tree() {
         label("icon-policy-label", tr("Existing images"), {20, 140, 112, 28});
         icon_policy_ = gf::make_control<gf::ComboBox>(gf::StableId("icon-size-policy"));
         (*icon_policy_).accessible_name = tr("Existing images");
-        (*icon_policy_).add_item(tr("Add missing sizes; keep existing images"));
-        (*icon_policy_).add_item(tr("Choose replacements individually"));
-        (*icon_policy_).add_item(tr("Exact profile; remove unchecked sizes"));
+        (*icon_policy_).items.append(tr("Add missing sizes; keep existing images"));
+        (*icon_policy_).items.append(tr("Choose replacements individually"));
+        (*icon_policy_).items.append(tr("Exact profile; remove unchecked sizes"));
         (*icon_policy_).selected_index = 0;
         put(icon_policy_, {136, 138, 264, 28});
         subscriptions_.push_back(
@@ -674,8 +675,8 @@ void EditorDialog::initialize_control_tree() {
         skew_vertical_ = number("skew-vertical", {148, 376, 176, 30}, -80, 80, 0, 1);
     }
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));
-    (*error_).font = {gf::FontRole::control, 12, 400, false};
-    (*error_).set_foreground(gf::Color::rgba(161, 49, 39));
+    (*error_).font = gf::FontSpec{gf::FontRole::control, 12, 400, false};
+    (*error_).fore_color = gf::Color::rgba(161, 49, 39);
     (*error_).text_wrapping = gf::TextWrapping::word;
     put(error_,
         {20,
@@ -894,10 +895,10 @@ void EditorDialog::atlas_changed(double) {
         (*error_).text = std::to_string(grid.columns * grid.rows) + tr(" frames · ") + std::to_string(frame.w) +
                            " × " + std::to_string(frame.h) + tr(" pixels · unused right/bottom: ") +
                            std::to_string(unused_x) + "/" + std::to_string(unused_y) + tr(" px");
-        (*error_).set_foreground(gf::Color::rgba(45, 66, 88));
+        (*error_).fore_color = gf::Color::rgba(45, 66, 88);
     } catch (const std::exception& exception) {
         (*error_).text = exception.what();
-        (*error_).set_foreground(gf::Color::rgba(161, 49, 39));
+        (*error_).fore_color = gf::Color::rgba(161, 49, 39);
     }
 }
 const ColorMosaic& EditorDialog::color_mosaic(double hue) const {
@@ -1169,7 +1170,7 @@ void EditorDialog::accept() {
             const std::size_t language_index = (*language_).selected_index.read().value_or(0);
             settings.language = language_index > 0 && language_index <= available_languages().size()
                 ? available_languages()[language_index - 1].tag : "system";
-            settings.canvas_controls = (*canvas_controls_).checked();
+            settings.canvas_controls = (*canvas_controls_).checked.read();
             settings.interface_hue = static_cast<int>(std::round((*theme_hue_).value.read()));
             settings.recovery_enabled = (*recovery_enabled_).checked.read();
             settings.recovery_seconds = static_cast<int>((*recovery_seconds_).value.read());

@@ -26,7 +26,7 @@ bool Editor::guide_pointer(const gf::PointerEvent& event, Point point) {
             guide_node_ = -1;
             for (std::size_t index = 0; index < guide.nodes.size(); ++index) {
                 if (std::hypot(point.x - guide.nodes[index].x, point.y - guide.nodes[index].y) *
-                        canvas().zoom() <=
+                        canvas().zoom.read() <=
                     8) {
                     guide_node_ = static_cast<int>(index);
                     break;
@@ -55,7 +55,7 @@ bool Editor::guide_pointer(const gf::PointerEvent& event, Point point) {
             guide_last_.y += delta.y;
         } else if (guide_node_ >= 0) {
             if (guide_connecting_ &&
-                std::hypot(point.x - guide_last_.x, point.y - guide_last_.y) * canvas().zoom() > 3) {
+                std::hypot(point.x - guide_last_.x, point.y - guide_last_.y) * canvas().zoom.read() > 3) {
                 guide_connecting_ = false;
             }
             if (!guide_connecting_) {
@@ -98,7 +98,7 @@ void Editor::paint_guide_overlay(gf::Painter& painter) {
         const gui_drawing::PointF mapped = canvas().client_to_bitmap(*cursor_client_);
         Point target{mapped.x, mapped.y};
         for (const Point& node : guide.nodes) {
-            if (std::hypot(node.x - target.x, node.y - target.y) * canvas().zoom() <= 8) {
+            if (std::hypot(node.x - target.x, node.y - target.y) * canvas().zoom.read() <= 8) {
                 target = node;
                 break;
             }
@@ -116,7 +116,7 @@ void Editor::paint_guide_overlay(gf::Painter& painter) {
             right = std::max(right, guide.boundary()[index].x);
             bottom = std::max(bottom, guide.boundary()[index].y);
         }
-        const double step = std::max(1.0, 18 / canvas().zoom());
+        const double step = std::max(1.0, 18 / canvas().zoom.read());
         for (double y = std::max(0.0, top); y < std::min(static_cast<double>(document.image.height), bottom);
              y += step) {
             for (double x = std::max(0.0, left);
@@ -281,7 +281,7 @@ bool Editor::path_swap_pointer(const gf::PointerEvent& event, Point point) {
             return false;
         }
         const std::vector<PathEdge> edges = document.path_edges();
-        double closest = 8 / canvas().zoom();
+        double closest = 8 / canvas().zoom.read();
         int selected = -1;
         int selected_curve = -1;
         for (std::size_t index = 0; index < edges.size(); ++index) {
@@ -426,7 +426,7 @@ bool Editor::guide_swap_pointer(const gf::PointerEvent& event, Point point) {
             const CurveGeometry& geometry = guide.segments[guide_swap_segment_].geometry;
             for (int handle = 0; handle < geometry.handle_count(); ++handle) {
                 const Point location = geometry.handle(handle);
-                if (std::hypot(point.x - location.x, point.y - location.y) * canvas().zoom() < 10) {
+                if (std::hypot(point.x - location.x, point.y - location.y) * canvas().zoom.read() < 10) {
                     guide_swap_handle_ = handle;
                     canvas().set_pointer_capture(true);
                     return true;
@@ -436,7 +436,7 @@ bool Editor::guide_swap_pointer(const gf::PointerEvent& event, Point point) {
         const std::size_t edges = guide.nodes.size() < 2 ? 0
                                   : guide.closed         ? guide.nodes.size()
                                                          : guide.nodes.size() - 1;
-        double closest = 8 / canvas().zoom();
+        double closest = 8 / canvas().zoom.read();
         int selected = -1;
         for (std::size_t edge = 0; edge < edges; ++edge) {
             std::vector<Point> samples{guide.nodes[edge], guide.nodes[(edge + 1) % guide.nodes.size()]};

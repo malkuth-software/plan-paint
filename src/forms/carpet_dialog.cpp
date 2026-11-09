@@ -93,7 +93,7 @@ void EditorDialog::on_attached_to_window() {
         render_carpet_preview();
     }
 }
-void EditorDialog::on_detaching_from_window(gf::Window& window) noexcept {
+void EditorDialog::on_detaching_from_window(gf::SurfaceRoot& window) noexcept {
     stop_numeric_transform();
     stop_icon_batch();
     stop_icon_states();
@@ -114,9 +114,9 @@ void EditorDialog::initialize_carpet() {
     }
     carpet_presets_ = gf::make_control<gf::ComboBox>(gf::StableId("carpet-presets"));
     (*carpet_presets_).accessible_name = tr("Fabric preset");
-    (*carpet_presets_).add_item(tr("Current settings"));
+    (*carpet_presets_).items.append(tr("Current settings"));
     for (int i = 0; i < carpet_preset_count; ++i) {
-        (*carpet_presets_).add_item(tr(carpet_preset_name(i)));
+        (*carpet_presets_).items.append(tr(carpet_preset_name(i)));
     }
     (*carpet_presets_).selected_index = 0;
     put(carpet_presets_, {22, 47, 505, 30});

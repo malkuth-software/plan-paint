@@ -17,8 +17,8 @@ void EditorDialog::initialize_batch_stamp() {
     batch_stamp_anchor_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-stamp-anchor"));
     (*batch_stamp_anchor_).accessible_name = tr("Anchor");
     (*batch_stamp_anchor_)
-        .set_items({tr("Top left"), tr("Top center"), tr("Top right"), tr("Middle left"), tr("Center"),
-                    tr("Middle right"), tr("Bottom left"), tr("Bottom center"), tr("Bottom right")});
+        .items = std::vector<std::string>{tr("Top left"), tr("Top center"), tr("Top right"), tr("Middle left"), tr("Center"),
+                    tr("Middle right"), tr("Bottom left"), tr("Bottom center"), tr("Bottom right")};
     (*batch_stamp_anchor_).selected_index = 4;
     put(batch_stamp_anchor_, {260, 120, 150, 28});
     batch_stamp_order_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-stamp-order"));

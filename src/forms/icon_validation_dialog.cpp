@@ -60,7 +60,7 @@ void EditorDialog::initialize_icon_validation() {
     (*validation_report_).read_only = true;
     (*validation_report_).multiline = true;
     (*validation_report_).word_wrap = true;
-    (*validation_report_).font = {gf::FontRole::control, 11, 400, false};
+    (*validation_report_).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
     (*validation_report_).accessible_name = tr("Icon validation");
     put(validation_report_, {20, 122, 740, 314});
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));

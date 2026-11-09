@@ -170,7 +170,7 @@ void Editor::paint_spiro_overlay(gf::Painter& painter) {
     if (!spiro.active) {
         return;
     }
-    const double zoom = canvas().zoom(), radius = spiro.guide_radius() * zoom;
+    const double zoom = canvas().zoom.read(), radius = spiro.guide_radius() * zoom;
     const gf::Point center = screen(spiro.center);
     const SpiroGuide& frame = spiro_guides()[spiro.guide];
     const double rim = std::max(8.0, 10 * spiro.scale * zoom);
@@ -486,7 +486,7 @@ bool Editor::spiro_pointer(const gf::PointerEvent& event, Point point) {
     if (spiro_drag_ != SpiroDrag::None) {
         if (event.action == gf::PointerAction::move || event.action == gf::PointerAction::up) {
             if (spiro_drag_ == SpiroDrag::PegPending) {
-                if (std::hypot(point.x - spiro_pointer_.x, point.y - spiro_pointer_.y) * canvas().zoom() >
+                if (std::hypot(point.x - spiro_pointer_.x, point.y - spiro_pointer_.y) * canvas().zoom.read() >
                     4) {
                     spiro_carried_ = spiro.pegs[spiro_origin_hole_];
                     spiro.pegs[spiro_origin_hole_] = {};
@@ -517,7 +517,7 @@ bool Editor::spiro_pointer(const gf::PointerEvent& event, Point point) {
                 }
             } else if (spiro_drag_ == SpiroDrag::Lift) {
                 const Point target_point{point.x + spiro_grab_.x, point.y + spiro_grab_.y};
-                spiro.lift_to(target_point, 12 / canvas().zoom());
+                spiro.lift_to(target_point, 12 / canvas().zoom.read());
                 (*ribbon_).synchronize();
             } else {
                 const Point target_point{point.x + spiro_grab_.x, point.y + spiro_grab_.y};
@@ -565,7 +565,7 @@ bool Editor::spiro_pointer(const gf::PointerEvent& event, Point point) {
         spiro.inserted &&
         profile_clearance(point, wheel, spiro.wheel_radius(), spiro_inserts()[spiro.insert].profile,
                           spiro.wheel_rotation(spiro.angle)) < 3 * spiro.scale;
-    const double margin = 10 * spiro.scale + 4 / canvas().zoom();
+    const double margin = 10 * spiro.scale + 4 / canvas().zoom.read();
     const SpiroGuide& frame = spiro_guides()[spiro.guide];
     const double center_distance = std::hypot(point.x - spiro.center.x, point.y - spiro.center.y);
     const double cap = frame.cap_radius * spiro.scale;
@@ -582,9 +582,9 @@ bool Editor::spiro_pointer(const gf::PointerEvent& event, Point point) {
                              : std::abs(profile_clearance(point, spiro.center, spiro.guide_radius(),
                                                           spiro_guides()[spiro.guide].profile, 0) -
                                         6 * spiro.scale) < margin;
-    const bool on_close = std::hypot(point.x - close.x, point.y - close.y) * canvas().zoom() < 11;
+    const bool on_close = std::hypot(point.x - close.x, point.y - close.y) * canvas().zoom.read() < 11;
     const Point resize = spiro.resize_position();
-    const bool on_resize = std::hypot(point.x - resize.x, point.y - resize.y) * canvas().zoom() < 11;
+    const bool on_resize = std::hypot(point.x - resize.x, point.y - resize.y) * canvas().zoom.read() < 11;
     const int hole = spiro_hole_at(point, false);
     if (event.action == gf::PointerAction::down && (on_wheel || on_ring || on_close || on_resize || hole >= 0)) {
         if (on_close) {
@@ -611,7 +611,7 @@ bool Editor::spiro_pointer(const gf::PointerEvent& event, Point point) {
             return true;
         }
         if (document.tool == Tool::Fill && on_wheel &&
-            std::hypot(point.x - wheel.x, point.y - wheel.y) * canvas().zoom() > 10) {
+            std::hypot(point.x - wheel.x, point.y - wheel.y) * canvas().zoom.read() > 10) {
             return true;
         }
         if (event.button != gf::PointerButton::primary) {
@@ -624,7 +624,7 @@ bool Editor::spiro_pointer(const gf::PointerEvent& event, Point point) {
             spiro_origin_hole_ = hole;
             spiro_pointer_ = point;
             spiro_drag_ = SpiroDrag::PegPending;
-        } else if (on_wheel && (spiro_lift || std::hypot(point.x - wheel.x, point.y - wheel.y) * canvas().zoom() <= 10)) {
+        } else if (on_wheel && (spiro_lift || std::hypot(point.x - wheel.x, point.y - wheel.y) * canvas().zoom.read() <= 10)) {
             spiro_drag_ = spiro_lift ? SpiroDrag::Lift : SpiroDrag::Wheel;
             spiro_lift_angle_ = spiro.angle;
             spiro_lift_offset_ = spiro.rolling_offset;

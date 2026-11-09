@@ -37,10 +37,10 @@ class ZoomTrackBar final : public gf::TrackBar {
     explicit ZoomTrackBar(gf::StableId id) : TrackBar(std::move(id)) {}
     gf::SemanticDescriptor semantic_descriptor() const override {
         gf::SemanticDescriptor descriptor = TrackBar::semantic_descriptor();
-        descriptor.numeric_value = std::exp2(value()) * 100;
+        descriptor.numeric_value = std::exp2(value.read()) * 100;
         descriptor.minimum_value = 6.25;
         descriptor.maximum_value = 3200;
-        descriptor.value = std::to_string(static_cast<int>(std::lround(std::exp2(value()) * 100))) + "%";
+        descriptor.value = std::to_string(static_cast<int>(std::lround(std::exp2(value.read()) * 100))) + "%";
         return descriptor;
     }
     bool on_semantic_action(gf::SemanticAction action, std::string_view text) override {
@@ -141,7 +141,7 @@ void Editor::initialize_control_tree() {
     // menu and recent pictures).
     rebuild_file_menu();
     file_notice_label_ = gf::make_control<gf::Label>(gf::StableId("file-change-notice"));
-    (*file_notice_label_).font = {gf::FontRole::control, 13, 600, false};
+    (*file_notice_label_).font = gf::FontSpec{gf::FontRole::control, 13, 600, false};
     add_child(file_notice_label_);
     file_reload_ = gf::make_control<gf::Button>(gf::StableId("file-reload"), tr("Reload from disk…"));
     subscriptions_.push_back((*file_reload_).clicked().subscribe(
@@ -153,7 +153,7 @@ void Editor::initialize_control_tree() {
     selection_status_ = gf::make_control<gf::Label>(gf::StableId("selection-status"));
     for (const std::shared_ptr<gf::Label>& label :
          {status_, cursor_status_, dimensions_status_, selection_status_}) {
-        (*label).font = {gf::FontRole::control, 12, 400, false, 0.08};
+        (*label).font = gf::FontSpec{gf::FontRole::control, 12, 400, false, 0.08};
         add_child(label);
     }
     tool_size_status_ = gf::make_control<gf::Button>(gf::StableId("status-tool-size"), tr("Size: 3 px"));
@@ -164,7 +164,7 @@ void Editor::initialize_control_tree() {
     for (const std::shared_ptr<gf::Button>& button : {zoom_out_, zoom_in_, zoom_reset_, tool_size_status_}) {
         (*button).set_theme_override(ribbon_theme());
         (*button).content_padding = {2, 1, 2, 1};
-        (*button).font = {gf::FontRole::control,
+        (*button).font = gf::FontSpec{gf::FontRole::control,
                             button == zoom_reset_ || button == tool_size_status_ ? 12.0 : 18.0, 400, false};
         subscriptions_.push_back((*button).clicked().subscribe(
             *this, gf::Delegate<gf::ButtonBase&>::bind<Editor, &Editor::status_clicked>(*this)));
@@ -282,7 +282,7 @@ void Editor::arrange(gf::Rect bounds) {
     set_child_layout(zoom_in_, {1213 * scale, y + 1, 26 * scale, 25});
     for (const std::shared_ptr<gf::Label>& label :
          {status_, cursor_status_, selection_status_, dimensions_status_}) {
-        (*label).font = {gf::FontRole::control, std::clamp(12 * scale, 10.0, 12.0), 400, false};
+        (*label).font = gf::FontSpec{gf::FontRole::control, std::clamp(12 * scale, 10.0, 12.0), 400, false};
     }
 }
 void Editor::on_paint(gf::Painter& painter, gf::Rect) {
@@ -486,7 +486,7 @@ void Editor::on_attached_to_window() {
                             .register_accelerator(*this, {gf::PhysicalKey::f1, gf::Modifier::none},
                                                   std::bind(&Editor::help_shortcut, this));
 }
-void Editor::on_detaching_from_window(gf::Window& former_window) noexcept {
+void Editor::on_detaching_from_window(gf::SurfaceRoot& former_window) noexcept {
     file_subscription_.disconnect();
     file_timer_.reset();
     recovery_subscription.disconnect();
@@ -726,8 +726,8 @@ void Editor::rotate_view(double radians) {
     const gui_drawing::PointF center = canvas().client_to_bitmap({viewport.width / 2, viewport.height / 2});
     canvas().view_angle = std::remainder(radians, 2 * std::numbers::pi);
     const gui_drawing::PointF mapped = canvas().view_point(center);
-    canvas().set_view_origin({mapped.x - viewport.width / (2 * canvas().zoom()),
-                              mapped.y - viewport.height / (2 * canvas().zoom())});
+    canvas().set_view_origin({mapped.x - viewport.width / (2 * canvas().zoom.read()),
+                              mapped.y - viewport.height / (2 * canvas().zoom.read())});
     refresh();
     if (warp_active() || resize_handle_ >= 0) {
         update_transform_preview();
@@ -922,8 +922,8 @@ void Editor::pointer(const gf::PointerEvent& event) {
                                 rotation_grab_angle_,
                             2 * std::numbers::pi);
                         const gui_drawing::PointF point = canvas().view_point(rotation_document_pivot_);
-                        canvas().set_view_origin({point.x - rotation_pivot_.x / canvas().zoom(),
-                                                  point.y - rotation_pivot_.y / canvas().zoom()});
+                        canvas().set_view_origin({point.x - rotation_pivot_.x / canvas().zoom.read(),
+                                                  point.y - rotation_pivot_.y / canvas().zoom.read()});
                         if (first_rotation) {
                             canvas().publish_source(stamp_placement_ ? stamp_placement_image()
                                                                     : document.visible_image(), {});
@@ -1653,8 +1653,8 @@ void Editor::on_key_preview(gf::KeyEvent& event) {
                     event.physical_key == gf::PhysicalKey::right ||
                     event.physical_key == gf::PhysicalKey::up ||
                     event.physical_key == gf::PhysicalKey::down)) {
-            gui_drawing::PointF origin = canvas().view_origin();
-            const double step = (shift ? 128.0 : 32.0) / canvas().zoom();
+            gui_drawing::PointF origin = canvas().view_origin.read();
+            const double step = (shift ? 128.0 : 32.0) / canvas().zoom.read();
             if (event.physical_key == gf::PhysicalKey::left) {
                 origin.x -= step;
             }
@@ -2005,10 +2005,10 @@ void Editor::copy_alpha_image(const Image& source) {
 }
 Image Editor::read_alpha_mask() {
     const gf::HostClipboardImageResult result = services().read_clipboard_image();
-    if (!result.status.accepted()) {
+    if (!result.status().accepted()) {
         throw std::runtime_error(tr("Could not read the image clipboard"));
     }
-    return result.image.has_value() ? validated_clipboard_image(*result.image) : Image{};
+    return result.image() != nullptr ? validated_clipboard_image(*result.image()) : Image{};
 }
 void Editor::copy() {
     Image image = document.selection.active ? document.selected_image() : document.visible_image();
@@ -2036,13 +2036,13 @@ void Editor::paste() {
         return;
     }
     gf::HostClipboardImageResult result = services().read_clipboard_image();
-    if (!result.status.accepted()) {
+    if (!result.status().accepted()) {
         throw std::runtime_error(tr("Could not read the image clipboard"));
     }
-    if (!result.image.has_value()) {
+    if (result.image() == nullptr) {
         return;
     }
-    Image image = validated_clipboard_image(*result.image);
+    Image image = validated_clipboard_image(*result.image());
     finish_controls();
     const Point origin = canvas().visible_paste_origin(document.image.width, document.image.height);
     document.paste(image, static_cast<int>(origin.x), static_cast<int>(origin.y));

@@ -6,6 +6,7 @@
 #include "forms/ribbon.hpp"
 #include "native_clipboard.hpp"
 #include "paths.hpp"
+#include "plan_paint_theme.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
@@ -545,7 +546,7 @@ struct NativeExercise {
         if (icon_index_paint_review) {
             const paint::IconFrame& frame = (*editor).document.atlas.icons[0];
             if (!painted || !paint::has_icon_palette(frame) || !(*editor).icon_index_paint ||
-                !(*std::dynamic_pointer_cast<gf::Button>(window.find("icon-index-paint"))).selected()) {
+                !(*std::dynamic_pointer_cast<gf::Button>(window.find("icon-index-paint"))).selected.read()) {
                 throw std::runtime_error("Native indexed canvas or mode control did not render");
             }
             return;
@@ -582,7 +583,7 @@ struct NativeExercise {
         if (external_file_review) {
             const std::shared_ptr<gf::Label> notice = std::dynamic_pointer_cast<gf::Label>(window.find("file-change-notice"));
             const gf::Control::Ptr reload = window.find("file-reload");
-            if (!painted || !notice || !reload || !(*reload).visible() || !(*reload).enabled() ||
+            if (!painted || !notice || !reload || !(*reload).visible.read() || !(*reload).enabled.read() ||
                 (*notice).text.read() != "File changed outside Plan Paint." ||
                 (*reload).absolute_bounds().right() > window.client_size().width ||
                 (*notice).absolute_bounds().bottom() > (*editor).canvas().absolute_bounds().y) {
@@ -602,7 +603,7 @@ struct NativeExercise {
             for (const paint::Color color : image.pixels) { if (color.r || color.g || color.b) { ++visible; } }
             if (visible < image.pixels.size()/2) { throw std::runtime_error("Native strip captured only a partial repaint"); }
             const gf::Control::Ptr output=window.find("strip-export");
-            if (!painted || !output || !(*output).enabled() || (*output).absolute_bounds().bottom()>window.client_size().height) {
+            if (!painted || !output || !(*output).enabled.read() || (*output).absolute_bounds().bottom()>window.client_size().height) {
                 throw std::runtime_error("Native toolbar strip did not render or fit");
             }
             return;
@@ -669,7 +670,7 @@ struct NativeExercise {
         }
         if (asset_browser_review) {
             const gf::Control::Ptr reveal=window.find("asset-reveal");
-            if (!reveal || !(*reveal).enabled() || (*reveal).absolute_bounds().right()>window.client_size().width ||
+            if (!reveal || !(*reveal).enabled.read() || (*reveal).absolute_bounds().right()>window.client_size().width ||
                 (*reveal).absolute_bounds().bottom()>window.client_size().height) { throw std::runtime_error("Native reveal control did not fit"); }
             if (!painted || !window.find("asset-stamp") || !(*window.find("asset-stamp")).enabled.read()) {
                 throw std::runtime_error("Native asset browser preview did not render");
@@ -679,7 +680,7 @@ struct NativeExercise {
         if (icon_sheet_review) {
             const gf::Control::Ptr open = window.find("sheet-open");
             if (!painted || !window.find("sheet-export") || !(*window.find("sheet-export")).enabled.read() ||
-                !open || !(*open).enabled() || (*open).committed_arranged_bounds().x < 0 ||
+                !open || !(*open).enabled.read() || (*open).committed_arranged_bounds().x < 0 ||
                 (*open).committed_arranged_bounds().bottom() > window.client_size().height) {
                 throw std::runtime_error("Native contact sheet preview did not render");
             }
@@ -1174,15 +1175,15 @@ struct NativeExercise {
                 std::dynamic_pointer_cast<gf::ListBox>(window.find("asset-list"));
             const std::chrono::steady_clock::time_point deadline =
                 std::chrono::steady_clock::now() + std::chrono::seconds(15);
-            while ((*list).items().empty()) {
+            while ((*list).items.read().empty()) {
                 static_cast<void>(window.drain_posted_work());
                 if (std::chrono::steady_clock::now() > deadline) {
                     throw std::runtime_error("Native asset directory timed out");
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
-            for (std::size_t index = 0; index < (*list).items().size(); ++index) {
-                if ((*list).items()[index] == "app-icon.png") {
+            for (std::size_t index = 0; index < (*list).items.read().size(); ++index) {
+                if ((*list).items.read()[index] == "app-icon.png") {
                     (*list).select_index(index);
                     break;
                 }
@@ -1565,8 +1566,23 @@ int main(int argc, char** argv) {
             return gf::host::run_windows(std::move(window), std::move(host_options));
         }
 #endif
-        gf::ApplicationResult result = gf::Application::run(
-            std::make_unique<gf::Window>(exercise.editor, options.initial_size), std::move(options));
+        // The Application-first lifecycle, as main.cpp: the GUI.Forms base and
+        // Plan Paint's theme package, compiled once for the exercised window.
+        gf::ApplicationConfig config{};
+        config.theme.base = gf::ThemeBase::gui_forms;
+        config.theme.packages.push_back(paint::plan_paint_theme());
+        gf::ApplicationCreateResult created = gf::Application::create(std::move(config));
+        for (const gf::ThemeCompileDiagnostic& finding : created.findings) {
+            std::cerr << "Plan Paint theme: " << finding.code << ' ' << finding.file << ':' << finding.line << ' '
+                      << finding.rule << ' ' << finding.property << ' ' << finding.detail << '\n';
+        }
+        if (!created) {
+            throw std::runtime_error("the GUI.Forms application could not be created (error " +
+                                     std::to_string(static_cast<int>(created.error)) + ")");
+        }
+        gf::ApplicationResult result = (*created.application)
+                                           .run(std::make_unique<gf::Window>(exercise.editor, options.initial_size),
+                                                std::move(options));
         if (result.callback_exception) {
             std::rethrow_exception(result.callback_exception);
         }

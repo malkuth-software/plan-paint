@@ -86,16 +86,16 @@ void EditorDialog::initialize_icon_batch() {
 
     batch_operation_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-operation"));
     (*batch_operation_)
-        .set_items({tr("Convert to ICO"), tr("Normalize sizes"), tr("Icon state variants"),
-                    tr("Export representations"), tr("Stamp"), tr("Shared palette")});
+        .items = std::vector<std::string>{tr("Convert to ICO"), tr("Normalize sizes"), tr("Icon state variants"),
+                    tr("Export representations"), tr("Stamp"), tr("Shared palette")};
     (*batch_operation_).selected_index = 0;
     put(batch_operation_, {260, 48, 480, 28});
     const std::size_t normal_begin = controls_.size();
     batch_policy_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-policy"));
     (*batch_policy_)
-        .set_items({tr("Add missing sizes; keep existing images"),
+        .items = std::vector<std::string>{tr("Add missing sizes; keep existing images"),
                     tr("Replace chosen sizes; keep other images"),
-                    tr("Exact profile; remove unchecked sizes")});
+                    tr("Exact profile; remove unchecked sizes")};
     (*batch_policy_).selected_index = 0;
     (*batch_policy_).accessible_name = tr("Icon sizes");
     put(batch_policy_, {260, 84, 480, 28});
@@ -105,7 +105,7 @@ void EditorDialog::initialize_icon_batch() {
                                            std::to_string(batch_sizes[index]));
         (*size).accessible_name = std::to_string(batch_sizes[index]) + " px";
         (*size).checked = batch_sizes[index] != 96;
-        (*size).font = {gf::FontRole::control, 12, 400, false};
+        (*size).font = gf::FontSpec{gf::FontRole::control, 12, 400, false};
         put(size, {260 + index * 60.0, 120, 58, 28});
         subscriptions_.push_back((*size).checked_changed().subscribe(
             *this, gf::Delegate<bool>::bind<EditorDialog, &EditorDialog::batch_checked>(*this)));

@@ -50,7 +50,7 @@ void EditorDialog::initialize_dither() {
     dither_pattern_ = gf::make_control<gf::ComboBox>(gf::StableId("dither-pattern"));
     (*dither_pattern_).accessible_name = tr("Dithering pattern");
     for (const std::string& name : {tr("Crosswind"), tr("Weave"), tr("Scrambled"), tr("Drift"), tr("Posterize (no dither)")}) {
-        (*dither_pattern_).add_item(name);
+        (*dither_pattern_).items.append(name);
     }
     (*dither_pattern_).selected_index = static_cast<std::size_t>((*editor).dither_options.pattern);
     put(dither_pattern_, {367, 52, 228, 28});

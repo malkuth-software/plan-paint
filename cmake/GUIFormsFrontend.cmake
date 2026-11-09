@@ -9,6 +9,10 @@ if(RAINSTAR_TOOLKIT_SOURCE_DIR)
   endif()
   add_subdirectory("${RAINSTAR_TOOLKIT_SOURCE_DIR}" toolkit EXCLUDE_FROM_ALL)
   set(GUIForms_FONT_DIR "${RAINSTAR_TOOLKIT_SOURCE_DIR}/assets/fonts")
+  # gui_forms_add_theme finds its embed script through a directory variable
+  # that the toolkit's add_subdirectory scope keeps to itself (and the module
+  # returns early once the function exists), so name it here as well.
+  set(GUI_FORMS_THEME_EMBED_SCRIPT "${RAINSTAR_TOOLKIT_SOURCE_DIR}/cmake/GUIFormsThemeEmbed.cmake")
 else()
 # Keep the explicitly selected SDK ahead of ambient /usr/local headers. Mixing
 # installed GUI.Forms headers from another SDK with these libraries breaks ABI.
@@ -137,6 +141,8 @@ install(TARGETS plan-paint BUNDLE DESTINATION . RUNTIME DESTINATION .)
 if(APPLE OR WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_executable(paint-forms-native-tests MACOSX_BUNDLE tests/forms_native.cpp)
   target_link_libraries(paint-forms-native-tests PRIVATE paint_forms)
+  # The native exercise runs Application-first with Plan Paint's package, as main.cpp.
+  gui_forms_add_theme(paint-forms-native-tests themes/plan-paint FUNCTION plan_paint_theme NAMESPACE paint)
   if(APPLE)
     target_sources(paint-forms-native-tests PRIVATE ${toolkit_fonts})
     set_target_properties(paint-forms-native-tests PROPERTIES

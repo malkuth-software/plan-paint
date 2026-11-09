@@ -43,8 +43,8 @@ void EditorDialog::initialize_icon_effects() {
                     *this)));
     effect_choice_ = gf::make_control<gf::ComboBox>(gf::StableId("effect-choice"));
     (*effect_choice_)
-        .set_items({tr("Brightness / contrast"), tr("Hue / saturation"), tr("Grayscale"), tr("Opacity %"),
-                    tr("Blur"), tr("Sharpen"), tr("Shadow"), tr("Fit artwork within image")});
+        .items = std::vector<std::string>{tr("Brightness / contrast"), tr("Hue / saturation"), tr("Grayscale"), tr("Opacity %"),
+                    tr("Blur"), tr("Sharpen"), tr("Shadow"), tr("Fit artwork within image")};
     (*effect_choice_).selected_index = 0;
     (*effect_choice_).accessible_name = tr("Effects");
     put(effect_choice_, {350, 48, 410, 28});

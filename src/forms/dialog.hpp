@@ -72,7 +72,7 @@ class ColorPlane final : public gui_forms::Control {
     ColorPlane(gui_forms::StableId id, std::weak_ptr<EditorDialog> dialog, bool hue_strip);
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
     void on_pointer(gui_forms::PointerEvent& event) override;
-    void on_detaching_from_window(gui_forms::Window& window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& window) noexcept override;
 
   private:
     std::weak_ptr<EditorDialog> dialog_;
@@ -90,7 +90,7 @@ class EditorDialog final : public gui_forms::Control {
     EditorDialog(gui_forms::StableId id, std::weak_ptr<Editor> editor, EditorDialogKind kind, bool secondary);
     ~EditorDialog() override;
     void on_attached_to_window() override;
-    void on_detaching_from_window(gui_forms::Window& window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& window) noexcept override;
     void deliver_carpet();
     void deliver_dither();
     void deliver_icon_sheet();

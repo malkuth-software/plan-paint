@@ -13,7 +13,7 @@ PatternCanvas::PatternCanvas(gf::StableId id, std::weak_ptr<Editor> editor, std:
     accessible_name = tr("Custom pattern canvas — black and white pencil");
 }
 void PatternCanvas::initialize_control_tree() {
-    const char* ids[] = {"pattern-return", "pattern-resize", "pattern-undo", "pattern-redo"};
+    const std::string_view ids[] = {"pattern-return", "pattern-resize", "pattern-undo", "pattern-redo"};
     const std::string labels[] = {tr("Return to main canvas"), tr("Resize tile"), tr("Undo"), tr("Redo")};
     const gf::Rect positions[] = {
         {12, 12, 180, 30}, {470, 12, 110, 30}, {592, 12, 70, 30}, {670, 12, 70, 30}};

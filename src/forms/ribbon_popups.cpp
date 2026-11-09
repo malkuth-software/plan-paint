@@ -35,11 +35,11 @@ std::shared_ptr<gf::Button> Ribbon::add_popup_button(gf::Panel& panel, const std
         item = gf::make_control<SpiroPartButton>(gf::StableId("popup-" + id), text, guide ? 0 : 1,
                                                  std::stoi(id.substr(guide ? 12 : 13)));
         (*item).content_padding = {2, 40, 2, 2};
-        (*item).font = {gf::FontRole::control, 11, 400, false};
+        (*item).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
         (*item).text_alignment = gf::ContentAlignment::bottom_center;
     } else {
         item = gf::make_control<gf::Button>(gf::StableId("popup-" + id), text);
-        (*item).font = {gf::FontRole::control, 14, 400, false, 0.05};
+        (*item).font = gf::FontSpec{gf::FontRole::control, 14, 400, false, 0.05};
         (*item).text_image_relation = gf::TextImageRelation::image_before_text;
         (*item).text_alignment = gf::ContentAlignment::middle_left;
         (*item).image_alignment = gf::ContentAlignment::middle_left;

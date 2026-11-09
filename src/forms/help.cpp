@@ -49,14 +49,14 @@ HelpBook::HelpBook(gf::StableId id) : ScrollableControl(std::move(id)) {
 }
 void HelpBook::initialize_control_tree() {
     close_ = gf::make_control<gf::Button>(gf::StableId("help-close"), "×");
-    (*close_).font = {gf::FontRole::control, 24, 400, false};
+    (*close_).font = gf::FontSpec{gf::FontRole::control, 24, 400, false};
     (*close_).accessible_name = tr("Close Paint Help");
     add_child(close_);
     title_ = gf::make_control<gf::Label>(gf::StableId("help-title"), tr("Plan Paint Help"));
     introduction_ = gf::make_control<gf::Label>(gf::StableId("help-welcome"), tr(help_welcome));
     for (const std::shared_ptr<gf::Label>& label : {title_, introduction_}) {
-        (*label).font = {gf::FontRole::control, 18, 400, false};
-        (*label).set_foreground(gf::Color::rgba(0, 0, 0));
+        (*label).font = gf::FontSpec{gf::FontRole::control, 18, 400, false};
+        (*label).fore_color = gf::Color::rgba(0, 0, 0);
         (*label).text_wrapping = gf::TextWrapping::word;
         if (current_language().right_to_left) { (*label).alignment = gf::HorizontalAlignment::far; }
         add_child(label);
@@ -65,7 +65,7 @@ void HelpBook::initialize_control_tree() {
         const HelpTopic& topic = help_topics[i];
         std::shared_ptr<gf::Button> header = gf::make_control<HelpHeader>(
             gf::StableId("help-topic-" + std::to_string(i)), tr(topic.title), topic.open);
-        (*header).font = {gf::FontRole::control, 18, 400, false};
+        (*header).font = gf::FontSpec{gf::FontRole::control, 18, 400, false};
         (*header).text_alignment = gf::ContentAlignment::middle_left;
         (*header).content_padding = {4, 1, 4, 1};
         (*header).accessible_name = tr(topic.title);
@@ -73,8 +73,8 @@ void HelpBook::initialize_control_tree() {
             *this, gf::Delegate<gf::ButtonBase&>::bind<HelpBook, &HelpBook::toggle>(*this)));
         std::shared_ptr<gf::Label> body = gf::make_control<gf::Label>(
             gf::StableId("help-body-" + std::to_string(i)), tr(topic.body));
-        (*body).font = {gf::FontRole::control, 18, 400, false};
-        (*body).set_foreground(gf::Color::rgba(0, 0, 0));
+        (*body).font = gf::FontSpec{gf::FontRole::control, 18, 400, false};
+        (*body).fore_color = gf::Color::rgba(0, 0, 0);
         (*body).text_wrapping = gf::TextWrapping::word;
         if (current_language().right_to_left) { (*body).alignment = gf::HorizontalAlignment::far; }
         (*body).visible = topic.open;

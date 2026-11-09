@@ -18,13 +18,6 @@ void PaintCanvas::on_focus_changed(bool focused) {
         (*editor).text_focus(focused);
     }
 }
-void PaintCanvas::on_frame(gf::FrameTime) {
-    std::shared_ptr<Editor> editor = editor_.lock();
-    if (editor) {
-        (*editor).text_frame();
-        (*editor).selection_frame();
-    }
-}
 gf::SemanticDescriptor PaintCanvas::semantic_descriptor() const {
     std::shared_ptr<Editor> editor = editor_.lock();
     if (!editor || !(*editor).text.active) {
@@ -32,7 +25,7 @@ gf::SemanticDescriptor PaintCanvas::semantic_descriptor() const {
         if (display_surface_) {
             const gf::LiveSurfaceSnapshot snapshot = (*display_surface_).snapshot();
             descriptor.value = std::to_string(snapshot.description.width) + " x " +
-                std::to_string(snapshot.description.height) + " at " + std::to_string(zoom() * 100) + "%";
+                std::to_string(snapshot.description.height) + " at " + std::to_string(zoom.read() * 100) + "%";
             descriptor.exposed = true;
         }
         return descriptor;
@@ -62,8 +55,9 @@ void Editor::reset_text_caret() {
     text_caret_visible_ = true;
     text_caret_frame_.disconnect();
     if (text.active && window() && (*window()).focused_control() == canvas_) {
-        text_caret_frame_ =
-            (*window()).schedule_paint(canvas_, gf::FrameClock::now() + std::chrono::milliseconds(530));
+        const gf::FrameInterval blink = std::chrono::milliseconds(530);
+        text_caret_frame_ = (*window()).schedule_ui_timer(*this, blink, gf::FrameClock::now() + blink,
+                                                          FrameTick{this, &Editor::text_frame});
     }
     (*canvas_).invalidate(gf::Dirty::paint | gf::Dirty::semantics);
 }
@@ -104,12 +98,11 @@ gf::Rect Editor::text_caret_damage() const {
 }
 void Editor::text_frame() {
     if (!text.active || !window() || (*window()).focused_control() != canvas_) {
+        text_caret_frame_.disconnect();
         return;
     }
     text_caret_visible_ = !text_caret_visible_;
     (*canvas_).invalidate(text_caret_damage());
-    text_caret_frame_ =
-        (*window()).schedule_paint(canvas_, gf::FrameClock::now() + std::chrono::milliseconds(530));
 }
 void Editor::text_input(gf::TextInputEvent& event) {
     if (!text.active || !gf::validate_utf8(event.text_utf8).valid()) {
