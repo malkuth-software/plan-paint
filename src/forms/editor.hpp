@@ -197,6 +197,9 @@ class Editor final : public gui_forms::Control {
     std::uint64_t recovery_capture_revision = 0;
     bool recovery_failed = false, recovery_startup_pending = false;
     std::string recovery_notice;
+    // A command-line file that failed to open. Ready may run before the host
+    // can show modal UI, so the message waits for the first recovery tick.
+    std::string startup_open_error;
 
     RecentFiles recent;
     int jpeg_quality = 92;

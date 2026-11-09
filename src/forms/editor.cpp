@@ -524,10 +524,22 @@ void Editor::ready(gf::Window&, gf::ApplicationWindowHandle handle, const std::s
     load_custom_pattern();
     rebuild_file_menu();
     refresh();
+    // A file that cannot be opened must not end the session: the failure used
+    // to escape the ready callback, so Application::run reported it and Plan
+    // Paint quit before showing a window.
+    std::string opened_path;
     if (!initial_path.empty()) {
-        open_file(initial_path);
+        try {
+            open_file(initial_path);
+            opened_path = initial_path;
+        } catch (const std::exception& exception) {
+            startup_open_error = exception.what();
+            if (status_) {
+                (*status_).set_text(startup_open_error);
+            }
+        }
     }
-    start_recovery(initial_path);
+    start_recovery(opened_path);
 }
 void Editor::closing(gf::HostCloseRequest& request) {
     request.cancel = !can_replace();

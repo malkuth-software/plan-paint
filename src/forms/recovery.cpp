@@ -52,6 +52,11 @@ void Editor::start_recovery(const std::string& initial_path) {
 void Editor::recovery_tick() {
     if (recovery_startup_pending) {
         recovery_startup_pending = false;
+        if (!startup_open_error.empty()) {
+            const std::string message = startup_open_error;
+            startup_open_error.clear();
+            error(message);
+        }
         try {
             recover_document();
         } catch (const std::exception& exception) {

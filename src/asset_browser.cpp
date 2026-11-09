@@ -1,5 +1,6 @@
 #include "asset_browser.hpp"
 #include "codecs.hpp"
+#include "file_type.hpp"
 #include "paths.hpp"
 #include "safe_file.hpp"
 #include <algorithm>
@@ -25,21 +26,27 @@ bool classify(const std::filesystem::directory_entry& source, AssetEntry& entry)
     if (!source.is_regular_file(error) || error) {
         return false;
     }
-    const std::string extension = folded(path_to_utf8(source.path().extension()));
-    if (extension == ".ico") {
-        entry.kind = AssetKind::Icon;
-    } else if (extension == ".cur") {
-        entry.kind = AssetKind::Cursor;
-    } else if (extension == ".svg" || extension == ".svgz") {
-        entry.kind = AssetKind::Vector;
-    } else {
-        const std::string supported = ".png.jpg.jpeg.bmp.webp.avif.tiff.tif.tga.heic.heif.hif.";
-        if (extension.empty() || supported.find(extension + ".") == std::string::npos) {
-            return false;
-        }
-        entry.kind = AssetKind::Bitmap;
+    // Listing classifies by name (case-insensitive) without reading every
+    // file; opening an entry still resolves its type from its contents.
+    const ImageFileType type = image_type_from_extension(path_to_utf8(source.path()));
+    switch (type) {
+    case ImageFileType::ico: entry.kind = AssetKind::Icon; return true;
+    case ImageFileType::cur: entry.kind = AssetKind::Cursor; return true;
+    case ImageFileType::svg: entry.kind = AssetKind::Vector; return true;
+    case ImageFileType::png:
+    case ImageFileType::jpeg:
+    case ImageFileType::bmp:
+    case ImageFileType::webp:
+    case ImageFileType::avif:
+    case ImageFileType::heif:
+    case ImageFileType::tiff:
+    case ImageFileType::tga: entry.kind = AssetKind::Bitmap; return true;
+    // GIF and SVGZ are named but not openable; unknown names are not assets.
+    case ImageFileType::gif:
+    case ImageFileType::svgz:
+    case ImageFileType::unknown: return false;
     }
-    return true;
+    return false;
 }
 bool matches(AssetKind kind, AssetFilter filter) {
     return kind == AssetKind::Folder || filter == AssetFilter::All ||

@@ -1584,13 +1584,11 @@ void test_file_security() {
     paint::save_image(ordinary, ordinary_png.string());
     const std::vector<std::uint8_t> png = paint::read_image_bytes(ordinary_png.string());
     paint::write_file_atomic(png, disguised_heif.string(), "HEIF signature test write failed");
-    rejected = false;
-    try {
-        static_cast<void>(paint::load_image(disguised_heif.string()));
-    } catch (const std::exception&) {
-        rejected = true;
-    }
-    require(rejected, "a non-HEIF file reached the native HEIF decoder");
+    // Content decides: PNG bytes named .heic open as PNG and never reach the
+    // native HEIF decoder (which would refuse them on every platform).
+    const paint::Image disguised = paint::load_image(disguised_heif.string());
+    require(disguised.width == 4 && disguised.height == 4 && paint::equal(disguised.get(1, 1), ordinary.get(1, 1)),
+            "PNG bytes named .heic open by content, not through the HEIF decoder");
     std::filesystem::remove_all(directory);
 }
 } // namespace
