@@ -319,7 +319,7 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     colors.commands.push_back(std::move(secondary));
     colors.commands.push_back(gallery_command("palette-gallery", palette_));
     colors.commands.push_back(button("edit-colors", tr("Edit colors"), 24, Size::large));
-    // The colours never collapse: Primary and Alt stay on the plane at the
+    // The colours fold last: Primary and Alt stay on the plane at the
     // minimum window, as in the original.
     colors.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::large, 3),
                       sized_layout(gf::RibbonGroupSize::medium, 4, Size::small, 3)};
@@ -328,15 +328,22 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     // the colours on the plane: galleries give way first, then the clipboard,
     // image and shapes groups shrink and fold into buttons, then the colours
     // and brushes shrink to small commands.
-    tab.reduction_order = {{"shapes", gf::RibbonReductionKind::gallery_column},
-                           {"colors", gf::RibbonReductionKind::gallery_column},
-                           {"shapes", gf::RibbonReductionKind::gallery_column},
-                           {"clipboard", gf::RibbonReductionKind::layout},
-                           {"image", gf::RibbonReductionKind::layout},
-                           {"clipboard", gf::RibbonReductionKind::layout},
-                           {"shapes", gf::RibbonReductionKind::layout},
-                           {"colors", gf::RibbonReductionKind::layout},
-                           {"brushes", gf::RibbonReductionKind::layout}};
+    // (A gallery step gives up one column: the shapes go from seven columns
+    // to three, the palette from ten to four.)
+    tab.reduction_order.reserve(18);
+    for (int column = 0; column < 6; ++column) {
+        if (column < 4) {
+            tab.reduction_order.push_back({"shapes", gf::RibbonReductionKind::gallery_column});
+        }
+        tab.reduction_order.push_back({"colors", gf::RibbonReductionKind::gallery_column});
+    }
+    const gf::RibbonReductionStep layouts[] = {{"clipboard", gf::RibbonReductionKind::layout},
+                                               {"image", gf::RibbonReductionKind::layout},
+                                               {"clipboard", gf::RibbonReductionKind::layout},
+                                               {"shapes", gf::RibbonReductionKind::layout},
+                                               {"colors", gf::RibbonReductionKind::layout},
+                                               {"brushes", gf::RibbonReductionKind::layout}};
+    tab.reduction_order.insert(tab.reduction_order.end(), std::begin(layouts), std::end(layouts));
     return tab;
 }
 
@@ -387,6 +394,14 @@ gf::RibbonTabSpec Ribbon::materials_tab() {
     number(grain, "grain-angle", tr("Grain angle"));
     grain.commands.push_back(button("new-grain", tr("New"), -1, Size::small));
     tab.groups.push_back(std::move(grain));
+    // The grain settings stay on the plane: the pattern gallery gives up
+    // columns (nine to four) and then the brushes (four to two) first.
+    for (int column = 0; column < 5; ++column) {
+        tab.reduction_order.push_back({"material-patterns", gf::RibbonReductionKind::gallery_column});
+    }
+    for (int column = 0; column < 2; ++column) {
+        tab.reduction_order.push_back({"material-brushes", gf::RibbonReductionKind::gallery_column});
+    }
     return tab;
 }
 
@@ -616,6 +631,7 @@ gf::RibbonTabSpec Ribbon::text_tab() {
     colors.commands.push_back(button("text-primary", tr("Primary"), 24, Size::large));
     if (!sticky) {
         colors.commands.push_back(button("text-secondary", tr("Alt"), 24, Size::large));
+        colors.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::large, 3), collapsed_layout()};
     }
     tab.groups.push_back(std::move(colors));
     gf::RibbonGroupSpec finish = group("text-finish", tr("Finish text"));
@@ -625,10 +641,16 @@ gf::RibbonTabSpec Ribbon::text_tab() {
     if (!sticky) {
         finish.commands.push_back(button("text-reset-effects", tr("Reset"), -1, Size::small));
     }
-    // Finishing stays on the plane at every width: its only layout cannot
-    // collapse, so the other groups give way first.
     finish.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3)};
     tab.groups.push_back(std::move(finish));
+    // Finishing and the font stay on the plane longest: the transform, the
+    // letter treatment and the colours fold into buttons first.
+    // (A sticky note's colours are one command, which never folds.)
+    if (!sticky) {
+        tab.reduction_order.push_back({"text-transform", gf::RibbonReductionKind::layout});
+        tab.reduction_order.push_back({"text-letters", gf::RibbonReductionKind::layout});
+        tab.reduction_order.push_back({"text-colors", gf::RibbonReductionKind::layout});
+    }
     return tab;
 }
 
@@ -730,6 +752,18 @@ std::vector<gf::RibbonTabSpec> Ribbon::build_tabs() {
     icon_tab.text = tr("Icon");
     icon_tab.tab_set = "icon-tools";
     tabs.push_back(std::move(icon_tab));
+    // The original tab row's widths (the earlier strip's tab buttons); the
+    // contextual text and spirograph tabs keep their labels' widths.
+    const std::pair<const char*, double> widths[] = {{"home-tab", 61},  {"view-tab", 63},   {"patterns-tab", 100},
+                                                     {"tool-tab", 142}, {"atlas-tab", 72},  {"icon-tab", 72},
+                                                     {"gradient-tab", 105}};
+    for (gf::RibbonTabSpec& tab : tabs) {
+        for (const std::pair<const char*, double>& width : widths) {
+            if (tab.stable_id == width.first) {
+                tab.width = width.second;
+            }
+        }
+    }
     return tabs;
 }
 

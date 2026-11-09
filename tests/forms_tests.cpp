@@ -6177,6 +6177,50 @@ void guide_dismissal_preserves_paint_and_curves() {
     require(editor.guide.nodes.empty() && editor.document.tool == paint::Tool::Pencil,
             "Guide toggles off a pending first anchor as well");
 }
+// An in-ribbon gallery wheeled to an item it did not show, then clicked,
+// chooses that item: the click is hit-tested before the press focuses the
+// gallery (which scrolls its selected item into view; GUI.Forms Ribbon gap
+// 9). The other tests reach such items through the scroll buttons.
+bool wheel_to_item(gf::Window& window, gf::RibbonGallery& gallery, const std::string& id, gf::Point& press) {
+    for (std::size_t step = 0; step <= gallery.items().size(); ++step) {
+        window.perform_layout();
+        for (const gf::RibbonGallery::Item& item : gallery.realized_items()) {
+            if (item.stable_id == id && item.parts.item_face.present) {
+                press = centre(window_rect(gallery, item.parts.item_face.bounds));
+                return true;
+            }
+        }
+        gf::PointerEvent wheel{gf::PointerAction::wheel, gf::PointerButton::none,
+                               centre(gallery.absolute_bounds())};
+        wheel.wheel_delta = {0, -1};
+        static_cast<void>(window.dispatch_pointer(wheel));
+    }
+    return false;
+}
+void gallery_wheel_then_click() {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::Window& window = *fixture.window;
+    open_tab(window, "patterns-tab");
+    const std::shared_ptr<gf::RibbonGallery> brushes =
+        std::dynamic_pointer_cast<gf::RibbonGallery>(window.find("brushes-gallery"));
+    require(brushes != nullptr, "the Materials tab hosts the brushes gallery");
+    gf::Point press{};
+    require(wheel_to_item(window, *brushes, "material-brush-8", press), "the wheel brings Watercolor into view");
+    press_at(window, "material-brush-8", press, gf::PointerButton::primary);
+    require(editor.document.ink.brush == paint::Brush::Watercolor,
+            "a click after wheeling the brushes gallery chooses the item under the pointer");
+    open_tab(window, "home-tab");
+    open_menu(window, "tool-3");
+    routed_button(window, "popup-bucket-gradient");
+    const std::shared_ptr<gf::RibbonGallery> presets =
+        std::dynamic_pointer_cast<gf::RibbonGallery>(window.find("gradient-presets-gallery"));
+    require(presets != nullptr, "the gradient tab hosts the presets gallery");
+    require(wheel_to_item(window, *presets, "gradient-preset-3", press), "the wheel brings Chrome into view");
+    press_at(window, "gradient-preset-3", press, gf::PointerButton::primary);
+    require(editor.fill_gradient.stops.size() == 6 && editor.fill_gradient.angle == 90,
+            "a click after wheeling the presets gallery loads the Chrome preset");
+}
 void zoom_anchors_the_point() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
@@ -6393,6 +6437,7 @@ int main(int argc, char** argv) {
         centered_closed_shapes();
         centered_circle_and_materials();
         gradient_fill_controls_and_undo();
+        gallery_wheel_then_click();
         dither_dialog_and_brush();
         glitter_menu_controls();
         carpet_generator_controls();
