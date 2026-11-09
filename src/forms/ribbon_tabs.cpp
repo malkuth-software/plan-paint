@@ -176,6 +176,18 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     gf::RibbonTabSpec tab;
     tab.stable_id = "home-tab";
     tab.text = tr("Home");
+    // Save, Undo and Redo at the plane's left, as the original ribbon, with
+    // no caption beneath.
+    gf::RibbonGroupSpec quick = group("quick", "");
+    quick.layouts = {paired_rows()};
+    quick.commands.push_back(button("save", tr("Save"), 14, Size::small));
+    gf::RibbonCommandSpec undo = button("undo", tr("Undo (Ctrl/Command+Z)"), 15, Size::small);
+    gf::RibbonCommandSpec redo = button("redo", tr("Redo (Ctrl/Command+Y)"), 16, Size::small);
+    icon_only(undo);
+    icon_only(redo);
+    quick.commands.push_back(std::move(undo));
+    quick.commands.push_back(std::move(redo));
+    tab.groups.push_back(std::move(quick));
     gf::RibbonGroupSpec clipboard = group("clipboard", tr("Clipboard"));
     gf::RibbonCommandSpec paste = button("paste", tr("Paste"), 0, Size::large, Kind::split);
     paste.drop_down = {menu_item("paste", tr("Paste")), menu_item("open", tr("Open image…"))};
@@ -241,6 +253,9 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     for (gf::RibbonCommandSpec& each : tools.commands) {
         icon_only(each);
     }
+    // The tools and the brushes group never collapse (the original ribbon
+    // kept them on the plane at the minimum window).
+    tools.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3)};
     tab.groups.push_back(std::move(tools));
 
     gf::RibbonGroupSpec brushes = group("brushes", tr("Brushes"));
@@ -269,13 +284,18 @@ gf::RibbonTabSpec Ribbon::home_tab() {
                        menu_item("guide-clear", tr("Unset guide"))};
     brushes.commands.push_back(std::move(guide));
     brushes.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::large, 3),
-                       sized_layout(gf::RibbonGroupSize::medium, 4, Size::small, 2), collapsed_layout()};
+                       sized_layout(gf::RibbonGroupSize::medium, 4, Size::small, 2)};
     tab.groups.push_back(std::move(brushes));
 
     gf::RibbonGroupSpec shapes = group("shapes", tr("Shapes"));
     shapes.commands.push_back(gallery_command("shapes-gallery", shapes_));
     shapes.commands.push_back(button("edge-switch", tr("Edge"), -1, Size::small, Kind::toggle));
     shapes.commands.push_back(button("fill-switch", tr("Fill"), -1, Size::small, Kind::toggle));
+    // Collapsed, the group shows its first shape (its first command is the
+    // gallery, which has no image of its own).
+    if (shapes_.gallery && !(*shapes_.gallery).items().empty()) {
+        shapes.image = (*shapes_.gallery).items()[0].image;
+    }
     tab.groups.push_back(std::move(shapes));
 
     gf::RibbonGroupSpec size = group("size", tr("Size"));
@@ -597,6 +617,9 @@ gf::RibbonTabSpec Ribbon::text_tab() {
     if (!sticky) {
         finish.commands.push_back(button("text-reset-effects", tr("Reset"), -1, Size::small));
     }
+    // Finishing stays on the plane at every width: its only layout cannot
+    // collapse, so the other groups give way first.
+    finish.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3)};
     tab.groups.push_back(std::move(finish));
     return tab;
 }
@@ -710,7 +733,7 @@ void Ribbon::apply_tabs() {
     for (const gf::RibbonTabSpec& tab : tabs) {
         signature += "|" + tab.stable_id + "=" + tab.text;
         for (const gf::RibbonGroupSpec& each : tab.groups) {
-            signature += "/" + each.stable_id;
+            signature += "/" + each.stable_id + (each.image.value != 0U ? "*" : "");
             for (const gf::RibbonCommandSpec& spec : each.commands) {
                 signature += "," + spec.stable_id + (spec.image.value != 0U ? "*" : "");
                 for (const std::string& choice : spec.choices) {

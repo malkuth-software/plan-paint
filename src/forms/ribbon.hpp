@@ -94,8 +94,11 @@ class Ribbon final : public gui_forms::Control {
     // context mode, which hides the tool tab while its contextual tab shows.
     static constexpr std::uint32_t ordinary_mode = 1U;
     static constexpr std::uint32_t context_mode = 2U;
-    // The Quick Access Toolbar's row above the ribbon, in logical units.
-    static constexpr double quick_access_height = 26;
+    // The Quick Access Toolbar's row above the ribbon, in logical units. Off
+    // for Plan Paint (owner, 2026-11-09): the original ribbon keeps Save,
+    // Undo and Redo at the left of the Home plane, with no row above the
+    // tabs. The toolbar stays built and hidden, so the feature remains.
+    static constexpr double quick_access_height = 0;
     // A ribbon command's Command and its invoked subscription; one per ID.
     struct CommandEntry {
         std::shared_ptr<gui_forms::Command> command;

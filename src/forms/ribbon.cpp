@@ -355,6 +355,7 @@ void Ribbon::initialize_control_tree() {
     (*quick_access_).set_commands({{command("save", tr("Save")), {}, true},
                                    {command("undo", tr("Undo (Ctrl/Command+Z)")), {}, true},
                                    {command("redo", tr("Redo (Ctrl/Command+Y)")), {}, true}});
+    (*quick_access_).visible = false;
     add_child(quick_access_);
     // The help question mark sits at the right of the tab row (RB decisions
     // 41 to 43). The English escape hatch must remain recognizable in every

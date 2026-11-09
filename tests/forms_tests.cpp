@@ -128,6 +128,13 @@ struct RibbonTarget {
 constexpr const char* gallery_ids[] = {"shapes-gallery",           "palette-gallery", "patterns-gallery",
                                        "brushes-gallery",          "size-gallery",    "stamp-shape-gallery",
                                        "gradient-presets-gallery"};
+bool command_present(const gf::Ribbon::CommandParts& parts) {
+    const bool hosted = parts.command_combo_box.present || parts.command_numeric_up_down.present ||
+                        parts.command_check_box.present || parts.command_text_box.present ||
+                        parts.command_gallery.present || parts.command_font_control.present ||
+                        parts.command_color_picker.present;
+    return parts.command_face.present || hosted;
+}
 // The gallery showing the item `id` now (an in-ribbon gallery on the
 // selected tab, or an open drop-down gallery), and the item.
 struct ShownItem {
@@ -149,7 +156,7 @@ std::optional<ShownItem> shown_gallery_item(gf::Window& window, const std::strin
         }
         bool shown = (*gallery).overlay_open();
         for (const gf::Ribbon::CommandItem& command : commands) {
-            shown = shown || (command.stable_id == gallery_id && command.parts.command_face.present);
+            shown = shown || (command.stable_id == gallery_id && command_present(command.parts));
         }
         if (!shown) {
             continue;
@@ -165,13 +172,6 @@ std::optional<ShownItem> shown_gallery_item(gf::Window& window, const std::strin
 }
 // Whether a realized command shows: a button's face, or a hosted control's
 // part (hosted commands have no face of their own).
-bool command_present(const gf::Ribbon::CommandParts& parts) {
-    const bool hosted = parts.command_combo_box.present || parts.command_numeric_up_down.present ||
-                        parts.command_check_box.present || parts.command_text_box.present ||
-                        parts.command_gallery.present || parts.command_font_control.present ||
-                        parts.command_color_picker.present;
-    return parts.command_face.present || hosted;
-}
 std::optional<gf::Ribbon::CommandItem> shown_command(gf::Window& window, const std::string& id) {
     window.perform_layout();
     const std::shared_ptr<gf::Ribbon> bar = find_ribbon_bar(window);
@@ -199,10 +199,10 @@ std::optional<gf::Ribbon::Tab> shown_tab(gf::Window& window, const std::string& 
     return std::nullopt;
 }
 // The row of the ribbon's open drop-down menu for the choice `id` (menu
-// rows are named "ribbon-bar.menu.popup.row.choice-<id>").
+// rows are named "ribbon-bar.menu.overlay.row.choice-<id>").
 gf::Control::Ptr menu_row(gf::Window& window, const std::string& id) {
     window.perform_layout();
-    return window.find("ribbon-bar.menu.popup.row.choice-" + id);
+    return window.find("ribbon-bar.menu.overlay.row.choice-" + id);
 }
 std::optional<RibbonTarget> ribbon_target(gf::Window& window, const std::string& id) {
     const std::shared_ptr<gf::Ribbon> bar = find_ribbon_bar(window);
@@ -217,6 +217,13 @@ std::optional<RibbonTarget> ribbon_target(gf::Window& window, const std::string&
         gf::Rect main = parts.command_face.bounds;
         if (parts.command_icon.present) {
             main = parts.command_icon.bounds;
+        } else if (parts.command_arrow.present) {
+            // A split's main zone is the face less its arrow zone: above the
+            // arrow on a large command, left of it on a small one.
+            const gf::Rect face = parts.command_face.bounds;
+            const gf::Rect arrow = parts.command_arrow.bounds;
+            main = arrow.y > face.y + 1 ? gf::Rect{face.x, face.y, face.width, arrow.y - face.y}
+                                        : gf::Rect{face.x, face.y, arrow.x - face.x, face.height};
         } else if (parts.command_label.present) {
             main = parts.command_label.bounds;
         }
@@ -5654,11 +5661,14 @@ void compact_ribbon_keeps_icons_and_fields() {
     window.perform_layout();
     // A command keeps its icon at every size; a group the scaling collapsed
     // shows its group button's icon in place of its commands.
-    bool collapsed_icons = true;
+    std::string iconless;
     for (const gf::Ribbon::Group& group : (*ribbon_bar(window)).realized_groups()) {
-        collapsed_icons = collapsed_icons && (!group.collapsed || group.parts.group_button_icon.present);
+        if (group.collapsed && !group.parts.group_button_icon.present) {
+            iconless += " " + group.stable_id;
+        }
     }
-    require(collapsed_icons, "compact ribbon keeps an icon on every collapsed group");
+    const std::string iconless_message = "compact ribbon keeps an icon on every collapsed group; without one:" + iconless;
+    require(iconless.empty(), iconless_message.c_str());
     for (const char* id : {"tool-2", "tool-3", "tool-4", "brush-menu"}) {
         const std::optional<gf::Ribbon::CommandItem> command = shown_command(window, id);
         require(!command || (*command).parts.command_icon.present,
