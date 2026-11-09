@@ -25,36 +25,90 @@ namespace {
 namespace gf = gui_forms;
 // The ribbon's commands and tabs are parts of gf::Ribbon ("ribbon-bar"), not
 // controls; hosted fields are its children "ribbon-bar.<id>".
+// The control a ribbon command hosts, wherever it is (on the plane, in an
+// open folded group's overlay, or held while its group is folded).
 gf::Control::Ptr hosted_control(gf::Window& window, const std::string& id) {
-    return window.find("ribbon-bar." + id);
+    const gf::Control::Ptr found = window.find("ribbon-bar." + id);
+    if (found) {
+        return found;
+    }
+    const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(window.find("ribbon-bar"));
+    if (!bar) {
+        return nullptr;
+    }
+    // Each accessor throws std::out_of_range for a command of another kind.
+    try {
+        return (*bar).combo_box(id);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        return (*bar).numeric_up_down(id);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        return (*bar).check_box(id);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        return (*bar).text_box(id);
+    } catch (const std::out_of_range&) {
+    }
+    return nullptr;
 }
-// The window bounds of the ribbon command `id` realized on the selected
-// tab (its face, or its hosted control's part), or none.
+// The window rectangle of a realized command's visible part: a button's
+// face, or (a hosted command has no face of its own) the part of the control
+// it hosts; none when nothing of it shows. `origin` is the window position
+// the parts are relative to.
+std::optional<gf::Rect> command_part_bounds(const gf::Ribbon::CommandParts& parts, gf::Rect origin) {
+    const gf::PartGeometry* const shown[] = {&parts.command_face,          &parts.command_combo_box,
+                                             &parts.command_numeric_up_down, &parts.command_check_box,
+                                             &parts.command_text_box,      &parts.command_gallery,
+                                             &parts.command_font_control,  &parts.command_color_picker};
+    for (const gf::PartGeometry* part : shown) {
+        if ((*part).present) {
+            const gf::Rect face = (*part).bounds;
+            const gf::Rect result{origin.x + face.x, origin.y + face.y, face.width, face.height};
+            return result;
+        }
+    }
+    return std::nullopt;
+}
+// The window bounds of the ribbon command `id` on the selected tab: on the
+// plane, or else inside a folded group, which is opened (as a user opens it)
+// and left open so its hosted controls can be inspected; none when neither
+// shows it. Folding is the Ribbon's behaviour at narrow widths.
 std::optional<gf::Rect> ribbon_command_bounds(gf::Window& window, const std::string& id) {
     window.perform_layout();
     const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(window.find("ribbon-bar"));
     if (!bar) {
         return std::nullopt;
     }
-    const gf::Rect origin = (*bar).absolute_bounds();
     for (const gf::Ribbon::CommandItem& command : (*bar).realized_commands()) {
-        if (command.stable_id != id) {
-            continue;
+        if (command.stable_id == id) {
+            return command_part_bounds(command.parts, (*bar).absolute_bounds());
         }
-        // A button shows its face; a hosted command has no face of its own,
-        // only the part of the control it hosts.
-        const gf::Ribbon::CommandParts& parts = command.parts;
-        const gf::PartGeometry* const shown[] = {&parts.command_face,          &parts.command_combo_box,
-                                                 &parts.command_numeric_up_down, &parts.command_check_box,
-                                                 &parts.command_text_box,      &parts.command_gallery,
-                                                 &parts.command_font_control,  &parts.command_color_picker};
-        for (const gf::PartGeometry* part : shown) {
-            if ((*part).present) {
-                const gf::Rect face = (*part).bounds;
-                const gf::Rect result{origin.x + face.x, origin.y + face.y, face.width, face.height};
-                return result;
+    }
+    const gf::Control::Ptr open = (*bar).group_overlay();
+    if ((*bar).overlay_group() && open) {
+        for (const gf::Ribbon::CommandItem& command : (*bar).realized_overlay_commands()) {
+            if (command.stable_id == id) {
+                return command_part_bounds(command.parts, (*open).absolute_bounds());
             }
         }
+    }
+    for (const gf::Ribbon::Group& group : (*bar).realized_groups()) {
+        if (!group.collapsed || !(*bar).show_group_overlay(group.stable_id, gf::MenuOpenMode::pointer)) {
+            continue;
+        }
+        window.perform_layout();
+        const gf::Control::Ptr overlay = (*bar).group_overlay();
+        for (const gf::Ribbon::CommandItem& command : (*bar).realized_overlay_commands()) {
+            if (command.stable_id == id && overlay) {
+                return command_part_bounds(command.parts, (*overlay).absolute_bounds());
+            }
+        }
+        (*bar).close_group_overlay();
+        window.perform_layout();
     }
     return std::nullopt;
 }
