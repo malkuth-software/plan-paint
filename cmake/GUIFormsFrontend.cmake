@@ -80,6 +80,19 @@ if(NOT RAINSTAR_SCROLLING_LAYOUT)
   message(FATAL_ERROR "Plan Paint requires the GUI.Forms scrolling-layout, keyboard, and diagonal-cursor extensions. See docs/GUI_FORMS_PORT.md.")
 endif()
 endif()
+# paint_core's CONV* uses stx_conv. An SDK's GUIFormsConfig finds it in this
+# scope; a pinned in-tree toolkit defines it as a global target; a toolkit
+# that installs stx at configure time leaves it in <build>/stx-prefix (or the
+# GUI_FORMS_STX_PREFIX it was given), where it is found here.
+if(NOT TARGET stx_conv::stx_conv)
+  if(GUI_FORMS_STX_PREFIX)
+    set(paint_stx_prefix "${GUI_FORMS_STX_PREFIX}")
+  else()
+    set(paint_stx_prefix "${CMAKE_BINARY_DIR}/stx-prefix")
+  endif()
+  find_package(stx_conv CONFIG REQUIRED NO_DEFAULT_PATH PATHS "${paint_stx_prefix}")
+endif()
+target_link_libraries(paint_core PUBLIC stx_conv::stx_conv)
 add_library(paint_forms STATIC src/forms/canvas_controls.cpp src/forms/gradient_controls.cpp src/forms/recovery.cpp src/forms/file_change.cpp src/forms/interface_theme.cpp src/cursors/tool_cursors.cpp src/forms/editor.cpp src/forms/pattern_canvas.cpp src/forms/display.cpp src/forms/ribbon.cpp src/forms/dialog.cpp src/forms/carpet_dialog.cpp src/forms/dither_dialog.cpp src/forms/icon_validation_dialog.cpp src/forms/icon_sheet_dialog.cpp src/forms/toolbar_strip_dialog.cpp src/forms/icon_export_dialog.cpp src/forms/asset_browser_dialog.cpp src/forms/asset_reveal.cpp src/forms/alpha_dialog.cpp src/forms/icon_effects_dialog.cpp src/forms/sticky_note_ribbon.cpp src/forms/numeric_transform_dialog.cpp src/forms/icon_palette_dialog.cpp src/forms/icon_states_dialog.cpp src/forms/icon_variant_export.cpp src/forms/icon_ribbon.cpp src/forms/icon_index_paint.cpp src/forms/icon_generation_dialog.cpp src/forms/icon_batch_dialog.cpp src/forms/icon_batch_stamp.cpp src/forms/icon_batch_palette.cpp src/forms/text.cpp src/forms/warp.cpp src/forms/atlas.cpp src/forms/selection.cpp src/forms/help.cpp src/forms/surface.cpp src/forms/guide.cpp src/forms/spirograph.cpp)
 target_link_libraries(paint_forms PUBLIC paint_core GUIForms::Application)
 target_include_directories(paint_forms PUBLIC src)

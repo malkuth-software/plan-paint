@@ -81,6 +81,13 @@ else()
   set_source_files_properties(vendor/playsuite-paper/paper.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off;-fno-fast-math")
 endif()
 target_link_libraries(paint_core PUBLIC ${RAINSTAR_TIFF_TARGET} ${RAINSTAR_WEBP_TARGET} avif lunasvg::lunasvg tinyxml2::tinyxml2)
+# CONV* resampling (src/conv.cpp) uses stx_conv, which ships beside GUI.Forms:
+# cmake/GUIFormsFrontend.cmake links it once the toolkit or SDK has found it.
+# Without the GUI.Forms frontend it must be found on CMAKE_PREFIX_PATH.
+if(NOT RAINSTAR_GUI_FORMS)
+  find_package(stx_conv CONFIG REQUIRED)
+  target_link_libraries(paint_core PUBLIC stx_conv::stx_conv)
+endif()
 if(WIN32)
   # command_line.cpp reads the UTF-16 command line with CommandLineToArgvW.
   target_link_libraries(paint_core PRIVATE shell32)
