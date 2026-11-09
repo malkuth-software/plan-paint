@@ -3,7 +3,7 @@
 #include <gui_forms/basic_controls.hpp>
 #include <gui_forms/components/tool_tip/tool_tip.hpp>
 #include <gui_forms/controls/button_base/button/drop_down_button/drop_down_button.hpp>
-#include <gui_forms/controls/panel/anchored_popup_layer/anchored_popup_layer.hpp>
+#include <gui_forms/controls/panel/anchored_overlay_layer/anchored_overlay_layer.hpp>
 #include <gui_forms/controls/panel/combo_box/combo_box.hpp>
 #include <gui_forms/controls/panel/numeric_up_down/numeric_up_down.hpp>
 #include <gui_forms/window.hpp>
@@ -64,8 +64,8 @@ class Ribbon final : public gui_forms::Control {
     std::shared_ptr<gui_forms::ToolTip> tooltips_;
     std::vector<std::shared_ptr<gui_forms::Button>> buttons_;
     std::vector<gui_forms::SubscriptionToken> subscriptions_, popup_subscriptions_;
-    std::shared_ptr<gui_forms::AnchoredPopupLayer> popup_layer_;
-    gui_forms::PopupToken popup_;
+    std::shared_ptr<gui_forms::AnchoredOverlayLayer> popup_layer_;
+    gui_forms::OverlayToken popup_;
     gui_forms::FocusScopeId focus_scope_;
     std::shared_ptr<gui_forms::DropDownButton> popup_owner_;
     std::shared_ptr<SwatchButton> primary_, secondary_;
@@ -137,7 +137,7 @@ class Ribbon final : public gui_forms::Control {
 
     void clicked(gui_forms::ButtonBase& button);
     void dropdown(gui_forms::DropDownButton& button);
-    void dismissed(gui_forms::PopupDismissReason reason);
+    void dismissed(gui_forms::OverlayDismissReason reason);
     void popup_clicked(gui_forms::ButtonBase& button);
     void bind_icon(gui_forms::Button& button, int icon, bool large);
     std::shared_ptr<gui_forms::Button> button(const std::string& id, const std::string& text, int icon,

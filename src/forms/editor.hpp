@@ -371,7 +371,7 @@ class Editor final : public gui_forms::Control {
     std::shared_ptr<Ribbon> ribbon_;
     std::shared_ptr<HelpBook> help_;
     std::shared_ptr<EditorDialog> editor_dialog_;
-    gui_forms::PopupToken editor_dialog_popup_;
+    gui_forms::OverlayToken editor_dialog_popup_;
     gui_forms::FocusScopeId editor_dialog_focus_;
     std::vector<std::shared_ptr<gui_forms::Command>> commands_;
     std::vector<gui_forms::SubscriptionToken> subscriptions_, menu_subscriptions_;

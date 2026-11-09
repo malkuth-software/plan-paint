@@ -353,7 +353,8 @@ struct NativeExercise {
         painted = window.paint((*framebuffer).painter(), {0, 0, size.width, size.height}).has_value();
         window.set_occluded(occluded, gf::FrameClock::now());
         (*framebuffer).end();
-        const bool bgra = (*framebuffer).channel_order() == gf::FramebufferChannelOrder::bgra;
+        // Every host's framebuffer is premultiplied sRGB BGRA8 since cp22.
+        const bool bgra = true;
         paint::Image image;
         image.reset(static_cast<int>((*framebuffer).width()), static_cast<int>((*framebuffer).height()), {});
         for (int y = 0; y < image.height; ++y) {
@@ -1426,8 +1427,7 @@ struct WindowsFixtureReady {
     gf::Window* window;
     void operator()(std::function<void()>, std::function<void()>,
                     std::function<gf::HostDialogResult(const gf::HostDialogRequest&)>,
-                    std::function<gf::HostServiceStatus(const gf::HostTooltipRequest&)>,
-                    std::function<void()>, std::function<gf::HostClipboardTextResult()>,
+                    std::function<gf::HostClipboardTextResult()>,
                     std::function<gf::HostServiceStatus(std::string_view)>) const {
         (*exercise).ready(*window, {});
     }

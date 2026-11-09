@@ -2518,17 +2518,17 @@ void Ribbon::dropdown(gf::DropDownButton& button) {
         }
     }
     popup_owner_ = std::dynamic_pointer_cast<gf::DropDownButton>(button.shared_from_this());
-    gf::AnchoredPopupPlacement placement;
+    gf::AnchoredOverlayPlacement placement;
     placement.preferred_size = {width, height};
     placement.gap = 2;
     popup_layer_ =
-        gf::make_control<gf::AnchoredPopupLayer>(gf::StableId("ribbon-popup"), popup_owner_, placement);
+        gf::make_control<gf::AnchoredOverlayLayer>(gf::StableId("ribbon-popup"), popup_owner_, placement);
     (*popup_layer_).set_content(panel);
     popup_subscriptions_.push_back(
         (*popup_layer_)
             .dismiss_requested()
-            .subscribe(*this, gf::Delegate<gf::PopupDismissReason>::bind<Ribbon, &Ribbon::dismissed>(*this)));
-    popup_ = (*attached_window()).open_popup(popup_owner_, popup_layer_);
+            .subscribe(*this, gf::Delegate<gf::OverlayDismissReason>::bind<Ribbon, &Ribbon::dismissed>(*this)));
+    popup_ = (*attached_window()).open_overlay(popup_owner_, popup_layer_);
     if (id == "stamp-shapes-menu") {
         for (int i = 0; i < stamp_shape_count; ++i) {
             gf::Control::Ptr shape = (*attached_window()).find("popup-stamp-shape-" + std::to_string(i));
@@ -2549,7 +2549,7 @@ void Ribbon::dropdown(gf::DropDownButton& button) {
     focus_scope_ = (*attached_window()).begin_focus_scope(popup_layer_, {}, focus_options);
     (*popup_owner_).set_drop_down_open(true);
 }
-void Ribbon::dismissed(gf::PopupDismissReason) {
+void Ribbon::dismissed(gf::OverlayDismissReason) {
     close_popup();
 }
 void Ribbon::close_popup() {

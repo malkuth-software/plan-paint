@@ -2082,7 +2082,7 @@ void Editor::open_editor_dialog(EditorDialogKind kind, bool secondary) {
     editor_dialog_ = gf::make_control<EditorDialog>(
         gf::StableId("editor-dialog"), std::static_pointer_cast<Editor>(shared_from_this()), kind, secondary);
     interface_themes.apply(*editor_dialog_, settings.interface_hue);
-    editor_dialog_popup_ = (*attached_window()).open_popup(shared_from_this(), editor_dialog_);
+    editor_dialog_popup_ = (*attached_window()).open_overlay(shared_from_this(), editor_dialog_);
     editor_dialog_focus_ = (*attached_window()).begin_focus_scope(editor_dialog_);
     if (kind == EditorDialogKind::atlas_gallery) {
         std::shared_ptr<AtlasPanel> gallery =
