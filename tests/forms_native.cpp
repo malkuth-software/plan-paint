@@ -3,12 +3,15 @@
 #include "safe_file.hpp"
 #include "fixtures/icon_reference.hpp"
 #include "forms/editor.hpp"
+#include "forms/ribbon.hpp"
 #include "native_clipboard.hpp"
 #include "paths.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
+#include <gui_forms/controls/ribbon/ribbon.hpp>
+#include <optional>
 #include <gui_forms/paint_framebuffer.hpp>
 #include <gui_forms/timer.hpp>
 #include <iostream>
@@ -19,6 +22,57 @@
 #endif
 namespace {
 namespace gf = gui_forms;
+// The ribbon's commands and tabs are parts of gf::Ribbon ("ribbon-bar"), not
+// controls; hosted fields are its children "ribbon-bar.<id>".
+gf::Control::Ptr hosted_control(gf::Window& window, const std::string& id) {
+    return window.find("ribbon-bar." + id);
+}
+// The window bounds of the ribbon command `id` realized on the selected
+// tab, or none.
+std::optional<gf::Rect> ribbon_command_bounds(gf::Window& window, const std::string& id) {
+    window.perform_layout();
+    const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(window.find("ribbon-bar"));
+    if (!bar) {
+        return std::nullopt;
+    }
+    const gf::Rect origin = (*bar).absolute_bounds();
+    for (const gf::Ribbon::CommandItem& command : (*bar).realized_commands()) {
+        if (command.stable_id == id && command.parts.command_face.present) {
+            const gf::Rect face = command.parts.command_face.bounds;
+            const gf::Rect result{origin.x + face.x, origin.y + face.y, face.width, face.height};
+            return result;
+        }
+    }
+    return std::nullopt;
+}
+bool ribbon_tab_selected(gf::Window& window, const std::string& id) {
+    window.perform_layout();
+    const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(window.find("ribbon-bar"));
+    if (!bar) {
+        return false;
+    }
+    for (const gf::Ribbon::Tab& tab : (*bar).realized_tabs()) {
+        if (tab.stable_id == id) {
+            return tab.states.selected;
+        }
+    }
+    return false;
+}
+// Selects a ribbon tab through its semantic node, as assistive technology
+// does; false for a tab not shown.
+bool select_ribbon_tab(gf::Window& window, const std::string& id) {
+    const bool selected = window.perform_semantic_action("ribbon-bar.tab." + id, gf::SemanticAction::select);
+    window.perform_layout();
+    return selected;
+}
+std::shared_ptr<gf::Command> ribbon_command(gf::Window& window, const std::string& id) {
+    const std::shared_ptr<paint::forms::Ribbon> ribbon =
+        std::dynamic_pointer_cast<paint::forms::Ribbon>(window.find("ribbon"));
+    if (!ribbon) {
+        return nullptr;
+    }
+    return (*ribbon).command_for(id);
+}
 struct NativeRecoveryDirectory {
     std::filesystem::path path;
     explicit NativeRecoveryDirectory(const std::string& category = "recovery")
@@ -327,12 +381,7 @@ struct NativeExercise {
         paint::draw_text(document.image, {30, 30}, "Original scratch", label, {35, 30, 25, 255}, {}, "");
         paint::draw_text(document.image, {510, 30}, "Hard-edged healing", label, {35, 30, 25, 255}, {}, "");
         (*editor).refresh();
-        const std::shared_ptr<gf::Button> tab =
-            std::dynamic_pointer_cast<gf::Button>(window.find("tool-tab"));
-        if (tab) {
-            (*tab).perform_click();
-        }
-        window.perform_layout();
+        static_cast<void>(select_ribbon_tab(window, "tool-tab"));
         const char* result = std::getenv("PAINT_HEAL_CAPTURE");
         if (result && *result) {
             paint::save_image(document.image, result);
@@ -385,9 +434,10 @@ struct NativeExercise {
         const char* capture = std::getenv("PAINT_NATIVE_CAPTURE");
         if (capture && *capture) { paint::save_image(image, capture); }
         if (markers_review) {
-            const std::shared_ptr<gf::ComboBox> first = std::dynamic_pointer_cast<gf::ComboBox>(window.find("geometry-start"));
-            const std::shared_ptr<gf::ComboBox> last = std::dynamic_pointer_cast<gf::ComboBox>(window.find("geometry-end"));
-            if (!painted || !first || !last || !(*first).visible.read() || !(*last).visible.read() ||
+            const std::shared_ptr<gf::ComboBox> first = std::dynamic_pointer_cast<gf::ComboBox>(hosted_control(window, "geometry-start"));
+            const std::shared_ptr<gf::ComboBox> last = std::dynamic_pointer_cast<gf::ComboBox>(hosted_control(window, "geometry-end"));
+            if (!painted || !first || !last || !ribbon_command_bounds(window, "geometry-start") ||
+                !ribbon_command_bounds(window, "geometry-end") ||
                 (*first).selected_index.read() != 1 || (*last).selected_index.read() != 10 ||
                 (*last).absolute_bounds().right() > size.width) {
                 throw std::runtime_error("Native marker ribbon controls are missing or clipped");
@@ -400,17 +450,18 @@ struct NativeExercise {
         }
         if (corners_review) {
             if (geometry_styles_review) {
-                const std::shared_ptr<gf::ComboBox> style = std::dynamic_pointer_cast<gf::ComboBox>(window.find("geometry-stroke"));
-                const std::shared_ptr<gf::NumericUpDown> organic = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("geometry-organic"));
-                if (!style || !organic || !(*style).visible.read() || !(*organic).visible.read() ||
+                const std::shared_ptr<gf::ComboBox> style = std::dynamic_pointer_cast<gf::ComboBox>(hosted_control(window, "geometry-stroke"));
+                const std::shared_ptr<gf::NumericUpDown> organic = std::dynamic_pointer_cast<gf::NumericUpDown>(hosted_control(window, "geometry-organic"));
+                const std::optional<gf::Rect> vary = ribbon_command_bounds(window, "geometry-vary");
+                if (!style || !organic || !ribbon_command_bounds(window, "geometry-stroke") ||
+                    !ribbon_command_bounds(window, "geometry-organic") ||
                     (*style).selected_index.read() != 2 || (*organic).value.read() != 3 ||
-                    (*organic).absolute_bounds().right() > size.width ||
-                    (*window.find("geometry-vary")).absolute_bounds().right() > size.width) {
+                    (*organic).absolute_bounds().right() > size.width || !vary || (*vary).right() > size.width) {
                     throw std::runtime_error("Native geometry style controls are missing or clipped");
                 }
             }
-            const std::shared_ptr<gf::NumericUpDown> radius = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("geometry-corners"));
-            if (!painted || !radius || !(*radius).visible.read() || (*radius).value.read() != 40 ||
+            const std::shared_ptr<gf::NumericUpDown> radius = std::dynamic_pointer_cast<gf::NumericUpDown>(hosted_control(window, "geometry-corners"));
+            if (!painted || !radius || !ribbon_command_bounds(window, "geometry-corners") || (*radius).value.read() != 40 ||
                 (*radius).absolute_bounds().right() > size.width) {
                 throw std::runtime_error("Native shape ribbon lost its corner radius control");
             }
@@ -422,11 +473,14 @@ struct NativeExercise {
         }
         if (sticky_review) {
             for (const char* id : {"sticky-paper", "sticky-width", "sticky-height", "sticky-padding", "text-font", "text-place"}) {
-                const gf::Control::Ptr control = window.find(id);
-                if (!painted || !control || !(*control).visible.read() || !(*control).enabled.read()) {
+                const std::optional<gf::Rect> shown = ribbon_command_bounds(window, id);
+                const gf::Control::Ptr control = hosted_control(window, id);
+                const std::shared_ptr<gf::Command> command = ribbon_command(window, id);
+                const bool enabled = control ? (*control).enabled.read() : command && (*command).state().enabled;
+                if (!painted || !shown || !enabled) {
                     throw std::runtime_error("Native inline note ribbon lost a required control");
                 }
-                const gf::Rect bounds = (*control).absolute_bounds();
+                const gf::Rect bounds = *shown;
                 if (bounds.x < 0 || bounds.y < 0 || bounds.right() > size.width || bounds.bottom() > size.height) {
                     throw std::runtime_error("Native note ribbon does not fit the window");
                 }
@@ -449,43 +503,26 @@ struct NativeExercise {
             return;
         }
         if (opacity_review) {
-            const std::shared_ptr<paint::forms::SwatchButton> primary =
-                std::dynamic_pointer_cast<paint::forms::SwatchButton>(window.find("primary"));
-            const std::shared_ptr<paint::forms::SwatchButton> alternate =
-                std::dynamic_pointer_cast<paint::forms::SwatchButton>(window.find("secondary"));
-            if (!painted || !primary || !alternate) { throw std::runtime_error("Native color swatches missing"); }
-            (*primary).set_show_opacity(false);
-            (*alternate).set_show_opacity(false);
-            repaint_tree(*window.root());
-            bool baseline_painted = false;
-            const paint::Image baseline = render_snapshot(window, size, baseline_painted);
-            const gf::Rect primary_bounds = (*primary).absolute_bounds(), alt_bounds = (*alternate).absolute_bounds();
-            std::size_t changes[2] = {0, 0};
-            for (int y = 0; y < image.height; ++y) {
-                for (int x = 0; x < image.width; ++x) {
-                    if (paint::equal(image.get(x, y), baseline.get(x, y))) { continue; }
-                    const double px = (x + 0.5) / window.scale(), py = (y + 0.5) / window.scale();
-                    const int index = px >= primary_bounds.x && px < primary_bounds.right() ? 0 : 1;
-                    const gf::Rect box = index == 0 ? primary_bounds : alt_bounds;
-                    if (px < box.x + 1 || px >= box.right() - 1 || py < box.y + 16 || py >= box.y + 38) {
-                        throw std::runtime_error("Opacity indicator changed pixels outside the swatch's lower corner");
-                    }
-                    ++changes[index];
-                }
+            const std::shared_ptr<gf::Command> primary = ribbon_command(window, "primary");
+            const std::shared_ptr<gf::Command> alternate = ribbon_command(window, "secondary");
+            if (!painted || !primary || !alternate || !ribbon_command_bounds(window, "primary") ||
+                !ribbon_command_bounds(window, "secondary")) {
+                throw std::runtime_error("Native color swatches missing");
             }
-            if (!baseline_painted || (changes[0] > 0) != ((*editor).document.ink.primary.a < 255) ||
-                (changes[1] > 0) != ((*editor).document.ink.secondary.a < 255)) {
-                throw std::runtime_error("Native opacity badges did not follow Primary/Alt alpha independently");
+            const std::string primary_alpha = "(" + std::to_string((*editor).document.ink.primary.a) + "/255)";
+            const std::string alternate_alpha = "(" + std::to_string((*editor).document.ink.secondary.a) + "/255)";
+            if ((*primary).state().description.find(primary_alpha) == std::string::npos ||
+                (*alternate).state().description.find(alternate_alpha) == std::string::npos) {
+                throw std::runtime_error("Native opacity descriptions did not follow Primary/Alt alpha independently");
             }
-            (*primary).set_show_opacity(true);
-            (*alternate).set_show_opacity(true);
             return;
         }
         if (stamp_placement_review) {
-            const gf::Control::Ptr apply = window.find("context-stamp-apply");
-            const gf::Control::Ptr cancel = window.find("context-stamp-cancel");
-            if (!painted || !apply || !cancel || !(*apply).visible.read() || !(*apply).enabled.read() ||
-                !(*cancel).visible() || (*apply).absolute_bounds().right() > size.width ||
+            static_cast<void>(select_ribbon_tab(window, "tool-tab"));
+            const std::optional<gf::Rect> apply = ribbon_command_bounds(window, "context-stamp-apply");
+            const std::shared_ptr<gf::Command> apply_command = ribbon_command(window, "context-stamp-apply");
+            if (!painted || !apply || !apply_command || !(*apply_command).state().enabled ||
+                !ribbon_command_bounds(window, "context-stamp-cancel") || (*apply).right() > size.width ||
                 !(*editor).stamp_placement_active()) {
                 throw std::runtime_error("Native imported stamp placement controls did not render");
             }
@@ -591,11 +628,9 @@ struct NativeExercise {
             return;
         }
         if (icon_ribbon_review) {
-            const std::shared_ptr<gf::Button> tab =
-                std::dynamic_pointer_cast<gf::Button>(window.find("icon-tab"));
             const std::shared_ptr<gf::Label> status =
                 std::dynamic_pointer_cast<gf::Label>(window.find("icon-status"));
-            if (!painted || !tab || !(*tab).selected.read() || !status ||
+            if (!painted || !ribbon_tab_selected(window, "icon-tab") || !status ||
                 (*status).text.read().find("32 × 32") == std::string::npos ||
                 !(*window.find("icon-export")).enabled.read()) {
                 throw std::runtime_error("Native contextual icon ribbon did not render");
@@ -709,7 +744,7 @@ struct NativeExercise {
             document.ink.geometry.start = paint::EndpointMarker::Arrow;
             document.ink.geometry.end = paint::EndpointMarker::ZeroMany;
             (*editor).choose_shape(paint::Shape::Line);
-            (*std::dynamic_pointer_cast<gf::Button>(window.find("tool-tab"))).perform_click();
+            static_cast<void>(select_ribbon_tab(window, "tool-tab"));
             (*editor).refresh(); window.perform_layout(); inspect_frame(window);
             document.saved_revision = document.revision;
             entered = true;
@@ -740,7 +775,7 @@ struct NativeExercise {
                 document.ink.geometry.organic = 3;
             }
             (*editor).choose_shape(paint::Shape::Rectangle);
-            (*std::dynamic_pointer_cast<gf::Button>(window.find("tool-tab"))).perform_click();
+            static_cast<void>(select_ribbon_tab(window, "tool-tab"));
             (*editor).refresh(); window.perform_layout(); inspect_frame(window);
             document.saved_revision = document.revision;
             entered = true;

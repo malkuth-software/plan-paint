@@ -23,7 +23,6 @@
 #include <gui_forms/basic_controls.hpp>
 #include <gui_forms/canvas.hpp>
 #include <gui_forms/live_surface.hpp>
-#include <gui_forms/controls/menu_strip/menu_strip.hpp>
 #include <gui_forms/controls/panel/combo_box/combo_box.hpp>
 #include <gui_forms/controls/range_control/track_bar/track_bar.hpp>
 #include <gui_forms/delegate.hpp>
@@ -367,7 +366,6 @@ class Editor final : public gui_forms::Control {
     std::shared_ptr<gui_forms::TrackBar> zoom_slider_;
     std::optional<gui_forms::Point> cursor_client_;
     bool synchronizing_zoom_ = false;
-    std::shared_ptr<gui_forms::MenuStrip> menu_;
     std::shared_ptr<Ribbon> ribbon_;
     std::shared_ptr<HelpBook> help_;
     std::shared_ptr<EditorDialog> editor_dialog_;

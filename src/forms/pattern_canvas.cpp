@@ -296,7 +296,6 @@ void Editor::toggle_pattern_canvas() {
     }
     pattern_editing = !pattern_editing;
     (*pattern_canvas_).visible = pattern_editing;
-    (*menu_).visible = !pattern_editing;
     (*ribbon_).visible = !pattern_editing;
     (*canvas_).visible = !pattern_editing;
     if (window()) {

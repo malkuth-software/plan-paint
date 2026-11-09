@@ -137,27 +137,9 @@ void Editor::initialize_control_tree() {
     add_child(help_);
     subscriptions_.push_back((*help_).close_clicked().subscribe(
         *this, gf::Delegate<gf::ButtonBase&>::bind<Editor, &Editor::close_help>(*this)));
-    menu_ = gf::make_control<gf::MenuStrip>(gf::StableId("menus"));
-    gf::ThemeDefinition file_theme = gf::windows_professional_theme_definition();
-    file_theme.id = "rainstar-file-tab";
-    file_theme.compatibility.border = gf::Color::rgba(45, 105, 172);
-    for (std::size_t state = 0; state < gf::control_surface_state_count; ++state) {
-        gf::SurfaceMaterial surface;
-        surface.fills = {gf::MaterialFillLayer::linear(
-            {0, 0}, {0, 1}, {{0, gf::Color::rgba(82, 139, 224)}, {1, gf::Color::rgba(23, 63, 136)}})};
-        file_theme.roles[static_cast<std::size_t>(gf::ControlVisualRole::panel)].ordinary[state].material =
-            surface;
-        gf::ControlRoleRecipes& item =
-            file_theme.roles[static_cast<std::size_t>(gf::ControlVisualRole::menu_item)];
-        item.ordinary[state].material = surface;
-        item.ordinary[state].text = gf::Color::rgba(255, 255, 255);
-        item.selected[state].material = surface;
-        item.selected[state].text = gf::Color::rgba(255, 255, 255);
-    }
-    (*menu_).set_theme_override(gf::Theme::create(std::move(file_theme)));
-    (*menu_).item_padding = 17;
+    // The File tab of the ribbon holds the file commands (its application
+    // menu and recent pictures).
     rebuild_file_menu();
-    add_child(menu_);
     file_notice_label_ = gf::make_control<gf::Label>(gf::StableId("file-change-notice"));
     (*file_notice_label_).font = {gf::FontRole::control, 13, 600, false};
     add_child(file_notice_label_);
@@ -220,15 +202,12 @@ void Editor::rebuild_file_menu() {
     std::vector<gf::MenuItemSpec> items = {menu_item("new", tr("New")), menu_item("open", tr("Open…"))};
     items.push_back(menu_item("browse-assets", tr("Browse assets…")));
     items.push_back(menu_item("icon-batch", tr("Batch production…")));
-    if (!recent.paths.empty()) {
-        gf::MenuItemSpec recent_menu;
-        recent_menu.stable_id = "recent-files";
-        recent_menu.kind = gf::MenuItemKind::submenu;
-        recent_menu.text = tr("Recent pictures");
-        for (std::size_t i = 0; i < recent.paths.size(); ++i) {
-            recent_menu.children.push_back(menu_item("recent-" + std::to_string(i), recent.paths[i]));
-        }
-        items.push_back(std::move(recent_menu));
+    // Recent pictures show in the File tab's recent pane, as "recent-<n>".
+    std::vector<gf::RibbonRecentItem> recent_items;
+    recent_items.reserve(recent.paths.size());
+    for (std::size_t i = 0; i < recent.paths.size(); ++i) {
+        const std::filesystem::path path(recent.paths[i]);
+        recent_items.push_back({"recent-" + std::to_string(i), path.filename().string(), path.parent_path().string()});
     }
     items.push_back(menu_item("reload", tr("Reload from disk…")));
     items.push_back(menu_item("save", tr("Save")));
@@ -238,20 +217,20 @@ void Editor::rebuild_file_menu() {
     items.push_back(menu_item("print", tr("Print…")));
     items.push_back(menu_item("page-setup", tr("Page setup…")));
     items.push_back(menu_item("acquire", tr("From scanner or camera…")));
-    gf::MenuItemSpec wallpaper;
-    wallpaper.stable_id = "wallpaper";
-    wallpaper.kind = gf::MenuItemKind::submenu;
-    wallpaper.text = tr("Set as desktop background");
-    wallpaper.children = {menu_item("wallpaper-fill", tr("Fill")), menu_item("wallpaper-tile", tr("Tile")),
-                          menu_item("wallpaper-center", tr("Center"))};
-    items.push_back(std::move(wallpaper));
+    // The two-pane File menu takes commands only, so the background choices
+    // are three commands rather than a submenu.
+    items.push_back(menu_item("wallpaper-fill", tr("Set as desktop background (fill)")));
+    items.push_back(menu_item("wallpaper-tile", tr("Set as desktop background (tile)")));
+    items.push_back(menu_item("wallpaper-center", tr("Set as desktop background (center)")));
 #endif
     items.push_back(menu_item("properties", tr("Properties…")));
     items.push_back(menu_item("recover", tr("Recover unfinished artwork…")));
     items.push_back(menu_item("settings", tr("Settings…")));
     items.push_back(menu_item("about", tr("About Plan Paint")));
     items.push_back(menu_item("quit", tr("Exit")));
-    (*menu_).set_items({{"file", tr("File"), std::move(items)}});
+    if (ribbon_) {
+        (*ribbon_).set_file_menu(std::move(items), std::move(recent_items));
+    }
 }
 void Editor::arrange(gf::Rect bounds) {
     arrange_self(bounds);
@@ -264,7 +243,6 @@ void Editor::arrange(gf::Rect bounds) {
         (*canvas_).view_origin = origin;
     }
     set_child_layout(ribbon_, {0, 0, bounds.width, ribbon_height});
-    set_child_layout(menu_, {0, 0, 56, 27});
     const bool file_notice_visible = !file_notice_.empty() && !pattern_editing;
     (*file_notice_label_).visible = file_notice_visible;
     (*file_reload_).visible = file_notice_visible;
@@ -493,7 +471,7 @@ void Editor::paint_canvas_overlay(gf::Painter& painter, gf::Rect) {
     painter.restore();
 }
 bool Editor::help_shortcut() {
-    if ((*menu_).is_open() || editor_dialog_) {
+    if ((*ribbon_).file_menu_open() || editor_dialog_) {
         return false;
     }
     execute("help");
@@ -1569,7 +1547,7 @@ void Editor::zoom(double factor, gf::Point anchor) {
 }
 void Editor::on_key_preview(gf::KeyEvent& event) {
     if (pattern_editing) { return; }
-    if (event.action != gf::KeyAction::down || (*menu_).is_open() || editor_dialog_) {
+    if (event.action != gf::KeyAction::down || (*ribbon_).file_menu_open() || editor_dialog_) {
         return;
     }
     if (event.physical_key == gf::PhysicalKey::f1) {
