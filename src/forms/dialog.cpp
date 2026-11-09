@@ -167,9 +167,7 @@ void ColorPlane::on_pointer(gf::PointerEvent& event) {
 }
 EditorDialog::EditorDialog(gf::StableId id, std::weak_ptr<Editor> editor, EditorDialogKind kind,
                            bool secondary)
-    : Control(std::move(id)), editor_(std::move(editor)), kind_(kind), secondary_(secondary) {
-    set_theme_override(ribbon_theme());
-}
+    : Control(std::move(id)), editor_(std::move(editor)), kind_(kind), secondary_(secondary) {}
 void EditorDialog::put(gf::Control::Ptr control, gf::Rect bounds) {
     if ((*control).semantic_descriptor().name.empty() &&
         (std::dynamic_pointer_cast<gf::ComboBox>(control) || std::dynamic_pointer_cast<gf::TextBox>(control))) {
@@ -191,7 +189,7 @@ void EditorDialog::put(gf::Control::Ptr control, gf::Rect bounds) {
 void EditorDialog::style_label(gf::Label& control, bool heading) {
     control.font = gf::FontSpec{gf::FontRole::control, heading ? 14.0 : 13.0, static_cast<std::uint16_t>(heading ? 600 : 400),
                     false, 0.05};
-    control.fore_color = gf::Color::rgba(45, 66, 88);
+    static_cast<void>(control.add_class("dialog-text"));
     if (current_language().right_to_left && kind_ != EditorDialogKind::english_help) {
         control.alignment = gf::HorizontalAlignment::far;
     }
@@ -342,8 +340,6 @@ void EditorDialog::initialize_control_tree() {
         }
         primary_tab_ = button("dialog-color1", tr("Primary"), {18, 48, 90, 28});
         secondary_tab_ = button("dialog-color2", tr("Alt"), {112, 48, 90, 28});
-        (*primary_tab_).set_theme_override(ribbon_theme());
-        (*secondary_tab_).set_theme_override(ribbon_theme());
         if (kind_ == EditorDialogKind::gradient_color) {
             (*primary_tab_).text = tr("Stop color");
             (*primary_tab_).enabled = false;
@@ -355,7 +351,6 @@ void EditorDialog::initialize_control_tree() {
                 gf::StableId("dialog-custom-" + std::to_string(i)), "",
                 i == 29 ? Color{255, 255, 255, 0}
                         : (*editor).custom_colors.colors[static_cast<std::size_t>(i)]);
-            (*swatch).set_theme_override(gallery_theme());
             (*swatch).accessible_name = i == 29 ? tr("Transparency") : tr("Custom color ") + std::to_string(i + 1);
             subscriptions_.push_back((*swatch).clicked().subscribe(
                 *this, gf::Delegate<gf::ButtonBase&>::bind<EditorDialog, &EditorDialog::clicked>(*this)));
@@ -650,8 +645,6 @@ void EditorDialog::initialize_control_tree() {
               {24, 53, 390, 25}, true);
         percent_tab_ = button("resize-percent", tr("Percentage"), {24, 91, 116, 28});
         pixel_tab_ = button("resize-pixels", tr("Pixels"), {146, 91, 86, 28});
-        (*percent_tab_).set_theme_override(ribbon_theme());
-        (*pixel_tab_).set_theme_override(ribbon_theme());
         (*pixel_tab_).selected = true;
         label("width-label", tr("Horizontal"), {24, 136, 104, 28});
         label("height-label", tr("Vertical"), {24, 174, 104, 28});
@@ -676,7 +669,10 @@ void EditorDialog::initialize_control_tree() {
     }
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));
     (*error_).font = gf::FontSpec{gf::FontRole::control, 12, 400, false};
-    (*error_).fore_color = gf::Color::rgba(161, 49, 39);
+    // The error line is slate dialog text, in the signal colour while it
+    // reports a problem (the package's .dialog-text.problem).
+    static_cast<void>((*error_).add_class("dialog-text"));
+    static_cast<void>((*error_).add_class("problem"));
     (*error_).text_wrapping = gf::TextWrapping::word;
     put(error_,
         {20,
@@ -895,10 +891,10 @@ void EditorDialog::atlas_changed(double) {
         (*error_).text = std::to_string(grid.columns * grid.rows) + tr(" frames · ") + std::to_string(frame.w) +
                            " × " + std::to_string(frame.h) + tr(" pixels · unused right/bottom: ") +
                            std::to_string(unused_x) + "/" + std::to_string(unused_y) + tr(" px");
-        (*error_).fore_color = gf::Color::rgba(45, 66, 88);
+        static_cast<void>((*error_).remove_class("problem"));
     } catch (const std::exception& exception) {
         (*error_).text = exception.what();
-        (*error_).fore_color = gf::Color::rgba(161, 49, 39);
+        static_cast<void>((*error_).add_class("problem"));
     }
 }
 const ColorMosaic& EditorDialog::color_mosaic(double hue) const {

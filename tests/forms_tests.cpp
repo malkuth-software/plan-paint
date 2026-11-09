@@ -5150,6 +5150,11 @@ void crop_and_help_actions() {
     gf::KeyEvent help{gf::KeyAction::down, gf::PhysicalKey::f1};
     static_cast<void>(window.dispatch_key(help));
     require(selected(window, "help"), "F1 highlights the Help button");
+    // The book's sticky-note look comes from the theme package's .help-book
+    // rules, not from a per-control theme override.
+    require((*find_control(window, "help-book")).has_class("help-book") &&
+                !(*find_control(window, "help-book")).theme_override(),
+            "the help book carries the package class and no override");
     routed_button(window, "help-close");
     require(!editor.show_help && !selected(window, "help"),
             "visible Close Help button closes the book and clears the highlight");
@@ -5469,11 +5474,14 @@ void interface_colors_and_spacing() {
     Fixture fixture;
     gf::Window& window = *fixture.window;
     paint::forms::Editor& editor = *fixture.editor;
-    const std::shared_ptr<const gf::Theme> source = (*window.find("ribbon-bar")).theme_override();
+    require(!editor.theme_override(), "royal blue shows the window theme without an override");
     for (int hue : {330, 280, 140, 220}) {
         editor.settings.interface_hue = hue;
         editor.refresh();
         window.perform_layout();
+        // Every hue but royal blue is one tinted override on the editor root.
+        require(static_cast<bool>(editor.theme_override()) == (hue != 220),
+                "the interface hue is one override on the editor");
         const gf::Rect tools = bounds_of(window, "tool-0");
         const gf::Rect brushes = bounds_of(window, "brush-menu");
         // The original aligned the Tools group's upper row with the tops of
@@ -5487,8 +5495,8 @@ void interface_colors_and_spacing() {
         require(bounds_of(window, "tool-6").right() < brushes.x,
                 "last tool clears the divider and brush group");
     }
-    require((*window.find("ribbon-bar")).theme_override() == source,
-            "returning to royal blue restores authored recipes without cumulative recoloring");
+    require(!editor.theme_override() && !(*window.find("ribbon-bar")).theme_override(),
+            "returning to royal blue restores the window theme without cumulative recoloring");
 }
 void recovery_editor_contracts() {
     Fixture fixture;

@@ -140,3 +140,59 @@ ribbon::part(tab-label):state(selected) {
   font-weight: bold;
   font-size: 1.08em;
 }
+
+/* Plan Paint's own controls (stage 2.3: these were C++ theme overrides).
+   Ordinary buttons take the base theme's cobalt action plate, which is
+   Plan Paint's original material. */
+
+/* Palette and custom-colour swatches (the earlier gallery theme): no plate
+   at rest, a warm gold under the pointer, a deeper gold when chosen. */
+.swatch {
+  background: #ffffff00;
+  border: 1px solid #ffffff00;
+  keylines: none;
+  box-shadow: none;
+}
+.swatch:hover {
+  background: linear-gradient(to bottom, #fff9e4, #ffe49d);
+  border-color: #dbb66d;
+  border-radius: 2px;
+  keylines: #fffff0 #fffff0b4 #a06d1c23 #fffff0b4;
+}
+.swatch:state(selected) {
+  background: linear-gradient(to bottom, #ffedba, #ffcf66);
+  border-color: #c49332;
+  border-radius: 2px;
+  keylines: #fffff0 #fffff0b4 #a06d1c23 #fffff0b4;
+}
+.swatch:active {
+  background: linear-gradient(to bottom, #f6c15b, #ffe297);
+  border-color: #dbb66d;
+  border-radius: 2px;
+}
+
+/* The help book: flat sticky-note yellow buttons without borders, black
+   text throughout. */
+.help-book button {
+  background: #eeeaa8;
+  border: none;
+  border-radius: 0;
+  keylines: none;
+  box-shadow: none;
+  color: role(ink-on-paper);
+}
+.help-book button:hover {
+  background: #e6e196;
+}
+.help-book label {
+  color: role(ink-on-paper);
+}
+
+/* Dialog text: slate labels, and an error line that turns to the signal
+   colour while it reports a problem. */
+.dialog-text {
+  color: #2d4258;
+}
+.dialog-text.problem {
+  color: #a13127;
+}

@@ -20,7 +20,6 @@ void IconPanel::initialize_control_tree() {
     for (std::size_t index = 0; index < std::size(ids); ++index) {
         const std::shared_ptr<gf::Button> command =
             gf::make_control<gf::Button>(gf::StableId(std::string("icon-") + ids[index]), labels[index]);
-        (*command).set_theme_override(ribbon_theme());
         (*command).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
         (*command).accessible_name = labels[index];
         subscriptions_.push_back((*command).clicked().subscribe(

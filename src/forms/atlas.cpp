@@ -19,7 +19,6 @@ std::string icon_source_name(const IconFrame& frame) {
 } // namespace
 AtlasThumbnail::AtlasThumbnail(gf::StableId id, std::weak_ptr<Editor> editor, int index)
     : Button(std::move(id), ""), editor_(std::move(editor)), index_(index) {
-    set_theme_override(ribbon_theme());
     // Image on the left, size and source to its right: 44 pixels tall, so a
     // thumbnail and the strip's scrollbar fit the ribbon's command plane.
     set_requested_bounds({0, 0, 124, 44});
@@ -201,7 +200,6 @@ void AtlasPanel::initialize_control_tree() {
     for (int i = 0; i < 14; ++i) {
         std::shared_ptr<gf::Button> control = gf::make_control<gf::Button>(
             gf::StableId(std::string(gallery_ ? "gallery-" : "") + ids[i]), labels[i]);
-        (*control).set_theme_override(ribbon_theme());
         (*control).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
         const int slot = i >= 11 ? i - 3 : i;
         // Four rows of 20 fit the ribbon's 88-pixel command plane the panel covers.

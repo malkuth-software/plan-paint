@@ -114,9 +114,7 @@ void PaintCanvas::on_paint_overlay(gf::Painter& painter, gf::Rect damage) {
         (*editor).paint_canvas_overlay(painter, damage);
     }
 }
-Editor::Editor(gf::StableId id) : Control(std::move(id)) {
-    set_theme_override(ribbon_theme());
-}
+Editor::Editor(gf::StableId id) : Control(std::move(id)) {}
 void Editor::initialize_control_tree() {
     allow_drop = true;
     initialize_warp();
@@ -162,7 +160,6 @@ void Editor::initialize_control_tree() {
     zoom_in_ = gf::make_control<gf::Button>(gf::StableId("status-zoom-in"), "+");
     zoom_reset_ = gf::make_control<gf::Button>(gf::StableId("status-zoom-reset"), "100%");
     for (const std::shared_ptr<gf::Button>& button : {zoom_out_, zoom_in_, zoom_reset_, tool_size_status_}) {
-        (*button).set_theme_override(ribbon_theme());
         (*button).content_padding = {2, 1, 2, 1};
         (*button).font = gf::FontSpec{gf::FontRole::control,
                             button == zoom_reset_ || button == tool_size_status_ ? 12.0 : 18.0, 400, false};
@@ -2059,8 +2056,10 @@ void Editor::open_editor_dialog(EditorDialogKind kind, bool secondary) {
     close_editor_dialog();
     editor_dialog_ = gf::make_control<EditorDialog>(
         gf::StableId("editor-dialog"), std::static_pointer_cast<Editor>(shared_from_this()), kind, secondary);
-    interface_themes.apply(*editor_dialog_, settings.interface_hue);
     editor_dialog_popup_ = (*attached_window()).open_overlay(shared_from_this(), editor_dialog_);
+    // The dialog is outside the editor's subtree, so it takes its own tint
+    // once the overlay has attached it.
+    interface_themes.apply(*editor_dialog_, settings.interface_hue);
     editor_dialog_focus_ = (*attached_window()).begin_focus_scope(editor_dialog_);
     if (kind == EditorDialogKind::atlas_gallery) {
         std::shared_ptr<AtlasPanel> gallery =

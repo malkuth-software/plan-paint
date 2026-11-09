@@ -16,8 +16,6 @@ class Editor;
 class AtlasPanel;
 class IconPanel;
 Color ribbon_color(int index);
-std::shared_ptr<const gui_forms::Theme> ribbon_theme();
-std::shared_ptr<const gui_forms::Theme> gallery_theme();
 struct OpacityIndicator {
     int percent = 100;
     std::string text;

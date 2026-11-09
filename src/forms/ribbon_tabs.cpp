@@ -637,13 +637,15 @@ gf::RibbonTabSpec Ribbon::text_tab() {
     }
     tab.groups.push_back(std::move(colors));
     gf::RibbonGroupSpec finish = group("text-finish", tr("Finish text"));
+    // The original's two-by-two block: Place text and Cancel on the upper
+    // row, Fit height and Reset below (stacks fill column by column).
     finish.commands.push_back(button("text-place", tr("Place text"), -1, Size::small));
-    finish.commands.push_back(button("text-cancel", tr("Cancel"), -1, Size::small));
     finish.commands.push_back(button("text-fit", tr("Fit height"), -1, Size::small));
+    finish.commands.push_back(button("text-cancel", tr("Cancel"), -1, Size::small));
     if (!sticky) {
         finish.commands.push_back(button("text-reset-effects", tr("Reset"), -1, Size::small));
     }
-    finish.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3)};
+    finish.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 2)};
     tab.groups.push_back(std::move(finish));
     // Finishing and the font stay on the plane longest: the transform, the
     // letter treatment and the colours fold into buttons first.
