@@ -111,7 +111,7 @@ void Ribbon::make_galleries() {
     (*shapes_.gallery).set_drop_down_size(7, 6);
     palette_ = make_gallery("palette-gallery", tr("Palette"), in_ribbon);
     (*palette_.gallery).item_size = gf::Size{22, 22};
-    (*palette_.gallery).set_column_range(5, 10);
+    (*palette_.gallery).set_column_range(4, 10);
     (*palette_.gallery).set_drop_down_size(10, 9);
     patterns_ = make_gallery("patterns-gallery", tr("Patterns"), in_ribbon);
     (*patterns_.gallery).item_size = gf::Size{31, 26};

@@ -220,6 +220,7 @@ gf::RibbonTabSpec Ribbon::home_tab() {
                         menu_item("flip-vertical", tr("Flip vertical")),
                         menu_item("numeric-transform", tr("Transform") + "…")};
     image.commands.push_back(std::move(rotate));
+    image.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3), collapsed_layout()};
     tab.groups.push_back(std::move(image));
 
     gf::RibbonGroupSpec tools = group("tools", tr("Tools"));
@@ -296,6 +297,7 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     if (shapes_.gallery && !(*shapes_.gallery).items().empty()) {
         shapes.image = (*shapes_.gallery).items()[0].image;
     }
+    shapes.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3), collapsed_layout()};
     tab.groups.push_back(std::move(shapes));
 
     gf::RibbonGroupSpec size = group("size", tr("Size"));
@@ -317,17 +319,23 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     colors.commands.push_back(std::move(secondary));
     colors.commands.push_back(gallery_command("palette-gallery", palette_));
     colors.commands.push_back(button("edit-colors", tr("Edit colors"), 24, Size::large));
+    // The colours never collapse: Primary and Alt stay on the plane at the
+    // minimum window, as in the original.
     colors.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::large, 3),
-                      sized_layout(gf::RibbonGroupSize::medium, 4, Size::small, 3), collapsed_layout()};
+                      sized_layout(gf::RibbonGroupSize::medium, 4, Size::small, 3)};
     tab.groups.push_back(std::move(colors));
-    // The minimum window keeps the tools, brushes, path, stamp and guide on
-    // the plane: galleries and colours give way first, then the clipboard
+    // The minimum window keeps the tools, brushes, path, stamp, guide and
+    // the colours on the plane: galleries give way first, then the clipboard,
+    // image and shapes groups shrink and fold into buttons, then the colours
     // and brushes shrink to small commands.
     tab.reduction_order = {{"shapes", gf::RibbonReductionKind::gallery_column},
                            {"colors", gf::RibbonReductionKind::gallery_column},
                            {"shapes", gf::RibbonReductionKind::gallery_column},
-                           {"colors", gf::RibbonReductionKind::layout},
                            {"clipboard", gf::RibbonReductionKind::layout},
+                           {"image", gf::RibbonReductionKind::layout},
+                           {"clipboard", gf::RibbonReductionKind::layout},
+                           {"shapes", gf::RibbonReductionKind::layout},
+                           {"colors", gf::RibbonReductionKind::layout},
                            {"brushes", gf::RibbonReductionKind::layout}};
     return tab;
 }

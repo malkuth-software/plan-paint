@@ -29,7 +29,7 @@ gf::Control::Ptr hosted_control(gf::Window& window, const std::string& id) {
     return window.find("ribbon-bar." + id);
 }
 // The window bounds of the ribbon command `id` realized on the selected
-// tab, or none.
+// tab (its face, or its hosted control's part), or none.
 std::optional<gf::Rect> ribbon_command_bounds(gf::Window& window, const std::string& id) {
     window.perform_layout();
     const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(window.find("ribbon-bar"));
@@ -38,13 +38,43 @@ std::optional<gf::Rect> ribbon_command_bounds(gf::Window& window, const std::str
     }
     const gf::Rect origin = (*bar).absolute_bounds();
     for (const gf::Ribbon::CommandItem& command : (*bar).realized_commands()) {
-        if (command.stable_id == id && command.parts.command_face.present) {
-            const gf::Rect face = command.parts.command_face.bounds;
-            const gf::Rect result{origin.x + face.x, origin.y + face.y, face.width, face.height};
-            return result;
+        if (command.stable_id != id) {
+            continue;
+        }
+        // A button shows its face; a hosted command has no face of its own,
+        // only the part of the control it hosts.
+        const gf::Ribbon::CommandParts& parts = command.parts;
+        const gf::PartGeometry* const shown[] = {&parts.command_face,          &parts.command_combo_box,
+                                                 &parts.command_numeric_up_down, &parts.command_check_box,
+                                                 &parts.command_text_box,      &parts.command_gallery,
+                                                 &parts.command_font_control,  &parts.command_color_picker};
+        for (const gf::PartGeometry* part : shown) {
+            if ((*part).present) {
+                const gf::Rect face = (*part).bounds;
+                const gf::Rect result{origin.x + face.x, origin.y + face.y, face.width, face.height};
+                return result;
+            }
         }
     }
     return std::nullopt;
+}
+// Lists the commands realized on the selected tab, for a failure report.
+std::string realized_command_list(gf::Window& window) {
+    const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(window.find("ribbon-bar"));
+    std::string list;
+    if (!bar) {
+        return list;
+    }
+    for (const gf::Ribbon::CommandItem& command : (*bar).realized_commands()) {
+        list += " " + command.stable_id;
+    }
+    list += "; ribbon width " + std::to_string((*bar).absolute_bounds().width) + "; groups:";
+    for (const gf::Ribbon::Group& group : (*bar).realized_groups()) {
+        list += " " + group.stable_id + "@" + std::to_string(static_cast<int>(group.parts.group_region.bounds.x)) + "+" +
+                std::to_string(static_cast<int>(group.parts.group_region.bounds.width)) +
+                (group.collapsed ? "c" : "") + "L" + std::to_string(group.layout);
+    }
+    return list;
 }
 bool ribbon_tab_selected(gf::Window& window, const std::string& id) {
     window.perform_layout();
@@ -454,7 +484,8 @@ struct NativeExercise {
                 !ribbon_command_bounds(window, "geometry-end") ||
                 (*first).selected_index.read() != 1 || (*last).selected_index.read() != 10 ||
                 (*last).absolute_bounds().right() > size.width) {
-                throw std::runtime_error("Native marker ribbon controls are missing or clipped");
+                throw std::runtime_error("Native marker ribbon controls are missing or clipped; realized:" +
+                                         realized_command_list(window));
             }
             const gf::Rect pixel = (*editor).canvas().bitmap_to_client({200, 18, 1, 1});
             const gf::Point sample = (*editor).canvas().point_to_window({pixel.x, pixel.y});
@@ -492,7 +523,8 @@ struct NativeExercise {
                 const std::shared_ptr<gf::Command> command = ribbon_command(window, id);
                 const bool enabled = control ? (*control).enabled.read() : command && (*command).state().enabled;
                 if (!painted || !shown || !enabled) {
-                    throw std::runtime_error("Native inline note ribbon lost a required control");
+                    throw std::runtime_error(std::string("Native inline note ribbon lost a required control: ") + id +
+                                             "; realized:" + realized_command_list(window));
                 }
                 const gf::Rect bounds = *shown;
                 if (bounds.x < 0 || bounds.y < 0 || bounds.right() > size.width || bounds.bottom() > size.height) {
@@ -521,7 +553,7 @@ struct NativeExercise {
             const std::shared_ptr<gf::Command> alternate = ribbon_command(window, "secondary");
             if (!painted || !primary || !alternate || !ribbon_command_bounds(window, "primary") ||
                 !ribbon_command_bounds(window, "secondary")) {
-                throw std::runtime_error("Native color swatches missing");
+                throw std::runtime_error("Native color swatches missing; realized:" + realized_command_list(window));
             }
             const std::string primary_alpha = "(" + std::to_string((*editor).document.ink.primary.a) + "/255)";
             const std::string alternate_alpha = "(" + std::to_string((*editor).document.ink.secondary.a) + "/255)";
