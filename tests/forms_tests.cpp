@@ -1002,6 +1002,18 @@ void ribbon_tabs_status_and_context() {
 }
 // The gf::Ribbon port: core tabs, the contextual tab sets and application
 // modes, the stock galleries, the Quick Access Toolbar and the File tab.
+gf::ImageId home_command_image(gf::Window& window, const std::string& id) {
+    for (const gf::RibbonTabSpec& tab : (*ribbon_bar(window)).tabs()) {
+        for (const gf::RibbonGroupSpec& group : tab.groups) {
+            for (const gf::RibbonCommandSpec& command : group.commands) {
+                if (tab.stable_id == "home-tab" && command.stable_id == id) {
+                    return command.image;
+                }
+            }
+        }
+    }
+    return {};
+}
 void ribbon_structure_and_contextual_sets() {
     Fixture fixture;
     gf::Window& window = *fixture.window;
@@ -1012,6 +1024,30 @@ void ribbon_structure_and_contextual_sets() {
                 shown(window, "tool-tab") && !shown(window, "text-tab") && !shown(window, "spiro-tab") &&
                 !shown(window, "gradient-tab") && !shown(window, "icon-tab"),
             "core tabs show and every contextual set starts unavailable");
+    // Primary and Alt show their material wells and Guide its set-square:
+    // each Home command spec carries an image once the window is attached.
+    for (const gf::RibbonTabSpec& tab : (*ribbon_bar(window)).tabs()) {
+        if (tab.stable_id != "home-tab") {
+            continue;
+        }
+        for (const gf::RibbonGroupSpec& group : tab.groups) {
+            for (const gf::RibbonCommandSpec& command : group.commands) {
+                if (command.stable_id == "primary" || command.stable_id == "secondary" ||
+                    command.stable_id == "tool-11") {
+                    require(command.image.value != 0U, "Primary, Alt and Guide carry their images");
+                }
+            }
+        }
+    }
+    // A new primary colour replaces the well's artwork; the replacement's
+    // new generational ImageId reaches the spec (the old one is stale).
+    const gf::ImageId well_before = home_command_image(window, "primary");
+    editor.document.ink.primary = {128, 64, 160, 255};
+    editor.refresh();
+    window.perform_layout();
+    const gf::ImageId well_after = home_command_image(window, "primary");
+    require(well_after.value != 0U && well_after.value != well_before.value,
+            "a new primary colour gives the well a live image");
     open_tab(window, "home-tab");
     for (const char* id : gallery_ids) {
         // The drop-down galleries join the tree only while open; the tests
@@ -6236,6 +6272,44 @@ void gallery_wheel_then_click() {
     require(editor.fill_gradient.stops.size() == 6 && editor.fill_gradient.angle == 90,
             "a click after wheeling the presets gallery loads the Chrome preset");
 }
+// Panning by the wheel: a precise device's pixels move the view exactly,
+// a detented wheel's lines move it by the scroll distance's step, and a pan
+// repaints the canvas (with the rulers when shown), not the whole window.
+void canvas_pan_by_wheel_and_damage() {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::Window& window = *fixture.window;
+    editor.document.new_image(3000, 2000);
+    editor.refresh();
+    window.perform_layout();
+    const gf::Point position = fixture.position(40, 40);
+    const double zoom = editor.canvas().zoom.read();
+    gf::PointerEvent pixels{gf::PointerAction::wheel, gf::PointerButton::none, position};
+    pixels.wheel_delta = {0, -12.5};
+    pixels.wheel_unit = gf::WheelDeltaUnit::pixels;
+    const gui_drawing::PointF before = editor.canvas().view_origin.read();
+    static_cast<void>(window.dispatch_pointer(pixels));
+    const gui_drawing::PointF moved = editor.canvas().view_origin.read();
+    require(std::abs(moved.y - before.y - 12.5 / zoom) < 1e-9 && moved.x == before.x,
+            "a trackpad's pixel delta pans the view by exactly those pixels");
+    gf::PointerEvent lines{gf::PointerAction::wheel, gf::PointerButton::none, position};
+    lines.wheel_delta = {0, -1};
+    static_cast<void>(window.dispatch_pointer(lines));
+    const gui_drawing::PointF stepped = editor.canvas().view_origin.read();
+    require(std::abs(stepped.y - moved.y - paint::forms::wheel_line_pixels(editor.settings) / zoom) < 1e-9,
+            "a wheel notch pans the view by one scroll step");
+    window.perform_layout();
+    const gf::MetricsSnapshot settled = window.metrics_snapshot();
+    static_cast<void>(window.dispatch_pointer(pixels));
+    const gf::MetricsSnapshot panned = window.metrics_snapshot();
+    const gf::Rect canvas = editor.canvas().committed_arranged_bounds();
+    const double damage = panned.requested_damage_area - settled.requested_damage_area;
+    std::cout << "Wheel pan damage: " << damage << " (canvas " << canvas.width * canvas.height << ", window "
+              << 1280.0 * 820.0 << ")\n";
+    // The status bar's cursor readout may repaint too (30 units high).
+    require(damage > 0 && damage <= canvas.width * canvas.height + 1280.0 * 30.0,
+            "a wheel pan repaints the canvas, not the ribbon or the whole window");
+}
 void zoom_anchors_the_point() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
@@ -6439,6 +6513,7 @@ int main(int argc, char** argv) {
         guide_atlas_and_text_effect_interactions();
         guide_dismissal_preserves_paint_and_curves();
         zoom_anchors_the_point();
+        canvas_pan_by_wheel_and_damage();
         magnifier_hover_is_display_only();
         zoom_out_clamps_each_axis();
         pencil_and_eraser_hover_are_display_only();

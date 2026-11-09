@@ -809,26 +809,44 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
         }
         const bool bgra = format == gf::LiveSurfacePixelFormat::bgra32_premultiplied_srgb;
         const double tile = transparency_cell_size.read() > 0 ? transparency_cell_size.read() : 12.0;
+        const double scale = zoom.read();
+        const gui_drawing::PointF origin = view_origin.read();
+        const int source_width = static_cast<int>(frame.width());
+        const int source_height = static_cast<int>(frame.height());
+        // Each output column samples one source column and lies in one
+        // checker column; both are worked out once per frame, not per pixel
+        // (a pan at device scale 2 converts some three million pixels).
+        viewport_columns_.resize(static_cast<std::size_t>(width));
+        viewport_cells_.resize(static_cast<std::size_t>(width));
+        for (int x = 0; x < width; ++x) {
+            const double cx = destination.x + (x + 0.5) / device_scale;
+            const int sx = std::clamp(static_cast<int>(std::floor(cx / scale + origin.x)), 0, source_width - 1);
+            viewport_columns_[static_cast<std::size_t>(x)] = static_cast<std::size_t>(sx) * 4;
+            viewport_cells_[static_cast<std::size_t>(x)] = static_cast<int>((cx - visible.x) / tile);
+        }
+        // The two checker colours in output byte order (blue first for BGRA).
+        const unsigned first[3] = {bgra ? transparency_first_.blue : transparency_first_.red, transparency_first_.green,
+                                   bgra ? transparency_first_.red : transparency_first_.blue};
+        const unsigned second_colour[3] = {bgra ? transparency_second_.blue : transparency_second_.red,
+                                           transparency_second_.green,
+                                           bgra ? transparency_second_.red : transparency_second_.blue};
         for (int y = 0; y < height; ++y) {
             const double cy = destination.y + (y + 0.5) / device_scale;
-            const int sy = std::clamp(static_cast<int>(std::floor(cy / zoom.read() + view_origin.read().y)),
-                0, static_cast<int>(frame.height()) - 1);
-            std::byte* row = write.pixels().data() + y * write.row_bytes();
+            const int sy = std::clamp(static_cast<int>(std::floor(cy / scale + origin.y)), 0, source_height - 1);
+            const int row_cell = static_cast<int>((cy - visible.y) / tile);
+            const std::byte* source_row = frame.pixels().data() + static_cast<std::size_t>(sy) * frame.row_bytes();
+            std::byte* row = write.pixels().data() + static_cast<std::size_t>(y) * write.row_bytes();
             for (int x = 0; x < width; ++x) {
-                const double cx = destination.x + (x + 0.5) / device_scale;
-                const int sx = std::clamp(static_cast<int>(std::floor(cx / zoom.read() + view_origin.read().x)),
-                    0, static_cast<int>(frame.width()) - 1);
-                const std::byte* pixel = frame.pixels().data() + sy * frame.row_bytes() + sx * 4;
-                const bool second = ((static_cast<int>((cx - visible.x) / tile) +
-                                      static_cast<int>((cy - visible.y) / tile)) & 1) == 0;
-                const gf::Color background = second ? transparency_second_ : transparency_first_;
+                const std::byte* pixel = source_row + viewport_columns_[static_cast<std::size_t>(x)];
+                const bool second = ((viewport_cells_[static_cast<std::size_t>(x)] + row_cell) & 1) == 0;
+                const unsigned* background = second ? second_colour : first;
                 const unsigned inverse = 255U - std::to_integer<unsigned>(pixel[3]);
                 row[x * 4] = static_cast<std::byte>(std::to_integer<unsigned>(pixel[0]) +
-                    ((bgra ? background.blue : background.red) * inverse + 127U) / 255U);
+                    (background[0] * inverse + 127U) / 255U);
                 row[x * 4 + 1] = static_cast<std::byte>(std::to_integer<unsigned>(pixel[1]) +
-                    (background.green * inverse + 127U) / 255U);
+                    (background[1] * inverse + 127U) / 255U);
                 row[x * 4 + 2] = static_cast<std::byte>(std::to_integer<unsigned>(pixel[2]) +
-                    ((bgra ? background.red : background.blue) * inverse + 127U) / 255U);
+                    (background[2] * inverse + 127U) / 255U);
                 row[x * 4 + 3] = std::byte{255};
             }
         }
