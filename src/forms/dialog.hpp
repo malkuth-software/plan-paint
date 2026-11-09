@@ -401,6 +401,8 @@ class EditorDialog final : public gui_forms::Control {
         okhsl_tab_;
     void put(gui_forms::Control::Ptr control, gui_forms::Rect bounds);
     void label(const std::string& id, const std::string& text, gui_forms::Rect bounds, bool heading = false);
+    void style_label(gui_forms::Label& control, bool heading);
+    void adopt_form(gui_forms::Control& form, const std::string& heading_id, bool translate);
     std::shared_ptr<gui_forms::Button> button(const std::string& id, const std::string& text,
                                               gui_forms::Rect bounds);
     std::shared_ptr<gui_forms::NumericUpDown> number(const std::string& id, gui_forms::Rect bounds,

@@ -52,6 +52,11 @@ add_library(paint_forms STATIC src/forms/canvas_controls.cpp src/forms/gradient_
 target_link_libraries(paint_forms PUBLIC paint_core GUIForms::Application)
 target_include_directories(paint_forms PUBLIC src)
 target_compile_definitions(paint_forms PUBLIC RAINSTAR_VERSION="${PAINT_RELEASE_VERSION}")
+# The static dialogs' content as form documents (forms/), generated at build
+# time into Panel subclasses that EditorDialog adopts.
+gui_forms_add_form(paint_forms forms/about.form CLASS AboutForm NAMESPACE paint::forms DERIVED)
+gui_forms_add_form(paint_forms forms/english_help.form CLASS EnglishHelpForm NAMESPACE paint::forms DERIVED)
+gui_forms_add_form(paint_forms forms/tool_size.form CLASS ToolSizeForm NAMESPACE paint::forms DERIVED)
 add_executable(plan-paint MACOSX_BUNDLE src/forms/main.cpp)
 target_link_libraries(plan-paint PRIVATE paint_forms)
 # Plan Paint's theme package (colours, fonts and the bubble ribbon buttons),

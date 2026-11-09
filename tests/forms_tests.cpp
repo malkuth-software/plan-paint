@@ -5006,6 +5006,8 @@ void about_reports_build_version() {
         std::dynamic_pointer_cast<gf::Label>(find_control(window, "about-version"));
     require(version && (*version).text.read() == "Plan Paint " RAINSTAR_VERSION && services.message.empty(),
             "About reports the release version inside the application's own dialog");
+    require((*version).parent() == window.find("editor-dialog") && !window.find("about-form"),
+            "About's form document controls are adopted by the dialog");
     require(bounds_of(window, "about-dedication").bottom() <
                 bounds_of(window, "about-credits").y,
             "About dedication precedes the credits");
@@ -5202,6 +5204,9 @@ void freehand_wand_picker_and_size() {
     const std::shared_ptr<gf::NumericUpDown> size =
         std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "custom-tool-size"));
     require(static_cast<bool>(size), "status size opens custom size popup");
+    require((*size).accessible_name.read() == "Size in pixels" && (*size).parent() == window.find("editor-dialog") &&
+                !window.find("tool-size-form"),
+            "the form document's field joins the dialog, named by its label");
     (*size).value = 173;
     routed_button(window, "dialog-ok");
     require(editor.document.ink.size == 173, "custom size exceeds the old 64 pixel limit");

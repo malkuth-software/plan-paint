@@ -1,0 +1,6 @@
+/* The custom tool size dialog's content. EditorDialog sets the field's
+   range and value from the current ink and adds OK and Cancel. */
+panel tool-size-form {
+  label custom-tool-size-label { text: "Size in pixels"; bounds: 24 54 160 28; }
+  numeric-up-down custom-tool-size { bounds: 196 54 136 30; }
+}

@@ -1,4 +1,7 @@
 #include "forms/dialog.hpp"
+#include "about_form.hpp"
+#include "english_help_form.hpp"
+#include "tool_size_form.hpp"
 #include "localization.hpp"
 #include "forms/interface_theme.hpp"
 #include "forms/atlas.hpp"
@@ -185,13 +188,37 @@ void EditorDialog::put(gf::Control::Ptr control, gf::Rect bounds) {
     controls_.push_back(control);
     add_child(control);
 }
+void EditorDialog::style_label(gf::Label& control, bool heading) {
+    control.font = {gf::FontRole::control, heading ? 14.0 : 13.0, static_cast<std::uint16_t>(heading ? 600 : 400),
+                    false, 0.05};
+    control.set_foreground(gf::Color::rgba(45, 66, 88));
+    if (current_language().right_to_left && kind_ != EditorDialogKind::english_help) {
+        control.alignment = gf::HorizontalAlignment::far;
+    }
+}
 void EditorDialog::label(const std::string& id, const std::string& text, gf::Rect bounds, bool heading) {
     std::shared_ptr<gf::Label> control = gf::make_control<gf::Label>(gf::StableId(id), text);
-    (*control).font = {gf::FontRole::control, heading ? 14.0 : 13.0,
-                         static_cast<std::uint16_t>(heading ? 600 : 400), false, 0.05};
-    (*control).set_foreground(gf::Color::rgba(45, 66, 88));
-    if (current_language().right_to_left && kind_ != EditorDialogKind::english_help) { (*control).alignment = gf::HorizontalAlignment::far; }
+    style_label(*control, heading);
     put(control, bounds);
+}
+// Moves a form document's controls out of its root into the dialog, in
+// document order, at their bounds in the dialog panel. A label is styled as
+// label() styles one (the heading is `heading_id`), and with `translate` its
+// text, the catalogue's English key, is translated. The form's root is left
+// empty; the caller keeps its typed members.
+void EditorDialog::adopt_form(gf::Control& form, const std::string& heading_id, bool translate) {
+    const std::vector<gf::Control::Ptr> children(form.children().begin(), form.children().end());
+    for (const gf::Control::Ptr& child : children) {
+        static_cast<void>(form.remove_child((*child).runtime_id()));
+        const std::shared_ptr<gf::Label> text = std::dynamic_pointer_cast<gf::Label>(child);
+        if (text) {
+            style_label(*text, (*text).stable_id().value() == heading_id);
+            if (translate) {
+                (*text).text = tr((*text).text.read());
+            }
+        }
+        put(child, (*child).requested_bounds());
+    }
 }
 std::shared_ptr<gf::Button> EditorDialog::button(const std::string& id, const std::string& text,
                                                  gf::Rect bounds) {
@@ -274,26 +301,9 @@ void EditorDialog::initialize_control_tree() {
     }
     if (kind_ == EditorDialogKind::about) {
         panel_ = {0, 0, 590, 565};
-        label("about-version", "Plan Paint " RAINSTAR_VERSION, {24, 54, 542, 28}, true);
-        label("about-dedication",
-              tr("To the Holy One, blessed be He, from whom all good things come.\n"
-              "This work is dedicated in gratitude for the nourishment that sustains human life, "
-              "the energy that powers our tools, and the opportunity to weave information into "
-              "works of use and beauty."),
-              {24, 98, 542, 88});
-        label("about-verse",
-              tr("For I know the plans I have for you, declares the LORD, plans to prosper you and not to "
-              "harm you, plans to give you hope and a future.\nJeremiah 29:11"), {24, 200, 542, 88});
-        label("about-credits", tr("Author: Astra\nSponsor: Rainstar"), {24, 300, 542, 42});
-        label("about-license",
-              tr("Copyright (c) 2026 joshuah.rainstar@gmail.com\n"
-                 "Licensed under the PolyForm Noncommercial License 1.0.0.\n"
-                 "Free for non-commercial use; see LICENSE for the terms."),
-              {24, 358, 542, 72});
-        label("about-trademarks",
-              tr("An independent implementation inspired by Windows 7/10 Paint.\n"
-              "Microsoft and Windows are trademarks of Microsoft Corporation."),
-              {24, 450, 542, 52});
+        const std::shared_ptr<AboutForm> form = AboutForm::make();
+        adopt_form(*form, "about-version", true);
+        (*(*form).about_version).text = "Plan Paint " RAINSTAR_VERSION;
         for (const gf::Control::Ptr& control : controls_) {
             const std::shared_ptr<gf::Label> text = std::dynamic_pointer_cast<gf::Label>(control);
             if (text) {
@@ -306,17 +316,22 @@ void EditorDialog::initialize_control_tree() {
     }
     if (kind_ == EditorDialogKind::english_help) {
         panel_ = {0, 0, 470, 245};
-        label("english-help-question", "Is English your language?", {24, 56, 422, 30}, true);
-        label("english-help-instructions",
-              "Click OK to use English, then restart Plan Paint.\nYour picture stays open so you can save it first.",
-              {24, 96, 422, 62});
-        (*std::static_pointer_cast<gf::Label>(controls_.back())).text_wrapping = gf::TextWrapping::word;
+        // Never translated: this dialog is the way back to English.
+        const std::shared_ptr<EnglishHelpForm> form = EnglishHelpForm::make();
+        adopt_form(*form, "english-help-question", false);
+        (*(*form).english_help_instructions).text_wrapping = gf::TextWrapping::word;
     } else if (kind_ == EditorDialogKind::dither) {
         initialize_dither();
     } else if (kind_ == EditorDialogKind::tool_size) {
         panel_ = {0, 0, 360, 210};
-        label("custom-tool-size-label", tr("Size in pixels"), {24, 54, 160, 28});
-        width_ = number("custom-tool-size", {196, 54, 136, 30}, 1, 1024, (*editor).document.ink.size);
+        const std::shared_ptr<ToolSizeForm> form = ToolSizeForm::make();
+        adopt_form(*form, "", true);
+        width_ = (*form).custom_tool_size;
+        (*width_).set_range(1, 1024);
+        (*width_).decimal_places = 0;
+        (*width_).increment = 1;
+        (*width_).value = (*editor).document.ink.size;
+        (*width_).accessible_name = (*(*form).custom_tool_size_label).text.read();
     } else if (kind_ == EditorDialogKind::carpet) {
         initialize_carpet();
     } else if (kind_ == EditorDialogKind::color || kind_ == EditorDialogKind::gradient_color) {
