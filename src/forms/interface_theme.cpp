@@ -2,6 +2,8 @@
 #include "color_tools.hpp"
 #include "forms/editor.hpp"
 #include <cmath>
+#include <gui_forms/engine/authored_gradient/authored_gradient.hpp>
+#include <gui_forms/engine/theme_rules/theme_rules.hpp>
 namespace paint::forms {
 namespace gf = gui_forms;
 gf::Color interface_color(gf::Color color, int hue) {
@@ -39,6 +41,12 @@ gf::Color interface_color(const gf::Control& control, gf::Color color) {
                                   : 220);
 }
 namespace {
+void tint_fill(gf::MaterialFillLayer& fill, int hue) {
+    fill.color = interface_color(fill.color, hue);
+    for (gf::GradientStop& stop : fill.stops) {
+        stop.color = interface_color(stop.color, hue);
+    }
+}
 void tint_border(std::optional<gf::MaterialBorder>& border, int hue) {
     if (border) {
         (*border).color = interface_color((*border).color, hue);
@@ -52,10 +60,7 @@ void tint_recipe(gf::ControlVisualRecipe& recipe, int hue) {
     recipe.default_ring = interface_color(recipe.default_ring, hue);
     gf::SurfaceMaterial& material = recipe.material;
     for (gf::MaterialFillLayer& fill : material.fills) {
-        fill.color = interface_color(fill.color, hue);
-        for (gf::GradientStop& stop : fill.stops) {
-            stop.color = interface_color(stop.color, hue);
-        }
+        tint_fill(fill, hue);
     }
     for (gf::MaterialShadow& shadow : material.shadows) {
         shadow.color = interface_color(shadow.color, hue);
@@ -68,6 +73,43 @@ void tint_recipe(gf::ControlVisualRecipe& recipe, int hue) {
     tint_border(material.border_edges.bottom, hue);
     tint_border(material.border_edges.left, hue);
     tint_border(material.border_edges.right, hue);
+}
+// The colours a theme sheet's rules declare (the package's CSS): material
+// fills, gradients, shadows, glows, keylines and plain colours, and the
+// recipe colours (text, glyph, rings). High-contrast colours are the
+// engine's, so nothing here reaches them.
+void tint_rules(gf::ThemeRuleSheet& sheet, int hue) {
+    for (gf::ThemeRule& rule : sheet.rules) {
+        for (gf::MaterialDeclaration& declaration : rule.materials) {
+            for (gf::MaterialFillLayer& fill : declaration.fills) {
+                tint_fill(fill, hue);
+            }
+            for (gf::AuthoredGradient& gradient : declaration.gradients) {
+                for (gf::AuthoredGradientStop& stop : gradient.stops) {
+                    stop.colour = interface_color(stop.colour, hue);
+                }
+            }
+            for (gf::MaterialShadow& shadow : declaration.shadows) {
+                shadow.color = interface_color(shadow.color, hue);
+            }
+            for (gf::MaterialGlow& glow : declaration.glows) {
+                glow.color = interface_color(glow.color, hue);
+            }
+            for (gf::MaterialKeyline& line : declaration.keylines) {
+                line.color = interface_color(line.color, hue);
+            }
+            if (declaration.border_image) {
+                tint_fill(*declaration.border_image, hue);
+            }
+            if (declaration.drop_shadow) {
+                (*declaration.drop_shadow).color = interface_color((*declaration.drop_shadow).color, hue);
+            }
+            declaration.colour = interface_color(declaration.colour, hue);
+        }
+        for (gf::RecipeDeclaration& declaration : rule.recipe_fields) {
+            declaration.colour = interface_color(declaration.colour, hue);
+        }
+    }
 }
 std::shared_ptr<const gf::Theme> tint_theme(const std::shared_ptr<const gf::Theme>& source, int hue) {
     if (hue == 220) {
@@ -90,6 +132,7 @@ std::shared_ptr<const gf::Theme> tint_theme(const std::shared_ptr<const gf::Them
         }
         // Accessibility high-contrast recipes retain their original contrast colors.
     }
+    tint_rules(definition.rules, hue);
     return gf::Theme::create(std::move(definition));
 }
 } // namespace
