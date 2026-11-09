@@ -1,0 +1,41 @@
+/* Plan Paint's theme package, compiled onto the GUI.Forms base when the
+   application is created (src/forms/main.cpp).
+
+   The canonical ribbon with soft, large bubble buttons: at rest a command
+   sinks into the flat command plane (RB decision 15, "flat at rest, raised
+   when hot"); under the pointer it rises as a rounded, softly lit bubble
+   with a soft shadow below it; pressed, the light moves inside. Tabs are
+   never bulged (RB decision 23), so only command faces are styled here. */
+
+:root {
+  bubble-ink: #1c2733 on #f5f8fc;
+}
+
+ribbon::part(command-face) {
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background-color: transparent;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+ribbon::part(command-face):hover {
+  border-color: #a9c3e6;
+  background-image: linear-gradient(to bottom, #ffffff 0%, #eef4fd 42%, #d9e7f9 100%);
+  box-shadow: 0 2px 6px rgba(38, 76, 128, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+ribbon::part(command-face):active {
+  border-color: #8eabd6;
+  background-image: linear-gradient(to bottom, #d4e3f6 0%, #e7f0fb 60%, #f2f7fd 100%);
+  box-shadow: inset 0 2px 5px rgba(38, 76, 128, 0.30);
+}
+
+ribbon::part(command-face):checked {
+  border-color: #8eabd6;
+  background-image: linear-gradient(to bottom, #e3edfa 0%, #d2e2f6 100%);
+  box-shadow: inset 0 1px 3px rgba(38, 76, 128, 0.22);
+}
+
+ribbon::part(command-label) {
+  color: role(bubble-ink);
+}

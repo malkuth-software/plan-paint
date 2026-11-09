@@ -54,6 +54,9 @@ target_include_directories(paint_forms PUBLIC src)
 target_compile_definitions(paint_forms PUBLIC RAINSTAR_VERSION="${PAINT_RELEASE_VERSION}")
 add_executable(plan-paint MACOSX_BUNDLE src/forms/main.cpp)
 target_link_libraries(plan-paint PRIVATE paint_forms)
+# Plan Paint's theme package (colours, fonts and the bubble ribbon buttons),
+# embedded and compiled once by Application::create.
+gui_forms_add_theme(plan-paint themes/plan-paint FUNCTION plan_paint_theme NAMESPACE paint)
 set_target_properties(plan-paint PROPERTIES
   MACOSX_BUNDLE_BUNDLE_NAME "Plan Paint"
   MACOSX_BUNDLE_GUI_IDENTIFIER "com.malkuthsoft.planpaint"
