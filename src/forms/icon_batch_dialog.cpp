@@ -79,7 +79,7 @@ std::vector<std::string> Editor::choose_batch_sources(bool multiple) {
 void EditorDialog::initialize_icon_batch() {
     panel_ = {0, 0, 760, 510};
     batch_sources_ = gf::make_control<gf::ListBox>(gf::StableId("batch-sources"));
-    (*batch_sources_).set_accessible_name(tr("Source files"));
+    (*batch_sources_).accessible_name = tr("Source files");
     put(batch_sources_, {20, 48, 220, 140});
     const std::shared_ptr<gf::Button> add = button("batch-add", tr("Add files…"), {20, 198, 110, 28});
     const std::shared_ptr<gf::Button> remove = button("batch-remove", tr("Remove"), {140, 198, 100, 28});
@@ -88,7 +88,7 @@ void EditorDialog::initialize_icon_batch() {
     (*batch_operation_)
         .set_items({tr("Convert to ICO"), tr("Normalize sizes"), tr("Icon state variants"),
                     tr("Export representations"), tr("Stamp"), tr("Shared palette")});
-    (*batch_operation_).set_selected_index(0);
+    (*batch_operation_).selected_index = 0;
     put(batch_operation_, {260, 48, 480, 28});
     const std::size_t normal_begin = controls_.size();
     batch_policy_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-policy"));
@@ -96,16 +96,16 @@ void EditorDialog::initialize_icon_batch() {
         .set_items({tr("Add missing sizes; keep existing images"),
                     tr("Replace chosen sizes; keep other images"),
                     tr("Exact profile; remove unchecked sizes")});
-    (*batch_policy_).set_selected_index(0);
-    (*batch_policy_).set_accessible_name(tr("Icon sizes"));
+    (*batch_policy_).selected_index = 0;
+    (*batch_policy_).accessible_name = tr("Icon sizes");
     put(batch_policy_, {260, 84, 480, 28});
     for (std::size_t index = 0; index < std::size(batch_sizes); ++index) {
         const std::shared_ptr<gf::CheckBox> size =
             gf::make_control<gf::CheckBox>(gf::StableId("batch-size-" + std::to_string(batch_sizes[index])),
                                            std::to_string(batch_sizes[index]));
-        (*size).set_accessible_name(std::to_string(batch_sizes[index]) + " px");
-        (*size).set_checked(batch_sizes[index] != 96);
-        (*size).set_font({gf::FontRole::control, 12, 400, false});
+        (*size).accessible_name = std::to_string(batch_sizes[index]) + " px";
+        (*size).checked = batch_sizes[index] != 96;
+        (*size).font = {gf::FontRole::control, 12, 400, false};
         put(size, {260 + index * 60.0, 120, 58, 28});
         subscriptions_.push_back((*size).checked_changed().subscribe(
             *this, gf::Delegate<bool>::bind<EditorDialog, &EditorDialog::batch_checked>(*this)));
@@ -113,9 +113,9 @@ void EditorDialog::initialize_icon_batch() {
         batch_settings_.push_back(size);
     }
     batch_preset_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-preset"));
-    (*batch_preset_).set_items({tr("Normal"), tr("Hot"), tr("Disabled")});
-    (*batch_preset_).set_selected_index(2);
-    (*batch_preset_).set_accessible_name(tr("Preset"));
+    (*batch_preset_).items = {tr("Normal"), tr("Hot"), tr("Disabled")};
+    (*batch_preset_).selected_index = 2;
+    (*batch_preset_).accessible_name = tr("Preset");
     put(batch_preset_, {260, 156, 220, 28});
     label("batch-saturation-label", tr("Saturation %"), {260, 188, 150, 24});
     label("batch-brightness-label", tr("Brightness %"), {420, 188, 150, 24});
@@ -126,46 +126,46 @@ void EditorDialog::initialize_icon_batch() {
     (*batch_saturation_).set_range(0, 200);
     (*batch_brightness_).set_range(-100, 100);
     (*batch_opacity_).set_range(0, 100);
-    (*batch_opacity_).set_value(55);
-    (*batch_saturation_).set_accessible_name(tr("Saturation %"));
-    (*batch_brightness_).set_accessible_name(tr("Brightness %"));
-    (*batch_opacity_).set_accessible_name(tr("Opacity %"));
-    (*batch_operation_).set_accessible_name(tr("Operation"));
+    (*batch_opacity_).value = 55;
+    (*batch_saturation_).accessible_name = tr("Saturation %");
+    (*batch_brightness_).accessible_name = tr("Brightness %");
+    (*batch_opacity_).accessible_name = tr("Opacity %");
+    (*batch_operation_).accessible_name = tr("Operation");
     put(batch_saturation_, {260, 212, 145, 28});
     put(batch_brightness_, {420, 212, 145, 28});
     put(batch_opacity_, {580, 212, 160, 28});
     batch_normal_controls_.assign(controls_.begin() + normal_begin, controls_.end());
     label("batch-destination-label", tr("Destination folder"), {20, 246, 140, 28});
     batch_destination_ = gf::make_control<gf::TextBox>(gf::StableId("batch-destination"));
-    (*batch_destination_).set_accessible_name(tr("Destination folder"));
+    (*batch_destination_).accessible_name = tr("Destination folder");
     put(batch_destination_, {165, 246, 375, 28});
     const std::shared_ptr<gf::Button> folder =
         button("batch-folder", tr("Choose folder…"), {550, 246, 190, 28});
     label("batch-collision-label", tr("Output"), {20, 282, 140, 28});
     batch_collision_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-collision"));
-    (*batch_collision_).set_items({tr("New output folder"), tr("Skip existing"), tr("Rename outputs"), tr("Replace existing")});
-    (*batch_collision_).set_selected_index(0);
-    (*batch_collision_).set_accessible_name(tr("Output"));
+    (*batch_collision_).items = {tr("New output folder"), tr("Skip existing"), tr("Rename outputs"), tr("Replace existing")};
+    (*batch_collision_).selected_index = 0;
+    (*batch_collision_).accessible_name = tr("Output");
     put(batch_collision_, {165, 282, 280, 28});
     const std::shared_ptr<gf::Button> review =
         button("batch-review", tr("Review outputs"), {550, 282, 190, 28});
     batch_manifest_ = gf::make_control<gf::TextBox>(gf::StableId("batch-manifest"));
-    (*batch_manifest_).set_multiline(true);
-    (*batch_manifest_).set_read_only(true);
-    (*batch_manifest_).set_word_wrap(false);
-    (*batch_manifest_).set_auto_scroll(true);
-    (*batch_manifest_).set_accessible_name(tr("Output manifest"));
+    (*batch_manifest_).multiline = true;
+    (*batch_manifest_).read_only = true;
+    (*batch_manifest_).word_wrap = false;
+    (*batch_manifest_).auto_scroll = true;
+    (*batch_manifest_).accessible_name = tr("Output manifest");
     put(batch_manifest_, {20, 318, 720, 80});
     batch_status_ = gf::make_control<gf::Label>(gf::StableId("batch-status"));
     put(batch_status_, {20, 402, 720, 24});
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));
-    (*error_).set_text_wrapping(gf::TextWrapping::word);
+    (*error_).text_wrapping = gf::TextWrapping::word;
     put(error_, {20, 428, 720, 26});
     batch_report_ = button("batch-report", tr("Save report…"), {20, 466, 160, 28});
     batch_run_ = button("batch-run", tr("Run"), {350, 466, 120, 28});
     batch_cancel_ = button("batch-cancel", tr("Cancel"), {485, 466, 120, 28});
     button("dialog-cancel", tr("Close"), {620, 466, 120, 28});
-    (*batch_cancel_).set_enabled(false);
+    (*batch_cancel_).enabled = false;
     batch_settings_.insert(batch_settings_.end(),
                            {batch_sources_, add, remove, batch_operation_, batch_policy_, batch_preset_,
                             batch_saturation_, batch_brightness_, batch_opacity_, batch_destination_, folder,
@@ -212,10 +212,10 @@ void EditorDialog::refresh_batch_sources() {
             labels.push_back("#" + std::to_string(index + 1) + " " +
                              path_to_utf8(path_from_utf8(path).filename()) + " — " + path);
         }
-        (*batch_sources_).set_items(labels);
-        if ((*batch_destination_).text().empty() && !(*editor).batch_sources.empty()) {
-            (*batch_destination_).set_text(path_to_utf8(
-                std::filesystem::absolute(path_from_utf8((*editor).batch_sources.front())).parent_path()));
+        (*batch_sources_).items = labels;
+        if ((*batch_destination_).text.read().empty() && !(*editor).batch_sources.empty()) {
+            (*batch_destination_).text = path_to_utf8(
+                std::filesystem::absolute(path_from_utf8((*editor).batch_sources.front())).parent_path());
         }
     }
 }
@@ -233,37 +233,37 @@ void EditorDialog::invalidate_batch() {
         return;
     }
     stop_icon_batch();
-    (*batch_run_).set_enabled(false);
-    (*batch_report_).set_enabled(false);
-    (*batch_manifest_).set_text("");
-    (*error_).set_text("");
-    (*batch_status_).set_text(tr("Review outputs"));
+    (*batch_run_).enabled = false;
+    (*batch_report_).enabled = false;
+    (*batch_manifest_).text = "";
+    (*error_).text = "";
+    (*batch_status_).text = tr("Review outputs");
     (*batch_stamp_before_).clear_bitmap();
     (*batch_stamp_after_).clear_bitmap();
     update_batch_controls();
 }
 void EditorDialog::update_batch_controls() {
-    const std::size_t operation = (*batch_operation_).selected_index().value_or(0);
+    const std::size_t operation = (*batch_operation_).selected_index.read().value_or(0);
     const bool stamping = operation == 4;
     for (const std::shared_ptr<gf::Control>& control : batch_normal_controls_) {
-        (*control).set_visible(!stamping && operation != 5);
+        (*control).visible = !stamping && operation != 5;
     }
     for (const std::shared_ptr<gf::Control>& control : batch_stamp_controls_) {
-        (*control).set_visible(stamping);
+        (*control).visible = stamping;
     }
     for (const std::shared_ptr<gf::Control>& control : batch_palette_controls_) {
-        (*control).set_visible(operation == 5);
+        (*control).visible = operation == 5;
     }
     (*batch_sources_).set_requested_bounds({20, 48, 220, stamping ? 56.0 : 140.0});
-    (*batch_stamp_matte_).set_enabled(stamping && (*batch_stamp_flatten_).checked());
-    (*batch_policy_).set_enabled(operation == 1);
+    (*batch_stamp_matte_).enabled = stamping && (*batch_stamp_flatten_).checked.read();
+    (*batch_policy_).enabled = operation == 1;
     for (const std::shared_ptr<gf::CheckBox>& size : batch_sizes_) {
-        (*size).set_enabled(operation < 2);
+        (*size).enabled = operation < 2;
     }
-    (*batch_preset_).set_enabled(operation == 2);
-    (*batch_saturation_).set_enabled(operation == 2);
-    (*batch_brightness_).set_enabled(operation == 2);
-    (*batch_opacity_).set_enabled(operation == 2);
+    (*batch_preset_).enabled = operation == 2;
+    (*batch_saturation_).enabled = operation == 2;
+    (*batch_brightness_).enabled = operation == 2;
+    (*batch_opacity_).enabled = operation == 2;
 }
 void EditorDialog::batch_choice_changed(std::optional<std::size_t>) {
     invalidate_batch();
@@ -280,9 +280,9 @@ void EditorDialog::batch_checked(bool) {
 void EditorDialog::batch_preset_changed(std::optional<std::size_t> index) {
     const IconStateRecipe recipe = icon_state_preset(static_cast<IconStatePreset>(index.value_or(2)));
     synchronizing_ = true;
-    (*batch_saturation_).set_value(recipe.saturation);
-    (*batch_brightness_).set_value(recipe.brightness);
-    (*batch_opacity_).set_value(recipe.opacity);
+    (*batch_saturation_).value = recipe.saturation;
+    (*batch_brightness_).value = recipe.brightness;
+    (*batch_opacity_).value = recipe.opacity;
     synchronizing_ = false;
     invalidate_batch();
 }
@@ -304,23 +304,23 @@ void EditorDialog::start_icon_batch(bool execute) {
     job.plan = std::move(approved);
     job.execute = execute;
     job.sources = (*editor).batch_sources;
-    job.directory = (*batch_destination_).text();
+    job.directory = (*batch_destination_).text.read();
     job.settings.operation =
-        static_cast<IconBatchOperation>((*batch_operation_).selected_index().value_or(0));
-    job.settings.sizes_policy = static_cast<IconSizePolicy>((*batch_policy_).selected_index().value_or(0));
-    const std::size_t output_mode = (*batch_collision_).selected_index().value_or(0);
+        static_cast<IconBatchOperation>((*batch_operation_).selected_index.read().value_or(0));
+    job.settings.sizes_policy = static_cast<IconSizePolicy>((*batch_policy_).selected_index.read().value_or(0));
+    const std::size_t output_mode = (*batch_collision_).selected_index.read().value_or(0);
     job.settings.new_directory = output_mode == 0;
     job.settings.collision = static_cast<IconExportCollision>(output_mode == 0 ? 0 : output_mode - 1);
     job.settings.sizes.clear();
     for (std::size_t index = 0; index < batch_sizes_.size(); ++index) {
-        if ((*batch_sizes_[index]).checked()) {
+        if ((*batch_sizes_[index]).checked.read()) {
             job.settings.sizes.push_back(batch_sizes[index]);
         }
     }
-    job.settings.recipe.preset = static_cast<IconStatePreset>((*batch_preset_).selected_index().value_or(2));
-    job.settings.recipe.saturation = (*batch_saturation_).value();
-    job.settings.recipe.brightness = (*batch_brightness_).value();
-    job.settings.recipe.opacity = (*batch_opacity_).value();
+    job.settings.recipe.preset = static_cast<IconStatePreset>((*batch_preset_).selected_index.read().value_or(2));
+    job.settings.recipe.saturation = (*batch_saturation_).value.read();
+    job.settings.recipe.brightness = (*batch_brightness_).value.read();
+    job.settings.recipe.opacity = (*batch_opacity_).value.read();
     if (job.settings.operation == IconBatchOperation::Palette) {
         read_batch_palette(job.settings);
     }
@@ -328,13 +328,13 @@ void EditorDialog::start_icon_batch(bool execute) {
         read_batch_stamp(job.settings);
     }
     for (const std::shared_ptr<gf::Control>& control : batch_settings_) {
-        (*control).set_enabled(false);
+        (*control).enabled = false;
     }
-    (*batch_run_).set_enabled(false);
-    (*batch_report_).set_enabled(false);
-    (*batch_cancel_).set_enabled(true);
-    (*error_).set_text("");
-    (*batch_status_).set_text(execute ? tr("Running") : tr("Preparing preview…"));
+    (*batch_run_).enabled = false;
+    (*batch_report_).enabled = false;
+    (*batch_cancel_).enabled = true;
+    (*error_).text = "";
+    (*batch_status_).text = execute ? tr("Running") : tr("Preparing preview…");
     batch_worker_ =
         std::thread(BatchWork{batch_job_, this, std::static_pointer_cast<EditorDialog>(shared_from_this())});
 }
@@ -376,23 +376,23 @@ void EditorDialog::deliver_icon_batch(const std::shared_ptr<IconBatchJob>& job) 
         skipped += entry.state == IconExportState::Skipped;
         cancelled += entry.state == IconExportState::Cancelled;
     }
-    (*batch_manifest_).set_text(text.str());
+    (*batch_manifest_).text = text.str();
     (*batch_manifest_).select(gf::Utf8Offset{0}, gf::Utf8Offset{0});
     (*batch_status_)
-        .set_text(std::to_string(completed) + " " + tr("Completed") + " · " + std::to_string(failed) + " " +
+        .text = std::to_string(completed) + " " + tr("Completed") + " · " + std::to_string(failed) + " " +
                   tr("Failed") + " · " + std::to_string(skipped) + " " + tr("Skipped") + " · " +
-                  std::to_string(cancelled) + " " + tr("Cancelled"));
-    (*error_).set_text(error);
+                  std::to_string(cancelled) + " " + tr("Cancelled");
+    (*error_).text = error;
     if (done) {
         show_batch_stamp(published);
         for (const std::shared_ptr<gf::Control>& control : batch_settings_) {
-            (*control).set_enabled(true);
+            (*control).enabled = true;
         }
         update_batch_controls();
     }
-    (*batch_cancel_).set_enabled(!done);
-    (*batch_run_).set_enabled(done && !(*job).execute && error.empty() && icon_batch_ready(published));
-    (*batch_report_).set_enabled(done && !published.entries.empty());
+    (*batch_cancel_).enabled = !done;
+    (*batch_run_).enabled = done && !(*job).execute && error.empty() && icon_batch_ready(published);
+    (*batch_report_).enabled = done && !published.entries.empty();
 }
 void EditorDialog::batch_clicked(gf::ButtonBase& control) {
     const std::shared_ptr<Editor> editor = editor_.lock();
@@ -412,12 +412,12 @@ void EditorDialog::batch_clicked(gf::ButtonBase& control) {
         } else if (id == "batch-palette-browse") {
             const std::string path = (*editor).choose_palette_file();
             if (!path.empty()) {
-                (*batch_palette_path_).set_text(path);
+                (*batch_palette_path_).text = path;
             }
         } else if (id == "batch-stamp-browse") {
             const std::vector<std::string> files = (*editor).choose_batch_sources(false);
             if (!files.empty()) {
-                (*batch_stamp_path_).set_text(files.front());
+                (*batch_stamp_path_).text = files.front();
             }
         } else if (id == "batch-remove") {
             const std::optional<std::size_t> selected = (*batch_sources_).selected_index();
@@ -428,9 +428,9 @@ void EditorDialog::batch_clicked(gf::ButtonBase& control) {
             }
         } else if (id == "batch-folder") {
             const std::string folder =
-                (*editor).choose_export_directory(std::string((*batch_destination_).text()));
+                (*editor).choose_export_directory(std::string((*batch_destination_).text.read()));
             if (!folder.empty()) {
-                (*batch_destination_).set_text(folder);
+                (*batch_destination_).text = folder;
             }
         } else if (id == "batch-review" || id == "batch-run") {
             start_icon_batch(id == "batch-run");
@@ -441,7 +441,7 @@ void EditorDialog::batch_clicked(gf::ButtonBase& control) {
                                                            "icon-batch-report.json"));
         }
     } catch (const std::exception& error) {
-        (*error_).set_text(error.what());
+        (*error_).text = error.what();
     }
 }
 } // namespace paint::forms

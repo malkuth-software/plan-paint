@@ -8,8 +8,8 @@ void Ribbon::initialize_sticky_ribbon() {
         .set_items({tr("Book paper"), tr("Copy paper"), tr("Recycled paper"), tr("Wove paper"),
                     tr("Laid paper"), tr("Bible paper"), tr("Parchment"), tr("Cotton rag"), tr("Kraft paper"),
                     tr("Night paper")});
-    (*sticky_paper_).set_selected_index(0);
-    (*sticky_paper_).set_accessible_name(tr("Paper texture"));
+    (*sticky_paper_).selected_index = 0;
+    (*sticky_paper_).accessible_name = tr("Paper texture");
     option(sticky_paper_, {467, 35, 216, 28});
     subscriptions_.push_back(
         (*sticky_paper_)
@@ -22,8 +22,8 @@ void Ribbon::initialize_sticky_ribbon() {
         gf::make_control<gf::Label>(gf::StableId("sticky-color-label"), tr("Paper color"));
     option(label, {467, 96, 102, 24});
     sticky_color_ = gf::make_control<gf::TextBox>(gf::StableId("sticky-color"), "#FFF2A6");
-    (*sticky_color_).set_accessible_name(tr("Paper color"));
-    (*sticky_color_).set_maximum_length(7);
+    (*sticky_color_).accessible_name = tr("Paper color");
+    (*sticky_color_).maximum_length = 7;
     option(sticky_color_, {569, 93, 114, 27});
     subscriptions_.push_back(
         (*sticky_color_)
@@ -54,13 +54,13 @@ void Ribbon::synchronize_sticky_ribbon() {
         return;
     }
     const TextSession& text = (*editor).text;
-    (*sticky_paper_).set_selected_index(static_cast<std::size_t>((*text.note).paper));
-    (*sticky_padding_).set_value((*text.note).padding);
-    (*sticky_width_).set_value(text.bounds.w);
-    (*sticky_height_).set_value(text.bounds.h);
+    (*sticky_paper_).selected_index = static_cast<std::size_t>((*text.note).paper);
+    (*sticky_padding_).value = (*text.note).padding;
+    (*sticky_width_).value = text.bounds.w;
+    (*sticky_height_).value = text.bounds.h;
     // Keep partial hex input intact until it is a complete color or focus moves.
     if (!attached_window() || (*attached_window()).focused_control() != sticky_color_) {
-        (*sticky_color_).set_text(to_hex((*text.note).paper_color));
+        (*sticky_color_).text = to_hex((*text.note).paper_color);
     }
 }
 void Ribbon::sticky_paper_changed(std::optional<std::size_t> index) {

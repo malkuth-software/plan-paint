@@ -62,14 +62,14 @@ void EditorDialog::start_asset_reveal(const std::string& path) {
     (*asset_reveal_job_).path = path;
     (*asset_reveal_job_).handler = (*editor).reveal_asset;
     (*asset_reveal_job_).generation = asset_generation_;
-    (*asset_reveal_).set_enabled(false);
-    (*asset_status_).set_text(tr("Revealing in file manager…"));
+    (*asset_reveal_).enabled = false;
+    (*asset_status_).text = tr("Revealing in file manager…");
     try {
         asset_reveal_thread_ = std::thread(
             RevealWork{this, std::static_pointer_cast<EditorDialog>(shared_from_this()), asset_reveal_job_});
     } catch (...) {
         asset_reveal_job_.reset();
-        (*asset_reveal_).set_enabled(true);
+        (*asset_reveal_).enabled = true;
         throw;
     }
 }
@@ -83,18 +83,18 @@ void EditorDialog::deliver_asset_reveal(std::shared_ptr<AssetRevealJob> job) {
     asset_reveal_job_.reset();
     const std::optional<std::size_t> selected = (*asset_list_).selected_index();
     (*asset_reveal_)
-        .set_enabled((*asset_list_).enabled() && selected && *selected < asset_listing_.entries.size());
+        .enabled = (*asset_list_).enabled.read() && selected && *selected < asset_listing_.entries.size();
     if ((*job).generation != asset_generation_) {
         return;
     }
     if (!(*job).error.empty()) {
-        (*error_).set_text((*job).error);
-        (*asset_status_).set_text(tr("Could not reveal the selected asset."));
+        (*error_).text = (*job).error;
+        (*asset_status_).text = tr("Could not reveal the selected asset.");
     } else if ((*job).result != RevealOutcome::Cancelled) {
         (*asset_status_)
-            .set_text((*job).result == RevealOutcome::FolderRequested
+            .text = (*job).result == RevealOutcome::FolderRequested
                           ? tr("Requested containing folder; file selection is unavailable.")
-                          : tr("Requested file selection in the file manager."));
+                          : tr("Requested file selection in the file manager.");
     }
 }
 } // namespace paint::forms

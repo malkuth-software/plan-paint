@@ -21,8 +21,8 @@ void IconPanel::initialize_control_tree() {
         const std::shared_ptr<gf::Button> command =
             gf::make_control<gf::Button>(gf::StableId(std::string("icon-") + ids[index]), labels[index]);
         (*command).set_theme_override(ribbon_theme());
-        (*command).set_font({gf::FontRole::control, 11, 400, false});
-        (*command).set_accessible_name(labels[index]);
+        (*command).font = {gf::FontRole::control, 11, 400, false};
+        (*command).accessible_name = labels[index];
         subscriptions_.push_back((*command).clicked().subscribe(
             *this, gf::Delegate<gf::ButtonBase&>::bind<IconPanel, &IconPanel::clicked>(*this)));
         commands_.push_back(command);
@@ -32,20 +32,20 @@ void IconPanel::initialize_control_tree() {
     for (std::size_t index = 0; index < std::size(group_names); ++index) {
         const std::shared_ptr<gf::Label> group = gf::make_control<gf::Label>(
             gf::StableId("icon-group-" + std::to_string(index)), group_names[index]);
-        (*group).set_font({gf::FontRole::control, 11, 400, false});
-        (*group).set_alignment(gf::HorizontalAlignment::center);
-        (*group).set_use_mnemonic(false);
+        (*group).font = {gf::FontRole::control, 11, 400, false};
+        (*group).alignment = gf::HorizontalAlignment::center;
+        (*group).use_mnemonic = false;
         groups_.push_back(group);
         add_child(group);
     }
     strip_ = gf::make_control<gf::FlowLayoutPanelCompat>(gf::StableId("icon-frames"));
-    (*strip_).set_auto_scroll(true);
-    (*strip_).set_padding({0, 0, 0, 0});
-    (*strip_).set_wrap_contents(false);
-    (*strip_).set_item_spacing({4, 0});
+    (*strip_).auto_scroll = true;
+    (*strip_).padding = {0, 0, 0, 0};
+    (*strip_).wrap_contents = false;
+    (*strip_).item_spacing = {4, 0};
     add_child(strip_);
     status_ = gf::make_control<gf::Label>(gf::StableId("icon-status"));
-    (*status_).set_font({gf::FontRole::control, 11, 400, false});
+    (*status_).font = {gf::FontRole::control, 11, 400, false};
     add_child(status_);
 }
 void IconPanel::arrange(gf::Rect bounds) {
@@ -132,22 +132,22 @@ void IconPanel::synchronize() {
         (*thumbnail).synchronize();
     }
     for (const std::shared_ptr<gf::Button>& command : commands_) {
-        (*command).set_enabled(icon && count > 0);
+        (*command).enabled = icon && count > 0;
     }
     const std::string sizes = cursor ? tr("Cursor sizes…") : tr("Icon sizes…");
-    (*commands_[0]).set_text(sizes);
-    (*commands_[0]).set_accessible_name(sizes);
-    (*commands_[2]).set_enabled(cursor && count > 0);
+    (*commands_[0]).text = sizes;
+    (*commands_[0]).accessible_name = sizes;
+    (*commands_[2]).enabled = cursor && count > 0;
     const bool indexed = (*editor).icon_palette_available();
-    (*commands_[11]).set_enabled(indexed || (*editor).icon_index_paint);
-    (*commands_[11]).set_selected((*editor).icon_index_paint);
+    (*commands_[11]).enabled = indexed || (*editor).icon_index_paint;
+    (*commands_[11]).selected = (*editor).icon_index_paint;
     if (indexed) {
         const unsigned capacity = static_cast<unsigned>((*atlas.icons[atlas.active].source).palette.size());
         (*editor).icon_primary_index = std::min((*editor).icon_primary_index, capacity - 1);
         (*editor).icon_alt_index = std::min((*editor).icon_alt_index, capacity - 1);
     }
-    (*status_).set_text("");
-    (*status_).set_accessible_name("");
+    (*status_).text = "";
+    (*status_).accessible_name = "";
     if (icon && atlas.active >= 0 && atlas.active < count) {
         const IconFrame& frame = atlas.icons[atlas.active];
         const ContainerKind kind = cursor ? ContainerKind::Cursor : ContainerKind::Icon;
@@ -161,8 +161,8 @@ void IconPanel::synchronize() {
                      std::to_string((*editor).icon_primary_index) + " · " + tr("Alt") + " #" +
                      std::to_string((*editor).icon_alt_index) + " · " + status;
         }
-        (*status_).set_text(status);
-        (*status_).set_accessible_name(status);
+        (*status_).text = status;
+        (*status_).accessible_name = status;
         if (active_ != atlas.active) {
             active_ = atlas.active;
             if (window()) {

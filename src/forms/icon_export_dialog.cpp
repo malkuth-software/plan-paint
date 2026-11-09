@@ -79,11 +79,11 @@ void EditorDialog::initialize_icon_export() {
          {tr("All representations"), tr("Current image"), tr("Selected sequence")}) {
         (*export_scope_).add_item(name);
     }
-    (*export_scope_).set_selected_index(0);
+    (*export_scope_).selected_index = 0;
     put(export_scope_, {165, 52, 300, 28});
     label("export-prefix-label", tr("Filename prefix"), {20, 94, 135, 28});
     export_prefix_ = gf::make_control<gf::TextBox>(gf::StableId("export-prefix"));
-    (*export_prefix_).set_text(icon_export_stem(document.filename));
+    (*export_prefix_).text = icon_export_stem(document.filename);
     put(export_prefix_, {165, 94, 380, 28});
     export_folder_ = button("export-folder", tr("Choose folder…"), {560, 94, 200, 28});
     label("export-destination-label", tr("Destination folder"), {20, 136, 145, 28});
@@ -94,31 +94,31 @@ void EditorDialog::initialize_icon_export() {
     for (const std::string& name : {tr("Skip existing"), tr("Rename outputs"), tr("Replace existing")}) {
         (*export_collision_).add_item(name);
     }
-    (*export_collision_).set_selected_index(0);
+    (*export_collision_).selected_index = 0;
     put(export_collision_, {165, 178, 300, 28});
     export_review_ = button("export-review", tr("Review outputs"), {560, 178, 200, 28});
     label("export-hint", tr("RGBA PNG at original dimensions. Cursor hotspots are not included."),
           {20, 218, 740, 28});
     export_manifest_ = gf::make_control<gf::TextBox>(gf::StableId("export-manifest"));
-    (*export_manifest_).set_accessible_name(tr("Output manifest"));
-    (*export_manifest_).set_multiline(true);
-    (*export_manifest_).set_auto_scroll(true);
-    (*export_manifest_).set_read_only(true);
-    (*export_manifest_).set_word_wrap(false);
+    (*export_manifest_).accessible_name = tr("Output manifest");
+    (*export_manifest_).multiline = true;
+    (*export_manifest_).auto_scroll = true;
+    (*export_manifest_).read_only = true;
+    (*export_manifest_).word_wrap = false;
     put(export_manifest_, {20, 254, 740, 126});
     export_status_ = gf::make_control<gf::Label>(gf::StableId("export-status"));
     put(export_status_, {20, 386, 740, 24});
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));
-    (*error_).set_text_wrapping(gf::TextWrapping::word);
+    (*error_).text_wrapping = gf::TextWrapping::word;
     put(error_, {20, 414, 740, 44});
     const std::shared_ptr<gf::Button> strip = button("export-strip", tr("Toolbar strip"), {185,474,145,28});
     export_report_ = button("export-report", tr("Save report…"), {20, 474, 150, 28});
     export_run_ = button("export-run", tr("Export PNG…"), {345, 474, 150, 28});
     export_cancel_ = button("export-cancel", tr("Cancel"), {510, 474, 110, 28});
     button("dialog-cancel", tr("Close"), {635, 474, 125, 28});
-    (*export_run_).set_enabled(false);
-    (*export_cancel_).set_enabled(false);
-    (*export_report_).set_enabled(false);
+    (*export_run_).enabled = false;
+    (*export_cancel_).enabled = false;
+    (*export_report_).enabled = false;
     for (const std::shared_ptr<gf::Button>& control :
          {export_folder_, export_review_, export_run_, export_cancel_, export_report_, strip}) {
         subscriptions_.push_back((*control).clicked().subscribe(
@@ -142,7 +142,7 @@ void EditorDialog::initialize_icon_export() {
             .text_changed()
             .subscribe(*this, gf::Delegate<const std::string&>::bind<
                                   EditorDialog, &EditorDialog::icon_export_destination_changed>(*this)));
-    (*export_status_).set_text(tr("Choose a folder to review outputs."));
+    (*export_status_).text = tr("Choose a folder to review outputs.");
 }
 void EditorDialog::stop_icon_export() {
     if (export_job_) {
@@ -178,13 +178,13 @@ void EditorDialog::start_icon_export(bool execute) {
         }
     }
     stop_icon_export();
-    (*export_cancel_).set_enabled(false);
-    (*export_run_).set_enabled(false);
-    (*export_report_).set_enabled(false);
-    (*error_).set_text("");
-    (*export_status_).set_text("");
+    (*export_cancel_).enabled = false;
+    (*export_run_).enabled = false;
+    (*export_report_).enabled = false;
+    (*error_).text = "";
+    (*export_status_).text = "";
     if (!execute) {
-        (*export_manifest_).set_text("");
+        (*export_manifest_).text = "";
     }
     if (export_directory_.empty()) {
         return;
@@ -195,9 +195,9 @@ void EditorDialog::start_icon_export(bool execute) {
     job.plan = std::move(approved);
     job.source = export_source_;
     job.directory = export_directory_;
-    job.prefix = (*export_prefix_).text();
-    job.collision = static_cast<IconExportCollision>((*export_collision_).selected_index().value_or(0));
-    const std::size_t scope = (*export_scope_).selected_index().value_or(0);
+    job.prefix = (*export_prefix_).text.read();
+    job.collision = static_cast<IconExportCollision>((*export_collision_).selected_index.read().value_or(0));
+    const std::size_t scope = (*export_scope_).selected_index.read().value_or(0);
     if (scope == 0) {
         for (std::size_t index = 0; index < (*export_source_).frames.size(); ++index) {
             job.selection.push_back(static_cast<int>(index));
@@ -211,14 +211,14 @@ void EditorDialog::start_icon_export(bool execute) {
                                                                 export_prefix_, export_destination_,
                                                                 export_folder_, export_review_};
     for (const std::shared_ptr<gf::Control>& control : settings) {
-        (*control).set_enabled(!execute);
+        (*control).enabled = !execute;
     }
     if (attached_window()) {
         const gf::Control::Ptr strip = (*attached_window()).find("export-strip");
-        if (strip) { (*strip).set_enabled(!execute); }
+        if (strip) { (*strip).enabled = !execute; }
     }
-    (*export_cancel_).set_enabled(true);
-    (*export_status_).set_text(execute ? tr("Exporting…") : tr("Preparing preview…"));
+    (*export_cancel_).enabled = true;
+    (*export_status_).text = execute ? tr("Exporting…") : tr("Preparing preview…");
     export_worker_ = std::thread(
         IconExportWork{export_job_, this, std::static_pointer_cast<EditorDialog>(shared_from_this())});
 }
@@ -254,28 +254,28 @@ void EditorDialog::deliver_icon_export() {
         }
         manifest << "\n";
     }
-    (*export_manifest_).set_text(manifest.str());
+    (*export_manifest_).text = manifest.str();
     (*export_manifest_).select(gf::Utf8Offset{0}, gf::Utf8Offset{0});
-    (*error_).set_text(error);
+    (*error_).text = error;
     const bool running = (*export_job_).execute && !done;
     (*export_status_)
-        .set_text((running ? tr("Exporting…") + " · " : "") + std::to_string(completed) + " " +
+        .text = (running ? tr("Exporting…") + " · " : "") + std::to_string(completed) + " " +
                   tr("Completed") + " · " + std::to_string(skipped) + " " + tr("Skipped") + " · " +
                   std::to_string(failed) + " " + tr("Failed") + " · " + std::to_string(cancelled) + " " +
-                  tr("Cancelled"));
+                  tr("Cancelled");
     (*export_run_)
-        .set_enabled(done && error.empty() && icon_export_ready(published) && !(*export_job_).execute);
-    (*export_report_).set_enabled(done && !published.entries.empty());
-    (*export_cancel_).set_enabled(!done);
+        .enabled = done && error.empty() && icon_export_ready(published) && !(*export_job_).execute;
+    (*export_report_).enabled = done && !published.entries.empty();
+    (*export_cancel_).enabled = !done;
     if (done) {
         const gf::Control::Ptr strip = (*attached_window()).find("export-strip");
-        if (strip) { (*strip).set_enabled(true); }
-        (*export_scope_).set_enabled(true);
-        (*export_collision_).set_enabled(true);
-        (*export_prefix_).set_enabled(true);
-        (*export_destination_).set_enabled(true);
-        (*export_folder_).set_enabled(true);
-        (*export_review_).set_enabled(true);
+        if (strip) { (*strip).enabled = true; }
+        (*export_scope_).enabled = true;
+        (*export_collision_).enabled = true;
+        (*export_prefix_).enabled = true;
+        (*export_destination_).enabled = true;
+        (*export_folder_).enabled = true;
+        (*export_review_).enabled = true;
     }
 }
 void EditorDialog::icon_export_clicked(gf::ButtonBase& control) {
@@ -294,7 +294,7 @@ void EditorDialog::icon_export_clicked(gf::ButtonBase& control) {
         } else if (id == "export-folder") {
             const std::string folder = (*editor).choose_export_directory(export_directory_);
             if (!folder.empty()) {
-                (*export_destination_).set_text(folder);
+                (*export_destination_).text = folder;
             }
         } else if (id == "export-review") {
             review_icon_export();
@@ -307,7 +307,7 @@ void EditorDialog::icon_export_clicked(gf::ButtonBase& control) {
             static_cast<void>((*editor).save_export_report(icon_export_report((*export_job_).plan)));
         }
     } catch (const std::exception& error) {
-        (*error_).set_text(error.what());
+        (*error_).text = error.what();
     }
 }
 } // namespace paint::forms

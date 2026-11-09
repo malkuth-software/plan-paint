@@ -12,8 +12,8 @@ class GradientStrip final : public gf::Control {
 
   public:
     GradientStrip(gf::StableId id, std::weak_ptr<Editor> editor) : Control(std::move(id)), editor_(editor) {
-        set_accessible_name(
-            tr("Gradient stops: click to add, drag to move; use Stop and Position for keyboard editing"));
+        accessible_name = 
+            tr("Gradient stops: click to add, drag to move; use Stop and Position for keyboard editing");
     }
     void on_paint(gf::Painter& painter, gf::Rect) override {
         const std::shared_ptr<Editor> editor = editor_.lock();
@@ -110,10 +110,10 @@ void Ribbon::initialize_gradient() {
     button("gradient-linear", tr("Linear"), -1, {630, 35, 82, 28});
     button("gradient-radial", tr("Circular"), -1, {716, 35, 86, 28});
     gradient_angle_ = number("gradient-angle", tr("Angle (°)"), {824, 35, 225, 28}, 0, 360, 0, 1);
-    (*gradient_angle_).set_increment(1);
+    (*gradient_angle_).increment = 1;
     button("gradient-reverse", tr("Reverse"), -1, {1065, 35, 98, 28});
     gradient_stops_ = gf::make_control<gf::ComboBox>(gf::StableId("gradient-stop"));
-    (*gradient_stops_).set_accessible_name(tr("Selected gradient stop"));
+    (*gradient_stops_).accessible_name = tr("Selected gradient stop");
     option(gradient_stops_, {630, 80, 94, 28});
     subscriptions_.push_back(
         (*gradient_stops_)
@@ -122,10 +122,10 @@ void Ribbon::initialize_gradient() {
                        gf::Delegate<std::optional<std::size_t>>::bind<Ribbon, &Ribbon::gradient_stop_changed>(
                            *this)));
     gradient_position_ = number("gradient-position", tr("Position (%)"), {738, 80, 215, 28}, 0, 100, 0, 1);
-    (*gradient_position_).set_increment(1);
+    (*gradient_position_).increment = 1;
     gradient_color_ = gf::make_control<SwatchButton>(gf::StableId("gradient-color"), "", Color{0, 0, 0, 255});
     (*gradient_color_).set_requested_bounds({969, 80, 28, 28});
-    (*gradient_color_).set_accessible_name(tr("Edit selected gradient stop color"));
+    (*gradient_color_).accessible_name = tr("Edit selected gradient stop color");
     subscriptions_.push_back(
         (*gradient_color_)
             .clicked()
@@ -150,12 +150,12 @@ void Ribbon::synchronize_gradient() {
         for (std::size_t i = 0; i < gradient.stops.size(); ++i) {
             names.push_back(tr("Stop ") + std::to_string(i + 1));
         }
-        (*gradient_stops_).set_items(std::move(names));
+        (*gradient_stops_).items = std::move(names);
     }
-    (*gradient_stops_).set_selected_index((*editor).gradient_stop);
-    (*gradient_angle_).set_value(gradient.angle);
-    (*gradient_angle_).set_enabled(gradient.kind == GradientKind::Linear);
-    (*gradient_position_).set_value(gradient.stops[(*editor).gradient_stop].position * 100);
+    (*gradient_stops_).selected_index = (*editor).gradient_stop;
+    (*gradient_angle_).value = gradient.angle;
+    (*gradient_angle_).enabled = gradient.kind == GradientKind::Linear;
+    (*gradient_position_).value = gradient.stops[(*editor).gradient_stop].position * 100;
     (*gradient_color_).set_color(gradient.stops[(*editor).gradient_stop].color);
     (*gradient_strip_).invalidate(gf::Dirty::paint);
     gradient_synchronizing_ = false;
@@ -173,9 +173,9 @@ void Ribbon::gradient_number_changed(double) {
         return;
     }
     Gradient& gradient = (*editor).fill_gradient;
-    gradient.angle = (*gradient_angle_).value();
+    gradient.angle = (*gradient_angle_).value.read();
     (*editor).gradient_stop =
-        move_gradient_stop(gradient, (*editor).gradient_stop, (*gradient_position_).value() / 100);
+        move_gradient_stop(gradient, (*editor).gradient_stop, (*gradient_position_).value.read() / 100);
     (*editor).refresh();
 }
 bool Ribbon::gradient_clicked(const std::string& id) {
@@ -249,9 +249,9 @@ gf::Size Ribbon::gradient_gallery(gf::Panel& panel) {
                              {5.0 + (i % 3) * 148, 4.0 + (i / 3) * 65, 144, 62});
         (*item).set_image_list(gradient_previews_);
         (*item).set_image_key(std::to_string(i));
-        (*item).set_text_image_relation(gf::TextImageRelation::image_above_text);
-        (*item).set_text_alignment(gf::ContentAlignment::middle_center);
-        (*item).set_font({gf::FontRole::control, 12, 400, false});
+        (*item).text_image_relation = gf::TextImageRelation::image_above_text;
+        (*item).text_alignment = gf::ContentAlignment::middle_center;
+        (*item).font = {gf::FontRole::control, 12, 400, false};
     }
     return {454, 8 + 65.0 * ((presets.size() + 2) / 3)};
 }

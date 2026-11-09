@@ -227,7 +227,7 @@ class RibbonTabButton final : public gf::Button {
     void on_paint(gf::Painter& painter, gf::Rect damage) override {
         Button::on_paint(painter, damage);
         // Continue the selected sheet into the ribbon; no enclosed bottom edge.
-        if (selected() && !visual_context().high_contrast) {
+        if (selected.read() && !visual_context().high_contrast) {
             const gf::Rect bounds = client_rectangle();
             painter.fill_rect({0, bounds.height - 3, bounds.width, 3}, interface_color(*this, gf::Color::rgba(232, 242, 255)));
         }
@@ -236,8 +236,8 @@ class RibbonTabButton final : public gf::Button {
 class DisclosureDivider final : public gf::Control {
   public:
     explicit DisclosureDivider(gf::StableId id) : Control(std::move(id)) {
-        set_hit_test_transparent(true);
-        set_dock(gf::DockStyle::bottom);
+        hit_test_transparent = true;
+        dock = gf::DockStyle::bottom;
         set_requested_bounds({0, 0, 0, 14});
     }
     void on_paint(gf::Painter& painter, gf::Rect) override {
@@ -283,8 +283,8 @@ void SwatchButton::set_show_opacity(bool show) {
 }
 void SwatchButton::update_opacity_description() {
     const OpacityIndicator indicator = opacity_indicator(color_);
-    set_accessible_description(show_opacity_ ? tr("Opacity") + ": " +
-        std::to_string(indicator.percent) + "% (" + std::to_string(color_.a) + "/255)" : "");
+    accessible_description = show_opacity_ ? tr("Opacity") + ": " +
+        std::to_string(indicator.percent) + "% (" + std::to_string(color_.a) + "/255)" : "";
 }
 static bool same_material(const Ink& left, const Ink& right) {
     return equal(left.primary, right.primary) && equal(left.secondary, right.secondary) &&
@@ -300,9 +300,9 @@ static bool same_material(const Ink& left, const Ink& right) {
 }
 void SwatchButton::set_material(const Ink& ink) {
     set_color(ink.primary);
-    set_accessible_name(text() + ": " +
+    accessible_name = text.read() + ": " +
                         (ink.brush == Brush::Round ? tr(pattern_names[static_cast<int>(ink.pattern)])
-                                                   : tr(brush_names[static_cast<int>(ink.brush)])));
+                                                   : tr(brush_names[static_cast<int>(ink.brush)]));
     if (!attached_window() || (material_ink_ && same_material(*material_ink_, ink))) {
         return;
     }
@@ -338,10 +338,10 @@ void SwatchButton::on_paint(gf::Painter& painter, gf::Rect damage) {
     Button::on_paint(painter, damage);
     gf::Rect bounds = committed_arranged_bounds();
     const double inset =
-        text().empty() ? std::min(3.0, bounds.width * 0.12) : std::min(9.0, bounds.width * 0.16);
-    gf::Rect swatch = text().empty() ? gf::Rect{inset, 3, bounds.width - inset * 2, bounds.height - 6}
+        text.read().empty() ? std::min(3.0, bounds.width * 0.12) : std::min(9.0, bounds.width * 0.16);
+    gf::Rect swatch = text.read().empty() ? gf::Rect{inset, 3, bounds.width - inset * 2, bounds.height - 6}
                                      : gf::Rect{inset, 7, bounds.width - inset * 2, 30};
-    if (pressed_visual() && !text().empty()) {
+    if (pressed_visual() && !text.read().empty()) {
         swatch.x += 1;
         swatch.y += 1;
     }
@@ -423,8 +423,8 @@ class ShapeSwitchButton final : public gf::Button {
 class GuideGlyph final : public gf::Control {
   public:
     explicit GuideGlyph(gf::StableId id) : Control(std::move(id)) {
-        set_hit_test_transparent(true);
-        set_dock(gf::DockStyle::fill);
+        hit_test_transparent = true;
+        dock = gf::DockStyle::fill;
     }
     void on_paint(gf::Painter& painter, gf::Rect) override {
         painter.save();
@@ -466,10 +466,10 @@ std::shared_ptr<gf::Button> Ribbon::button(const std::string& id, const std::str
             (*dropdown).add_child(gf::make_control<GuideGlyph>(gf::StableId("guide-glyph")));
         }
         if (tall) {
-            (*dropdown).set_drop_down_edge(gf::DropDownButtonEdge::bottom);
+            (*dropdown).drop_down_edge = gf::DropDownButtonEdge::bottom;
             (*dropdown).add_child(gf::make_control<DisclosureDivider>(gf::StableId(id + "-divider")));
         }
-        (*dropdown).set_drop_down_width(tall ? 14 : 16);
+        (*dropdown).drop_down_width = tall ? 14 : 16;
         subscriptions_.push_back((*dropdown).drop_down_requested().subscribe(
             *this, gf::Delegate<gf::DropDownButton&>::bind<Ribbon, &Ribbon::dropdown>(*this)));
         subscriptions_.push_back((*dropdown).drop_down_close_requested().subscribe(
@@ -490,20 +490,20 @@ std::shared_ptr<gf::Button> Ribbon::button(const std::string& id, const std::str
         (*result).set_theme_override(gallery_theme());
     }
     (*result).set_requested_bounds(bounds);
-    (*result).set_accessible_name(text.empty() ? id : text);
-    (*result).set_use_mnemonic(false);
-    (*result).set_font({gf::FontRole::control, 14, 400, false, 0.05});
-    (*result).set_content_padding(tall ? gf::Insets{3, 4, 3, disclosure ? 16.0 : 4.0}
-                                       : gf::Insets{4, 2, disclosure ? 18.0 : 4.0, 2});
-    (*result).set_text_image_relation(tall ? gf::TextImageRelation::image_above_text
-                                           : gf::TextImageRelation::image_before_text);
-    (*result).set_image_gap(id == "paste" ? 1 : 4);
-    (*result).set_text_line_spacing(1.1);
-    (*result).set_text_alignment(tall || text.empty() || id.ends_with("-tab") || id == "help"
+    (*result).accessible_name = text.empty() ? id : text;
+    (*result).use_mnemonic = false;
+    (*result).font = {gf::FontRole::control, 14, 400, false, 0.05};
+    (*result).content_padding = tall ? gf::Insets{3, 4, 3, disclosure ? 16.0 : 4.0}
+                                       : gf::Insets{4, 2, disclosure ? 18.0 : 4.0, 2};
+    (*result).text_image_relation = tall ? gf::TextImageRelation::image_above_text
+                                           : gf::TextImageRelation::image_before_text;
+    (*result).image_gap = id == "paste" ? 1 : 4;
+    (*result).text_line_spacing = 1.1;
+    (*result).text_alignment = tall || text.empty() || id.ends_with("-tab") || id == "help"
                                      ? gf::ContentAlignment::middle_center
-                                     : gf::ContentAlignment::middle_left);
-    (*result).set_image_alignment(tall || text.empty() ? gf::ContentAlignment::middle_center
-                                                       : gf::ContentAlignment::middle_left);
+                                     : gf::ContentAlignment::middle_left;
+    (*result).image_alignment = tall || text.empty() ? gf::ContentAlignment::middle_center
+                                                       : gf::ContentAlignment::middle_left;
     if (icon >= 0) {
         (*result).set_image_key(std::to_string(icon));
     }
@@ -546,7 +546,7 @@ void Ribbon::initialize_control_tree() {
     button("tool-2", "", 7, {144, 80, 28, 30});
     button("tool-3", "", 8, {174, 80, 34, 30}, false, true, true);
     std::shared_ptr<gf::Button> text = button("text", "", 9, {210, 80, 26, 30});
-    (*text).set_accessible_name(tr("Text"));
+    (*text).accessible_name = tr("Text");
     button("tool-4", "", 10, {240, 80, 36, 30}, false, true, true);
     button("tool-5", "", -1, {278, 80, 28, 30});
     button("tool-6", "", 12, {310, 80, 28, 30});
@@ -555,7 +555,7 @@ void Ribbon::initialize_control_tree() {
     button("tool-9", tr("Path"), 21, {442, 34, 44, 83}, true, true, true);
     std::shared_ptr<gf::Button> guide_button =
         button("tool-11", tr("Guide"), -1, {490, 34, 44, 83}, true, true, true);
-    (*guide_button).set_content_padding({0, 38, 0, 14});
+    (*guide_button).content_padding = {0, 38, 0, 14};
     for (std::size_t i = 0; i < std::size(home_shapes); ++i) {
         button("shape-" + std::to_string(static_cast<int>(home_shapes[i])), "",
                100 + static_cast<int>(home_shapes[i]), {546 + 25.0 * (i % 7), 36 + 25.0 * (i / 7), 25, 25});
@@ -570,8 +570,8 @@ void Ribbon::initialize_control_tree() {
         std::shared_ptr<SwatchButton> swatch = i == 0 ? primary_ : secondary_;
         (*swatch).set_show_opacity(true);
         (*swatch).set_requested_bounds({821 + i * 48.0, 36, 44, 80});
-        (*swatch).set_font({gf::FontRole::control, 14, 400, false});
-        (*swatch).set_content_padding({0, 40, 0, 0});
+        (*swatch).font = {gf::FontRole::control, 14, 400, false};
+        (*swatch).content_padding = {0, 40, 0, 0};
         subscriptions_.push_back((*swatch).clicked().subscribe(
             *this, gf::Delegate<gf::ButtonBase&>::bind<Ribbon, &Ribbon::clicked>(*this)));
         button_pages_.push_back(building_page_);
@@ -582,7 +582,7 @@ void Ribbon::initialize_control_tree() {
         std::shared_ptr<SwatchButton> swatch =
             gf::make_control<SwatchButton>(gf::StableId("swatch-" + std::to_string(i)), "", ribbon_color(i));
         (*swatch).set_requested_bounds({921.0 + (i % 10) * 20, 36.0 + (i / 10) * 24, 20, 23});
-        (*swatch).set_accessible_name(tr("Palette color ") + std::to_string(i + 1));
+        (*swatch).accessible_name = tr("Palette color ") + std::to_string(i + 1);
         subscriptions_.push_back((*swatch).clicked().subscribe(
             *this, gf::Delegate<gf::ButtonBase&>::bind<Ribbon, &Ribbon::clicked>(*this)));
         button_pages_.push_back(building_page_);
@@ -594,7 +594,7 @@ void Ribbon::initialize_control_tree() {
     add_options();
     // Tab order describes the authored interface, independently of visual overlap.
     for (std::size_t index = 0; index < children().size(); ++index) {
-        (*children()[index]).set_tab_index(static_cast<std::uint32_t>(index));
+        (*children()[index]).tab_index = static_cast<std::uint32_t>(index);
     }
     show_page();
 }
@@ -637,8 +637,8 @@ void Ribbon::option(std::shared_ptr<gf::Control> control, gf::Rect bounds) {
 }
 void Ribbon::check(const std::string& id, const std::string& text, gf::Rect bounds) {
     std::shared_ptr<gf::CheckBox> control = gf::make_control<gf::CheckBox>(gf::StableId(id), text);
-    (*control).set_auto_check(false);
-    (*control).set_font({gf::FontRole::control, 14, 400, false});
+    (*control).auto_check = false;
+    (*control).font = {gf::FontRole::control, 14, 400, false};
     subscriptions_.push_back((*control).clicked().subscribe(
         *this, gf::Delegate<gf::ButtonBase&>::bind<Ribbon, &Ribbon::clicked>(*this)));
     checks_.push_back(control);
@@ -648,15 +648,15 @@ std::shared_ptr<gf::NumericUpDown> Ribbon::number(const std::string& id, const s
                                                   gf::Rect bounds, double minimum, double maximum,
                                                   double value, int decimals) {
     std::shared_ptr<gf::Label> label = gf::make_control<gf::Label>(gf::StableId(id + "-label"), text);
-    (*label).set_font({gf::FontRole::control, 14, 400, false});
+    (*label).font = {gf::FontRole::control, 14, 400, false};
     const double label_width = id == "spiro-scale" ? 70 : id == "geometry-corners" ? 165 : 113;
     option(label, {bounds.x, bounds.y, label_width, bounds.height});
     std::shared_ptr<gf::NumericUpDown> control = gf::make_control<gf::NumericUpDown>(gf::StableId(id));
     (*control).set_range(minimum, maximum);
-    (*control).set_decimal_places(static_cast<std::uint8_t>(decimals));
-    (*control).set_increment(decimals ? 0.05 : 1);
-    (*control).set_value(value);
-    (*control).set_accessible_name(text);
+    (*control).decimal_places = static_cast<std::uint8_t>(decimals);
+    (*control).increment = decimals ? 0.05 : 1;
+    (*control).value = value;
+    (*control).accessible_name = text;
     option(control, {bounds.x + label_width, bounds.y, bounds.width - label_width, bounds.height});
     subscriptions_.push_back((*control).value_changed().subscribe(
         *this, id.starts_with("gradient-")
@@ -685,9 +685,9 @@ void Ribbon::spiro_button(const std::string& id, const std::string& text, int ki
     const std::shared_ptr<gf::Button> choice =
         gf::make_control<SpiroPartButton>(gf::StableId(id), text, kind, index);
     (*choice).set_requested_bounds(bounds);
-    (*choice).set_content_padding({1, 48, 1, 1});
-    (*choice).set_text_alignment(gf::ContentAlignment::bottom_center);
-    (*choice).set_accessible_name(text);
+    (*choice).content_padding = {1, 48, 1, 1};
+    (*choice).text_alignment = gf::ContentAlignment::bottom_center;
+    (*choice).accessible_name = text;
     subscriptions_.push_back((*choice).clicked().subscribe(
         *this, gf::Delegate<gf::ButtonBase&>::bind<Ribbon, &Ribbon::clicked>(*this)));
     button_pages_.push_back(128);
@@ -748,9 +748,9 @@ void Ribbon::add_options() {
         std::shared_ptr<gf::Button> choice =
             button("material-brush-" + std::to_string(i), material_names[i], -1,
                    {140.0 + ((i - 1) % 4) * 128, 35.0 + ((i - 1) / 4) * 27, 126, 25});
-        (*choice).set_accessible_name(tr(brush_names[i]));
-        (*choice).set_font({gf::FontRole::control, 11, 400, false});
-        (*choice).set_content_padding({2, 1, 2, 1});
+        (*choice).accessible_name = tr(brush_names[i]);
+        (*choice).font = {gf::FontRole::control, 11, 400, false};
+        (*choice).content_padding = {2, 1, 2, 1};
         (*choice).set_image_key(std::to_string(i));
     }
     for (int i = 0; i < pattern_count; ++i) {
@@ -759,10 +759,10 @@ void Ribbon::add_options() {
         (*swatch).set_requested_bounds({670.0 + (i % 9) * 33, 36.0 + (i / 9) * 25, 29, 24});
         if (i == 0 || i == static_cast<int>(Pattern::None)) {
             (*swatch).set_requested_bounds({10, i == 0 ? 84.0 : 109.0, 114, 22});
-            (*swatch).set_text(i == 0 ? tr("Solid") : tr("No color"));
-            (*swatch).set_content_padding({32, 1, 1, 1});
+            (*swatch).text = i == 0 ? tr("Solid") : tr("No color");
+            (*swatch).content_padding = {32, 1, 1, 1};
         }
-        (*swatch).set_accessible_name(tr(pattern_names[i]));
+        (*swatch).accessible_name = tr(pattern_names[i]);
         subscriptions_.push_back((*swatch).clicked().subscribe(
             *this, gf::Delegate<gf::ButtonBase&>::bind<Ribbon, &Ribbon::clicked>(*this)));
         button_pages_.push_back(building_page_);
@@ -783,9 +783,9 @@ void Ribbon::add_options() {
     building_page_ = 12;
     check("smooth-lines", tr("Smooth lines"), {244, 36, 210, 25});
     render_quality_ = gf::make_control<gf::ComboBox>(gf::StableId("render-quality"));
-    (*render_quality_).set_items({tr("Crisp"), tr("Smooth"), tr("4× Smooth")});
-    (*render_quality_).set_selected_index(1);
-    (*render_quality_).set_accessible_name(tr("Line and shape rendering"));
+    (*render_quality_).items = {tr("Crisp"), tr("Smooth"), tr("4× Smooth")};
+    (*render_quality_).selected_index = 1;
+    (*render_quality_).accessible_name = tr("Line and shape rendering");
     option(render_quality_, {244, 36, 210, 28});
     subscriptions_.push_back((*render_quality_).selected_index_changed().subscribe(
         *this, gf::Delegate<std::optional<std::size_t>>::bind<Ribbon, &Ribbon::render_quality_changed>(*this)));
@@ -804,10 +804,10 @@ void Ribbon::add_options() {
         const std::string name = index == 0 ? tr("Start marker") : tr("End marker");
         const std::shared_ptr<gf::Label> label = gf::make_control<gf::Label>(gf::StableId(id + "-label"), name);
         option(label, {840.0 + index * 220, 68, 200, 22});
-        (*marker).set_items(markers);
-        (*marker).set_accessible_name(name);
-        (*marker).set_drop_down_width(240);
-        (*marker).set_maximum_drop_down_items(endpoint_marker_count);
+        (*marker).items = markers;
+        (*marker).accessible_name = name;
+        (*marker).drop_down_width = 240;
+        (*marker).maximum_drop_down_items = endpoint_marker_count;
         option(marker, {840.0 + index * 220, 94, 200, 28});
         subscriptions_.push_back((*marker).selected_index_changed().subscribe(*this,
             gf::Delegate<std::optional<std::size_t>>::bind<Ribbon, &Ribbon::geometry_markers_changed>(*this)));
@@ -816,8 +816,8 @@ void Ribbon::add_options() {
         gf::StableId("geometry-stroke-label"), tr("Stroke style"));
     option(stroke_label, {480, 79, 165, 28});
     geometry_stroke_ = gf::make_control<gf::ComboBox>(gf::StableId("geometry-stroke"));
-    (*geometry_stroke_).set_items({tr("Solid"), tr("Dashed"), tr("Dotted")});
-    (*geometry_stroke_).set_accessible_name(tr("Stroke style"));
+    (*geometry_stroke_).items = {tr("Solid"), tr("Dashed"), tr("Dotted")};
+    (*geometry_stroke_).accessible_name = tr("Stroke style");
     option(geometry_stroke_, {645, 79, 165, 28});
     subscriptions_.push_back((*geometry_stroke_).selected_index_changed().subscribe(
         *this, gf::Delegate<std::optional<std::size_t>>::bind<Ribbon, &Ribbon::geometry_stroke_changed>(*this)));
@@ -839,7 +839,7 @@ void Ribbon::add_options() {
     button("context-stamp-cancel", tr("Cancel"), -1, {242, 79, 135, 30});
     std::shared_ptr<gf::Label> placement_hint = gf::make_control<gf::Label>(
         gf::StableId("stamp-placement-hint"), tr("Position preview; Apply to paint. Escape cancels."));
-    (*placement_hint).set_text_wrapping(gf::TextWrapping::word);
+    (*placement_hint).text_wrapping = gf::TextWrapping::word;
     option(placement_hint, {12, 36, 204, 78});
     button("context-stamp-clear", tr("Clear stamp"), -1, {242, 36, 135, 30});
     button("context-zoom-in", tr("Zoom in"), 12, {12, 36, 95, 78}, true);
@@ -848,9 +848,9 @@ void Ribbon::add_options() {
         gf::StableId("picker-hint"), tr("Click: Primary · right-click: Alt\nDrag: pan the view"));
     option(picker, {12, 36, 204, 74});
     picker_mode_ = gf::make_control<gf::ComboBox>(gf::StableId("picker-mode"));
-    (*picker_mode_).set_items({tr("Exact pixel"), tr("Small average (5 × 5)"), tr("Representative (reject flecks)")});
-    (*picker_mode_).set_selected_index(0);
-    (*picker_mode_).set_accessible_name(tr("Eyedropper sampling"));
+    (*picker_mode_).items = {tr("Exact pixel"), tr("Small average (5 × 5)"), tr("Representative (reject flecks)")};
+    (*picker_mode_).selected_index = 0;
+    (*picker_mode_).accessible_name = tr("Eyedropper sampling");
     option(picker_mode_, {242, 36, 280, 30});
     subscriptions_.push_back(
         (*picker_mode_)
@@ -869,8 +869,8 @@ void Ribbon::add_options() {
     for (int index = 0; index < mix_effect_count; ++index) {
         (*mix_effect_).add_item(mix_effect_name(static_cast<MixEffect>(index)));
     }
-    (*mix_effect_).set_selected_index(0);
-    (*mix_effect_).set_accessible_name(tr("Mix effect"));
+    (*mix_effect_).selected_index = 0;
+    (*mix_effect_).accessible_name = tr("Mix effect");
     option(mix_effect_, {12, 36, 222, 30});
     subscriptions_.push_back(
         (*mix_effect_)
@@ -910,11 +910,11 @@ void Ribbon::add_options() {
         fonts.push_back(std::filesystem::path(path).stem().string());
     }
     font_ = gf::make_control<gf::ComboBox>(gf::StableId("text-font"));
-    (*font_).set_items(std::move(fonts));
-    (*font_).set_selected_index(0);
-    (*font_).set_accessible_name(tr("Font family"));
-    (*font_).set_maximum_drop_down_items(12);
-    (*font_).set_drop_down_width(320);
+    (*font_).items = std::move(fonts);
+    (*font_).selected_index = 0;
+    (*font_).accessible_name = tr("Font family");
+    (*font_).maximum_drop_down_items = 12;
+    (*font_).drop_down_width = 320;
     option(font_, {12, 37, 220, 28});
     subscriptions_.push_back((*font_).selected_index_changed().subscribe(
         *this, gf::Delegate<std::optional<std::size_t>>::bind<Ribbon, &Ribbon::font_changed>(*this)));
@@ -928,9 +928,9 @@ void Ribbon::add_options() {
     check("text-contour", tr("Outline letters"), {467, 35, 192, 24});
     text_outline_ = number("text-outline-width", tr("Outline (px)"), {467, 64, 216, 24}, 1, 8, 2);
     word_art_ = gf::make_control<gf::ComboBox>(gf::StableId("text-word-art"));
-    (*word_art_).set_items({tr("Plain"), tr("3D extrusion"), tr("Embossed"), tr("Color gradient")});
-    (*word_art_).set_accessible_name(tr("WordArt style"));
-    (*word_art_).set_selected_index(0);
+    (*word_art_).items = {tr("Plain"), tr("3D extrusion"), tr("Embossed"), tr("Color gradient")};
+    (*word_art_).accessible_name = tr("WordArt style");
+    (*word_art_).selected_index = 0;
     option(word_art_, {467, 93, 216, 24});
     subscriptions_.push_back(
         (*word_art_)
@@ -1035,8 +1035,8 @@ void Ribbon::show_page() {
     if (page_ == 512 && !icon) {
         page_ = 1;
     }
-    (*atlas_).set_visible(page_ == 64 && !collapsed_);
-    (*icon_).set_visible(page_ == 512 && !collapsed_);
+    (*atlas_).visible = page_ == 64 && !collapsed_;
+    (*icon_).visible = page_ == 512 && !collapsed_;
     (*editor).show_hotspot = page_ == 64 || page_ == 512;
     if (page_ == 64) {
         (*atlas_).synchronize();
@@ -1086,7 +1086,7 @@ void Ribbon::show_page() {
             }
             if (id == "heal-source") {
                 visible = tool == Tool::Brush && (*editor).brush_family == BrushFamily::Heal;
-                control.set_selected((*editor).set_heal_source);
+                control.selected = (*editor).set_heal_source;
             }
             if (id.starts_with("stamp-shape-") || id == "stamp-shapes-menu") {
                 visible = tool == Tool::Stamp;
@@ -1095,15 +1095,15 @@ void Ribbon::show_page() {
         const bool placement = (*editor).stamp_placement_active();
         if (id == "context-stamp-apply" || id == "context-stamp-cancel") {
             visible = visible && placement;
-            control.set_enabled(id == "context-stamp-cancel" || (*editor).can_apply_stamp_placement());
+            control.enabled = id == "context-stamp-cancel" || (*editor).can_apply_stamp_placement();
         }
         if (id == "context-stamp-clear" || id == "context-stamp-add" || id == "stamp-shapes-menu") {
             visible = visible && !placement;
         }
         if (button_pages_[i] == 40) {
             visible = page_ == 8 && selection && (*editor).document.selection.active;
-            control.set_enabled(id == "warp-place" || id == "warp-cancel" ? (*editor).warp_active()
-                                                                          : !(*editor).warp_active());
+            control.enabled = id == "warp-place" || id == "warp-cancel" ? (*editor).warp_active()
+                                                                          : !(*editor).warp_active();
         }
         if (id == "gradient-tab") {
             visible = (*editor).gradient_fill;
@@ -1112,9 +1112,9 @@ void Ribbon::show_page() {
             visible = icon;
         }
         if (id == "patterns-tab") {
-            control.set_enabled(ink);
+            control.enabled = ink;
         }
-        control.set_visible(sticky_visibility(id, visible) && (!collapsed_ || button_pages_[i] == 0));
+        control.visible = sticky_visibility(id, visible) && (!collapsed_ || button_pages_[i] == 0);
     }
     for (std::size_t i = 0; i < option_controls_.size(); ++i) {
         gf::Control& control = *option_controls_[i];
@@ -1129,7 +1129,7 @@ void Ribbon::show_page() {
             const Shape shape = (*editor).document.shape;
             visible = visible && (tool == Tool::Path || (tool == Tool::Shape &&
                 (shape == Shape::Line || shape == Shape::Bezier || shape == Shape::Arc)));
-            control.set_enabled(tool != Tool::Path || (*editor).document.continuous_path);
+            control.enabled = tool != Tool::Path || (*editor).document.continuous_path;
         }
         if (id == "smooth-lines") {
             visible = visible && !geometry;
@@ -1197,7 +1197,7 @@ void Ribbon::show_page() {
         if (id == "stamp-transparent" || id.starts_with("stamp-width") || id.starts_with("stamp-height")) {
             visible = visible && !placement;
         }
-        control.set_visible(sticky_visibility(id, visible) && !collapsed_);
+        control.visible = sticky_visibility(id, visible) && !collapsed_;
     }
     invalidate(gf::Dirty::layout | gf::Dirty::paint);
     (*editor).invalidate(gf::Dirty::layout | gf::Dirty::paint);
@@ -1228,8 +1228,8 @@ void Ribbon::geometry_stroke_changed(std::optional<std::size_t> index) {
 void Ribbon::geometry_markers_changed(std::optional<std::size_t>) {
     const std::shared_ptr<Editor> editor = editor_.lock();
     if (!synchronizing_ && editor) {
-        const std::size_t first = (*geometry_start_).selected_index().value_or(0);
-        const std::size_t last = (*geometry_end_).selected_index().value_or(0);
+        const std::size_t first = (*geometry_start_).selected_index.read().value_or(0);
+        const std::size_t last = (*geometry_end_).selected_index.read().value_or(0);
         if (first >= endpoint_marker_count || last >= endpoint_marker_count) { return; }
         (*editor).document.ink.geometry.start = static_cast<EndpointMarker>(first);
         (*editor).document.ink.geometry.end = static_cast<EndpointMarker>(last);
@@ -1269,42 +1269,42 @@ void Ribbon::options_changed(double) {
     Ink& ink = (*editor).spiro.selected_peg >= 0 ? (*editor).spiro.pegs[(*editor).spiro.selected_peg].effect
                : secondary_color_                ? (*editor).document.alt_ink
                                                  : (*editor).document.ink;
-    ink.grain_scale = (*grain_).value();
-    ink.paper_roughness = (*tooth_).value();
-    ink.pigment_load = (*load_).value();
-    ink.material_angle = (*angle_).value();
+    ink.grain_scale = (*grain_).value.read();
+    ink.paper_roughness = (*tooth_).value.read();
+    ink.pigment_load = (*load_).value.read();
+    ink.material_angle = (*angle_).value.read();
     (*editor).spiro.refresh_peg((*editor).spiro.selected_peg);
-    (*editor).document.ink.size = static_cast<int>((*tool_size_).value());
-    (*editor).document.ink.geometry.corner_radius = (*corner_radius_).value();
-    (*editor).document.ink.geometry.organic = (*geometry_organic_).value();
+    (*editor).document.ink.size = static_cast<int>((*tool_size_).value.read());
+    (*editor).document.ink.geometry.corner_radius = (*corner_radius_).value.read();
+    (*editor).document.ink.geometry.organic = (*geometry_organic_).value.read();
     if ((*editor).text.note) {
-        (*(*editor).text.note).padding = static_cast<int>((*sticky_padding_).value());
+        (*(*editor).text.note).padding = static_cast<int>((*sticky_padding_).value.read());
         const Rect bounds = (*editor).text.bounds;
-        (*editor).text.resize({bounds.x, bounds.y, static_cast<int>((*sticky_width_).value()),
-                              static_cast<int>((*sticky_height_).value())});
+        (*editor).text.resize({bounds.x, bounds.y, static_cast<int>((*sticky_width_).value.read()),
+                              static_cast<int>((*sticky_height_).value.read())});
     }
-    (*editor).text.style.size = static_cast<int>((*text_size_).value());
-    (*editor).text.style.outline_width = (*text_outline_).value();
-    (*editor).text.style.skew = (*text_skew_).value();
-    (*editor).text.style.perspective = (*text_perspective_).value();
-    (*editor).text.style.warp = (*text_warp_).value();
-    (*editor).stamp_width = static_cast<int>((*stamp_width_).value());
-    (*editor).stamp_height = static_cast<int>((*stamp_height_).value());
-    (*editor).mesh_spacing = (*mesh_spacing_).value();
-    (*editor).effect_strength = (*effect_strength_).value();
-    (*editor).effect_scale = (*effect_scale_).value();
-    (*editor).effect_phase = (*effect_phase_).value();
-    (*editor).heal_hardness = (*heal_hardness_).value();
-    (*editor).heal_correction = (*heal_correction_).value();
-    (*editor).stabilizer_lag = (*stabilizer_lag_).value();
-    if ((*editor).stamp_hardness != (*stamp_hardness_).value()) {
-        (*editor).stamp_hardness = (*stamp_hardness_).value();
+    (*editor).text.style.size = static_cast<int>((*text_size_).value.read());
+    (*editor).text.style.outline_width = (*text_outline_).value.read();
+    (*editor).text.style.skew = (*text_skew_).value.read();
+    (*editor).text.style.perspective = (*text_perspective_).value.read();
+    (*editor).text.style.warp = (*text_warp_).value.read();
+    (*editor).stamp_width = static_cast<int>((*stamp_width_).value.read());
+    (*editor).stamp_height = static_cast<int>((*stamp_height_).value.read());
+    (*editor).mesh_spacing = (*mesh_spacing_).value.read();
+    (*editor).effect_strength = (*effect_strength_).value.read();
+    (*editor).effect_scale = (*effect_scale_).value.read();
+    (*editor).effect_phase = (*effect_phase_).value.read();
+    (*editor).heal_hardness = (*heal_hardness_).value.read();
+    (*editor).heal_correction = (*heal_correction_).value.read();
+    (*editor).stabilizer_lag = (*stabilizer_lag_).value.read();
+    if ((*editor).stamp_hardness != (*stamp_hardness_).value.read()) {
+        (*editor).stamp_hardness = (*stamp_hardness_).value.read();
         (*editor).update_stamp_hardness();
     }
-    if ((*editor).stamp_scale != (*stamp_scale_).value() ||
-        (*editor).stamp_angle != (*stamp_angle_).value()) {
-        (*editor).stamp_scale = (*stamp_scale_).value();
-        (*editor).stamp_angle = (*stamp_angle_).value();
+    if ((*editor).stamp_scale != (*stamp_scale_).value.read() ||
+        (*editor).stamp_angle != (*stamp_angle_).value.read()) {
+        (*editor).stamp_scale = (*stamp_scale_).value.read();
+        (*editor).stamp_angle = (*stamp_angle_).value.read();
         (*editor).regenerate_stamp();
     }
     (*editor).document.sync_curve();
@@ -1369,7 +1369,7 @@ void Ribbon::apply_choice(const std::string& id) {
     } else if (id == "text-opaque") {
         (*editor).text.style.opaque = !(*editor).text.style.opaque;
     } else if (id == "rotate-custom") {
-        (*editor).request_rotation((*rotation_).value());
+        (*editor).request_rotation((*rotation_).value.read());
     } else if (id == "text-wrap") {
         (*editor).text.style.word_wrap = !(*editor).text.style.word_wrap;
     } else if (id == "text-primary" || id == "text-secondary") {
@@ -1393,7 +1393,7 @@ void Ribbon::on_attached_to_window() {
     for (std::size_t i = 0; i < buttons_.size(); ++i) {
         gf::Button& control = *buttons_[i];
         std::string id(control.stable_id().value());
-        std::string name = control.text().empty() ? control.accessible_name() : control.text();
+        std::string name = control.text.read().empty() ? control.accessible_name.read() : control.text.read();
         if (id.starts_with("tool-") && id != "tool-tab") {
             name = tool_names[std::stoi(id.substr(5))];
         } else if (id.starts_with("shape-")) {
@@ -1422,7 +1422,7 @@ void Ribbon::on_attached_to_window() {
             name = to_hex(ribbon_color(std::stoi(id.substr(7))));
         }
         if (!name.empty()) {
-            control.set_accessible_name(name);
+            control.accessible_name = name;
             (*tooltips_).set_tool_tip(buttons_[i], name);
         }
     }
@@ -1437,7 +1437,7 @@ void Ribbon::on_attached_to_window() {
                 (*medium_icons_).add_png("dropper-hand", std::as_bytes(std::span(dropper_icon)), 1));
             control.set_image_key("dropper-hand");
             control.set_image_list(medium_icons_);
-            control.set_content_padding({1, 1, 1, 1});
+            control.content_padding = {1, 1, 1, 1};
             continue;
         }
         if (control.stable_id().value().starts_with("material-brush-")) {
@@ -1540,8 +1540,8 @@ void Ribbon::arrange(gf::Rect bounds) {
             rectangle.x = bounds.width - rectangle.width;
         }
         if (id.ends_with("-tab")) {
-            rectangle.y = control.selected() ? 0 : 4;
-            rectangle.height = control.selected() && !collapsed_ ? 29 : control.selected() ? 27 : 23;
+            rectangle.y = control.selected.read() ? 0 : 4;
+            rectangle.height = control.selected.read() && !collapsed_ ? 29 : control.selected.read() ? 27 : 23;
             rectangle.width += 3;
         }
         if (!control.image_key().empty() && id != "tool-5" && !id.starts_with("material-brush-") &&
@@ -1559,36 +1559,36 @@ void Ribbon::arrange(gf::Rect bounds) {
             }
             control.set_image_list(images);
             if (tall) {
-                control.set_content_padding({1, 4, 1, 16});
-            } else if (control.text().empty()) {
-                control.set_content_padding({0, 2, 0, 2});
+                control.content_padding = {1, 4, 1, 16};
+            } else if (control.text.read().empty()) {
+                control.content_padding = {0, 2, 0, 2};
             }
         }
-        const bool tall_caption = control.requested_bounds().height > 45 && !control.text().empty();
+        const bool tall_caption = control.requested_bounds().height > 45 && !control.text.read().empty();
         const bool material_caption = id.starts_with("material-brush-");
         const double font_size = material_caption ? std::clamp(11 * horizontal_scale, 8.0, 12.0)
                                  : tall_caption   ? std::clamp(12 * horizontal_scale, 8.0, 14.0)
                                                   : std::clamp(14 * horizontal_scale, 10.0, 15.0);
         gf::FontSpec caption_font{gf::FontRole::control, font_size,
-            static_cast<std::uint16_t>(id.ends_with("-tab") && control.selected() ? 700 : 400), false, 0.05};
-        if (window() && !control.text().empty() &&
+            static_cast<std::uint16_t>(id.ends_with("-tab") && control.selected.read() ? 700 : 400), false, 0.05};
+        if (window() && !control.text.read().empty() &&
             (tall_caption || id.ends_with("-tab") || id == "primary" || id == "secondary")) {
             const gf::Insets padding = control.content_padding();
             const double available = std::max(1.0, rectangle.width - padding.left - padding.right - 2);
             double widest = 0;
             std::size_t start = 0;
             do {
-                const std::size_t end = control.text().find('\n', start);
-                const std::string line = control.text().substr(start, end - start);
+                const std::size_t end = control.text.read().find('\n', start);
+                const std::string line = control.text.read().substr(start, end - start);
                 widest = std::max(widest, (*window()).resolve_text_layout_utf8(line, caption_font).logical_size.width);
                 if (end == std::string::npos) { break; }
                 start = end + 1;
-            } while (start < control.text().size());
+            } while (start < control.text.read().size());
             if (widest > available) {
                 caption_font.size = std::max(9.0, caption_font.size * available / widest);
             }
         }
-        control.set_font(caption_font);
+        control.font = caption_font;
         set_child_layout(buttons_[i], rectangle);
     }
     for (const std::shared_ptr<gf::Control>& control : option_controls_) {
@@ -1622,18 +1622,18 @@ void Ribbon::arrange(gf::Rect bounds) {
         const std::shared_ptr<gf::NumericUpDown> number =
             std::dynamic_pointer_cast<gf::NumericUpDown>(control);
         if (label) {
-            (*label).set_font(font);
+            (*label).font = font;
         }
         if (check) {
-            (*check).set_font(font);
-            (*check).set_content_padding({0, 0, 0, 0});
+            (*check).font = font;
+            (*check).content_padding = {0, 0, 0, 0};
         }
         if (combo) {
-            (*combo).set_font(font);
+            (*combo).font = font;
         }
         if (number) {
-            (*(*number).editor()).set_font(font);
-            (*number).set_button_width(std::clamp(18 * option_scale, 12.0, 18.0));
+            (*(*number).editor()).font = font;
+            (*number).button_width = std::clamp(18 * option_scale, 12.0, 18.0);
         }
         set_child_layout(control, rectangle);
     }
@@ -1762,7 +1762,7 @@ void Ribbon::synchronize() {
     (*secondary_).set_material(document.tool == Tool::Pencil ? pencil_ink(stored_alt) : stored_alt);
     if (tooltips_) {
         for (const std::shared_ptr<SwatchButton>& swatch : {primary_, secondary_}) {
-            const std::string description = (*swatch).accessible_name() + "\n" + (*swatch).accessible_description();
+            const std::string description = (*swatch).accessible_name.read() + "\n" + (*swatch).accessible_description.read();
             if ((*tooltips_).tool_tip(*swatch) != description) {
                 (*tooltips_).set_tool_tip(swatch, description);
             }
@@ -1772,29 +1772,29 @@ void Ribbon::synchronize() {
         gf::Button& control = *buttons_[i];
         std::string id(control.stable_id().value());
         if (id == "palette-pane") {
-            control.set_text(palette_page_ == 0 ? tr("Basic") : palette_page_ == 1 ? tr("Custom") : tr("Themed"));
+            control.text = palette_page_ == 0 ? tr("Basic") : palette_page_ == 1 ? tr("Custom") : tr("Themed");
         }
         if (id.starts_with("swatch-")) {
             const int index = std::stoi(id.substr(7));
             const std::shared_ptr<SwatchButton> swatch = std::dynamic_pointer_cast<SwatchButton>(buttons_[i]);
             if (swatch) {
                 (*swatch).set_color(palette_color(index));
-                control.set_accessible_name(palette_page_ == 1 && index == 29 ? tr("Transparency")
+                control.accessible_name = palette_page_ == 1 && index == 29 ? tr("Transparency")
                                             : palette_page_ == 2
                                                 ? std::string(theme_name(index % 10)) + tr(" color ") +
                                                       std::to_string(index / 10 + 1)
                                                 : std::string(palette_page_ == 1 ? tr("Custom") : tr("Basic")) +
-                                                      tr(" color ") + std::to_string(index + 1));
+                                                      tr(" color ") + std::to_string(index + 1);
                 if (tooltips_) {
                     (*tooltips_)
                         .set_tool_tip(buttons_[i],
-                                      control.accessible_name() + ": " + to_hex(palette_color(index)));
+                                      control.accessible_name.read() + ": " + to_hex(palette_color(index)));
                 }
             }
         }
         bool selected = false;
         if (id == "text-place") {
-            control.set_text((*editor).text.note ? tr("Apply") : tr("Place text"));
+            control.text = (*editor).text.note ? tr("Apply") : tr("Place text");
         }
         if (id.starts_with("tool-") && id != "tool-tab") {
             selected = document.tool == ribbon_tools[std::stoi(id.substr(5))] ||
@@ -1825,11 +1825,11 @@ void Ribbon::synchronize() {
         }
         if (id == "edge-switch") {
             selected = document.shape_outline;
-            control.set_accessible_name(document.shape_outline ? tr("Edge on") : tr("Edge off"));
+            control.accessible_name = document.shape_outline ? tr("Edge on") : tr("Edge off");
         }
         if (id == "fill-switch") {
             selected = document.tool == Tool::Guide ? (*editor).guide.fill : document.shape_fill;
-            control.set_accessible_name(selected ? tr("Fill on") : tr("Fill off"));
+            control.accessible_name = selected ? tr("Fill on") : tr("Fill off");
         }
         if (id == "brush-menu") {
             selected = document.tool == Tool::Brush;
@@ -1862,8 +1862,8 @@ void Ribbon::synchronize() {
             selected = static_cast<int>(document.stamp_shape) == std::stoi(id.substr(12));
         }
         if (id == "stamp-shapes-menu") {
-            control.set_text(stamp_shape_name(document.stamp_shape));
-            control.set_accessible_name(stamp_shape_name(document.stamp_shape));
+            control.text = stamp_shape_name(document.stamp_shape);
+            control.accessible_name = stamp_shape_name(document.stamp_shape);
             bind_icon(control, 100 + static_cast<int>(stamp_geometry_shape(document.stamp_shape)), false);
         }
         if (id == "tool-tab") {
@@ -1872,52 +1872,52 @@ void Ribbon::synchronize() {
                                    tr("Brush"),     tr("Shape"),     tr("Path"),           tr("Stamp"),
                                    tr("Mesh"),      tr("Guide"),     tr("Freehand shape"), tr("Spirograph")};
             static_assert(std::size(names) == static_cast<std::size_t>(Tool::Spirograph) + 1);
-            control.set_text(page_ == 128  ? tr("Spirograph")
+            control.text = page_ == 128  ? tr("Spirograph")
                              : page_ == 32 ? tr("Transform")
                              : (*editor).text.note ? tr("Sticky note")
-                                           : names[static_cast<int>(document.tool)]);
-            control.set_accessible_name(page_ == 128 ? tr("Spirograph tools")
+                                           : names[static_cast<int>(document.tool)];
+            control.accessible_name = page_ == 128 ? tr("Spirograph tools")
                                         : page_ == 32
                                             ? tr("Transform tools")
-                                            : std::string(names[static_cast<int>(document.tool)]) + tr(" tools"));
+                                            : std::string(names[static_cast<int>(document.tool)]) + tr(" tools");
         }
         if (id.starts_with("spiro-guide-")) {
             selected = (*editor).spiro.guide == std::stoi(id.substr(12));
-            control.set_enabled((*editor).spiro.compatible(std::stoi(id.substr(12)), (*editor).spiro.insert));
+            control.enabled = (*editor).spiro.compatible(std::stoi(id.substr(12)), (*editor).spiro.insert);
         }
         if (id.starts_with("spiro-insert-")) {
             selected = (*editor).spiro.inserted && (*editor).spiro.insert == std::stoi(id.substr(13));
-            control.set_enabled((*editor).spiro.compatible((*editor).spiro.guide, std::stoi(id.substr(13))));
+            control.enabled = (*editor).spiro.compatible((*editor).spiro.guide, std::stoi(id.substr(13)));
         }
         if (id == "spiro-guides-menu") {
-            control.set_text(tr(spiro_guides()[(*editor).spiro.guide].name));
-            control.set_accessible_name(std::string(tr("Guide catalog: ")) + control.text());
+            control.text = tr(spiro_guides()[(*editor).spiro.guide].name);
+            control.accessible_name = std::string(tr("Guide catalog: ")) + control.text.read();
         }
         if (id == "spiro-inserts-menu") {
-            control.set_text(tr(spiro_inserts()[(*editor).spiro.insert].name));
-            control.set_accessible_name(std::string(tr("Insert catalog: ")) + control.text());
+            control.text = tr(spiro_inserts()[(*editor).spiro.insert].name);
+            control.accessible_name = std::string(tr("Insert catalog: ")) + control.text.read();
         }
         if (id == "spiro-brushes-menu") {
             const int peg = (*editor).spiro.selected_peg;
-            control.set_enabled(peg >= 0);
-            control.set_text(peg < 0
+            control.enabled = peg >= 0;
+            control.text = peg < 0
                                  ? tr("Select a peg · choose medium")
                                  : std::string(tr("Peg ")) + std::to_string(peg + 1) + " · " +
-                                       tr(brush_names[static_cast<int>((*editor).spiro.pegs[peg].effect.brush)]));
-            control.set_accessible_name(control.text());
+                                       tr(brush_names[static_cast<int>((*editor).spiro.pegs[peg].effect.brush)]);
+            control.accessible_name = control.text.read();
         }
         if (id == "spiro-deselect") {
-            control.set_enabled((*editor).spiro.selected_peg >= 0);
+            control.enabled = (*editor).spiro.selected_peg >= 0;
         }
         if (id == "spiro-holes-menu") {
-            control.set_enabled((*editor).spiro.inserted);
+            control.enabled = (*editor).spiro.inserted;
         }
         if (id == "spiro-load-primary" || id == "spiro-load-alt") {
-            control.set_enabled((*editor).spiro.selected_peg >= 0);
+            control.enabled = (*editor).spiro.selected_peg >= 0;
         }
         if (id == "spiro-outside") {
             selected = (*editor).spiro.outside || (*editor).spiro.capsule();
-            control.set_enabled(!(*editor).spiro.rack() && !(*editor).spiro.capsule() && !(*editor).spiro.quad());
+            control.enabled = !(*editor).spiro.rack() && !(*editor).spiro.capsule() && !(*editor).spiro.quad();
         }
         if (id == "spiro-fill") {
             selected = document.tool == Tool::Fill;
@@ -1930,8 +1930,8 @@ void Ribbon::synchronize() {
         }
         if (id.starts_with("spiro-peg-") || id == "spiro-remove" || id == "spiro-clear-pegs" ||
             id == "spiro-operate" || id == "spiro-fill" || id == "spiro-lift") {
-            control.set_enabled((*editor).spiro.inserted &&
-                                (id != "spiro-operate" || !(*editor).spiro.detached));
+            control.enabled = (*editor).spiro.inserted &&
+                                (id != "spiro-operate" || !(*editor).spiro.detached);
         }
         if (id == "gradient-linear") {
             selected = (*editor).fill_gradient.kind == GradientKind::Linear;
@@ -1940,12 +1940,12 @@ void Ribbon::synchronize() {
             selected = (*editor).fill_gradient.kind == GradientKind::Radial;
         }
         if (id == "gradient-add") {
-            control.set_enabled((*editor).fill_gradient.stops.size() < 32);
+            control.enabled = (*editor).fill_gradient.stops.size() < 32;
         }
         if (id == "gradient-remove") {
-            control.set_enabled((*editor).fill_gradient.stops.size() > 2);
+            control.enabled = (*editor).fill_gradient.stops.size() > 2;
         }
-        control.set_selected(selected);
+        control.selected = selected;
     }
     if (ordered_tab_page_ != page_) {
         // Backmost first, foreground last: paint and hit testing share this order.
@@ -1955,7 +1955,7 @@ void Ribbon::synchronize() {
             }
         }
         for (const std::shared_ptr<gf::Button>& button : buttons_) {
-            if ((*button).stable_id().value().ends_with("-tab") && (*button).selected()) {
+            if ((*button).stable_id().value().ends_with("-tab") && (*button).selected.read()) {
                 (*button).bring_to_front();
             }
         }
@@ -1963,37 +1963,37 @@ void Ribbon::synchronize() {
     }
     synchronizing_ = true;
     synchronize_sticky_ribbon();
-    (*spiro_scale_).set_value((*editor).spiro.scale);
+    (*spiro_scale_).value = (*editor).spiro.scale;
     const Ink& material = (*editor).spiro.selected_peg >= 0
                               ? (*editor).spiro.pegs[(*editor).spiro.selected_peg].effect
                           : secondary_color_ ? document.alt_ink
                                              : document.ink;
-    (*grain_).set_value(material.grain_scale);
-    (*tooth_).set_value(material.paper_roughness);
-    (*load_).set_value(material.pigment_load);
-    (*angle_).set_value(material.material_angle);
-    (*tool_size_).set_value(document.ink.size);
-    (*corner_radius_).set_value(document.ink.geometry.corner_radius);
-    (*geometry_organic_).set_value(document.ink.geometry.organic);
-    (*geometry_stroke_).set_selected_index(static_cast<std::size_t>(document.ink.geometry.stroke));
-    (*geometry_start_).set_selected_index(static_cast<std::size_t>(document.ink.geometry.start));
-    (*geometry_end_).set_selected_index(static_cast<std::size_t>(document.ink.geometry.end));
-    (*render_quality_).set_selected_index(!document.ink.smooth ? 0 : document.ink.supersample ? 2 : 1);
-    (*picker_mode_).set_selected_index(static_cast<std::size_t>((*editor).picker_mode));
-    (*text_size_).set_value((*editor).text.style.size);
-    (*stamp_width_).set_value((*editor).stamp_width);
-    (*stamp_height_).set_value((*editor).stamp_height);
-    (*stamp_scale_).set_value((*editor).stamp_scale);
-    (*stamp_angle_).set_value((*editor).stamp_angle);
-    (*mesh_spacing_).set_value((*editor).mesh_spacing);
-    (*stamp_hardness_).set_value((*editor).stamp_hardness);
-    (*effect_strength_).set_value((*editor).effect_strength);
-    (*effect_scale_).set_value((*editor).effect_scale);
-    (*effect_phase_).set_value((*editor).effect_phase);
-    (*heal_hardness_).set_value((*editor).heal_hardness);
-    (*heal_correction_).set_value((*editor).heal_correction);
-    (*stabilizer_lag_).set_value((*editor).stabilizer_lag);
-    (*mix_effect_).set_selected_index(static_cast<std::size_t>((*editor).mix_effect));
+    (*grain_).value = material.grain_scale;
+    (*tooth_).value = material.paper_roughness;
+    (*load_).value = material.pigment_load;
+    (*angle_).value = material.material_angle;
+    (*tool_size_).value = document.ink.size;
+    (*corner_radius_).value = document.ink.geometry.corner_radius;
+    (*geometry_organic_).value = document.ink.geometry.organic;
+    (*geometry_stroke_).selected_index = static_cast<std::size_t>(document.ink.geometry.stroke);
+    (*geometry_start_).selected_index = static_cast<std::size_t>(document.ink.geometry.start);
+    (*geometry_end_).selected_index = static_cast<std::size_t>(document.ink.geometry.end);
+    (*render_quality_).selected_index = !document.ink.smooth ? 0 : document.ink.supersample ? 2 : 1;
+    (*picker_mode_).selected_index = static_cast<std::size_t>((*editor).picker_mode);
+    (*text_size_).value = (*editor).text.style.size;
+    (*stamp_width_).value = (*editor).stamp_width;
+    (*stamp_height_).value = (*editor).stamp_height;
+    (*stamp_scale_).value = (*editor).stamp_scale;
+    (*stamp_angle_).value = (*editor).stamp_angle;
+    (*mesh_spacing_).value = (*editor).mesh_spacing;
+    (*stamp_hardness_).value = (*editor).stamp_hardness;
+    (*effect_strength_).value = (*editor).effect_strength;
+    (*effect_scale_).value = (*editor).effect_scale;
+    (*effect_phase_).value = (*editor).effect_phase;
+    (*heal_hardness_).value = (*editor).heal_hardness;
+    (*heal_correction_).value = (*editor).heal_correction;
+    (*stabilizer_lag_).value = (*editor).stabilizer_lag;
+    (*mix_effect_).selected_index = static_cast<std::size_t>((*editor).mix_effect);
     std::optional<std::size_t> font_index;
     if ((*editor).text.style.face_path.empty()) {
         font_index = (*editor).text.style.mono ? 1 : 0;
@@ -2010,26 +2010,26 @@ void Ribbon::synchronize() {
         (*font_).add_item(font_label((*editor).text.style.face_path));
         font_index = font_paths_.size() + 1;
     }
-    (*font_).set_selected_index(font_index);
-    (*word_art_).set_selected_index(static_cast<std::size_t>((*editor).text.style.word_art));
-    (*text_outline_).set_value((*editor).text.style.outline_width);
-    (*text_skew_).set_value((*editor).text.style.skew);
-    (*text_perspective_).set_value((*editor).text.style.perspective);
-    (*text_warp_).set_value((*editor).text.style.warp);
+    (*font_).selected_index = font_index;
+    (*word_art_).selected_index = static_cast<std::size_t>((*editor).text.style.word_art);
+    (*text_outline_).value = (*editor).text.style.outline_width;
+    (*text_skew_).value = (*editor).text.style.skew;
+    (*text_perspective_).value = (*editor).text.style.perspective;
+    (*text_warp_).value = (*editor).text.style.warp;
     for (const std::shared_ptr<gf::CheckBox>& check : checks_) {
         std::string id((*check).stable_id().value());
         if (id.starts_with("text-")) {
             const TextStyle& style = (*editor).text.style;
-            (*check).set_checked(id == "text-contour"     ? style.contour
+            (*check).checked = id == "text-contour"     ? style.contour
                                  : id == "text-bold"      ? style.bold
                                  : id == "text-italic"    ? style.italic
                                  : id == "text-underline" ? style.underline
                                  : id == "text-strikeout" ? style.strikeout
                                  : id == "text-opaque"    ? style.opaque
-                                                          : style.word_wrap);
+                                                          : style.word_wrap;
             continue;
         }
-        (*check).set_checked(id == "guide-fill"         ? (*editor).guide.fill
+        (*check).checked = id == "guide-fill"         ? (*editor).guide.fill
                              : id == "heal-clone"       ? (*editor).heal_options.clone
                              : id == "heal-aligned"     ? (*editor).heal_options.aligned
                              : id == "heal-alpha"       ? (*editor).heal_options.preserve_alpha
@@ -2050,7 +2050,7 @@ void Ribbon::synchronize() {
                              : id == "continuous-path"       ? document.continuous_path
                              : id == "edit-path-nodes"       ? (*editor).edit_path_nodes
                              : id == "outline"               ? document.shape_outline
-                                                             : document.shape_fill);
+                                                             : document.shape_fill;
     }
     synchronize_gradient();
     synchronizing_ = false;
@@ -2075,7 +2075,7 @@ void Ribbon::on_pointer_preview(gf::PointerEvent& event) {
     if (editor && event.button == gf::PointerButton::primary && event.action == gf::PointerAction::down) {
         for (const std::shared_ptr<gf::Button>& choice : buttons_) {
             const std::string id((*choice).stable_id().value());
-            if (id.starts_with("spiro-peg-") && (*choice).visible() && (*choice).enabled() &&
+            if (id.starts_with("spiro-peg-") && (*choice).visible.read() && (*choice).enabled.read() &&
                 (*choice).absolute_bounds().contains(event.position)) {
                 const int width = std::stoi(id.substr(10));
                 (*editor).spiro_tray_pointer(width, event);
@@ -2094,7 +2094,7 @@ void Ribbon::on_pointer_preview(gf::PointerEvent& event) {
             std::string id((*choice).stable_id().value());
             if ((id.starts_with("swatch-") || id.starts_with("r-pattern-") ||
                  id.starts_with("material-brush-")) &&
-                (*choice).visible() && (*choice).enabled() &&
+                (*choice).visible.read() && (*choice).enabled.read() &&
                 (*choice).absolute_bounds().contains(event.position)) {
                 secondary_target_ = choice;
                 set_pointer_capture(true);
@@ -2290,29 +2290,29 @@ std::shared_ptr<gf::Button> Ribbon::add_popup_button(gf::Panel& panel, const std
         item = gf::make_control<gf::Button>(gf::StableId("popup-" + id), text);
     }
     (*item).set_requested_bounds(bounds);
-    (*item).set_font({gf::FontRole::control, 14, 400, false, 0.05});
-    (*item).set_text_image_relation(gf::TextImageRelation::image_before_text);
-    (*item).set_text_alignment(gf::ContentAlignment::middle_left);
-    (*item).set_image_alignment(gf::ContentAlignment::middle_left);
-    (*item).set_content_padding({8, 4, 8, 4});
-    (*item).set_selected(selected);
+    (*item).font = {gf::FontRole::control, 14, 400, false, 0.05};
+    (*item).text_image_relation = gf::TextImageRelation::image_before_text;
+    (*item).text_alignment = gf::ContentAlignment::middle_left;
+    (*item).image_alignment = gf::ContentAlignment::middle_left;
+    (*item).content_padding = {8, 4, 8, 4};
+    (*item).selected = selected;
     bind_icon(*item, icon, false);
     popup_subscriptions_.push_back((*item).clicked().subscribe(
         *this, gf::Delegate<gf::ButtonBase&>::bind<Ribbon, &Ribbon::popup_clicked>(*this)));
     if (id.starts_with("shape-")) {
         std::string name = tr(shape_names[std::stoi(id.substr(6))]);
-        (*item).set_accessible_name(name);
+        (*item).accessible_name = name;
         std::string key = std::to_string(icon);
         if (!(*medium_icons_).contains_key(key)) {
             static_cast<void>((*medium_icons_).add_png(key, ribbon_icon_png(icon, 24), 2));
         }
         (*item).set_image_list(medium_icons_);
-        (*item).set_content_padding({4, 4, 4, 4});
+        (*item).content_padding = {4, 4, 4, 4};
     }
     if (id.starts_with("spiro-guide-") || id.starts_with("spiro-insert-")) {
-        (*item).set_content_padding({2, 40, 2, 2});
-        (*item).set_font({gf::FontRole::control, 11, 400, false});
-        (*item).set_text_alignment(gf::ContentAlignment::bottom_center);
+        (*item).content_padding = {2, 40, 2, 2};
+        (*item).font = {gf::FontRole::control, 11, 400, false};
+        (*item).text_alignment = gf::ContentAlignment::bottom_center;
     }
     panel.add_child(item);
     return item;
@@ -2352,8 +2352,8 @@ void Ribbon::dropdown(gf::DropDownButton& button) {
                 *panel, std::string(guides ? "spiro-guide-" : "spiro-insert-") + std::to_string(i),
                 guides ? tr(spiro_guides()[i].name) : tr(spiro_inserts()[i].name), -1,
                 {4.0 + (i % 5) * 112, 4.0 + (i / 5) * 76, 110, 74}, selected);
-            (*part).set_enabled(guides ? (*editor).spiro.compatible(i, (*editor).spiro.insert)
-                                       : (*editor).spiro.compatible((*editor).spiro.guide, i));
+            (*part).enabled = guides ? (*editor).spiro.compatible(i, (*editor).spiro.insert)
+                                       : (*editor).spiro.compatible((*editor).spiro.guide, i);
         }
     } else if (id == "spiro-holes-menu") {
         const Spirograph& spiro = (*editor).spiro;
@@ -2390,7 +2390,7 @@ void Ribbon::dropdown(gf::DropDownButton& button) {
                 *panel, "stamp-shape-" + std::to_string(i), "",
                 100 + static_cast<int>(stamp_geometry_shape(shape)),
                 {6.0 + (i % 7) * 38, 5.0 + (i / 7) * 34, 34, 33}, document.stamp_shape == shape);
-            (*item).set_accessible_name(stamp_shape_name(shape));
+            (*item).accessible_name = stamp_shape_name(shape);
         }
     } else if (id == "shapes-menu") {
         width = 280;
@@ -2431,11 +2431,11 @@ void Ribbon::dropdown(gf::DropDownButton& button) {
             static_cast<void>((*pattern_previews_).add_png(std::to_string(i), std::as_bytes(std::span(png)), 2));
             const std::shared_ptr<gf::Button> item = add_popup_button(*panel, "pattern-" + std::to_string(i), tr(pattern_names[i]), -1,
                 {5.0 + (slot % 4) * 107, 4.0 + (slot / 4) * 62, 105, 60}, static_cast<int>(document.ink.pattern) == i);
-            (*item).set_font({gf::FontRole::control, 12, 400, false});
+            (*item).font = {gf::FontRole::control, 12, 400, false};
             (*item).set_image_list(pattern_previews_);
             (*item).set_image_key(std::to_string(i));
-            (*item).set_text_image_relation(gf::TextImageRelation::image_above_text);
-            (*item).set_text_alignment(gf::ContentAlignment::middle_center);
+            (*item).text_image_relation = gf::TextImageRelation::image_above_text;
+            (*item).text_alignment = gf::ContentAlignment::middle_center;
             ++slot;
         }
         const double bottom = 8 + rows * 62;

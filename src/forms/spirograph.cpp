@@ -381,17 +381,17 @@ double Editor::spiro_grip_radius() const {
     const Point center = spiro.wheel_center(spiro.angle);
     for (int i = 0; i < spiro.hole_count(); ++i) {
         const Point hole = spiro.hole(i, spiro.angle);
-        radius = std::min(radius, std::hypot(hole.x - center.x, hole.y - center.y) * (*canvas_).zoom() * .5);
+        radius = std::min(radius, std::hypot(hole.x - center.x, hole.y - center.y) * (*canvas_).zoom.read() * .5);
     }
     return radius;
 }
 int Editor::spiro_hole_at(Point point, bool empty_only) const {
     const Point center = spiro.wheel_center(spiro.angle);
-    if (std::hypot(point.x - center.x, point.y - center.y) * (*canvas_).zoom() < spiro_grip_radius()) {
+    if (std::hypot(point.x - center.x, point.y - center.y) * (*canvas_).zoom.read() < spiro_grip_radius()) {
         return -1;
     }
     int best = -1;
-    double distance = 11 / (*canvas_).zoom();
+    double distance = 11 / (*canvas_).zoom.read();
     for (int i = 0; i < spiro.hole_count(); ++i) {
         if (empty_only && spiro.pegs[i].seated) {
             continue;
@@ -644,7 +644,7 @@ bool Editor::spiro_pointer(const gf::PointerEvent& event, Point point) {
         return true;
     }
     if (event.action == gf::PointerAction::move && (on_wheel || on_ring || on_close || on_resize || hole >= 0)) {
-        canvas().set_cursor(on_resize ? gf::CursorKind::resize_diagonal_down : gf::CursorKind::hand);
+        canvas().cursor = on_resize ? gf::CursorKind::resize_diagonal_down : gf::CursorKind::hand;
     }
     if (event.action == gf::PointerAction::down && spiro.selected_peg >= 0) {
         spiro.selected_peg = -1;

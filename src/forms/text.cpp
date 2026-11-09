@@ -290,7 +290,7 @@ void Editor::text_pointer(const gf::PointerEvent& event, Point point) {
         text_drag_start_ = point;
         text_drag_bounds_ = text.bounds;
         text_drag_ = -3;
-        double scale = (*canvas_).zoom();
+        double scale = (*canvas_).zoom.read();
         for (int i = 0; i < 8; ++i) {
             if (std::hypot(point.x - text.bounds.x - hx[i] * text.bounds.w,
                            point.y - text.bounds.y - hy[i] * text.bounds.h) *
@@ -378,7 +378,7 @@ void Editor::paint_text_overlay(gf::Painter& painter) {
     if (!text.active) {
         return;
     }
-    double scale = (*canvas_).zoom();
+    double scale = (*canvas_).zoom.read();
     gf::Rect box = canvas().bitmap_to_client({text.bounds.x, text.bounds.y, text.bounds.w, text.bounds.h});
     gf::Color blue = gf::Color::rgba(29, 103, 180);
     painter.fill_rect({box.x, box.y - 22, 92, 20}, gf::Color::rgba(223, 236, 250));

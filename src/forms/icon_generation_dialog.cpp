@@ -27,12 +27,12 @@ void EditorDialog::initialize_icon_targets() {
     icon_epoch_ = document.atlas_epoch;
     label("icon-target-label", tr("Target images"), {420, 44, 340, 24});
     icon_target_list_ = gf::make_control<gf::ListBox>(gf::StableId("icon-target-list"));
-    (*icon_target_list_).set_accessible_name(tr("Target images"));
-    (*icon_target_list_).set_item_height(26);
+    (*icon_target_list_).accessible_name = tr("Target images");
+    (*icon_target_list_).item_height = 26;
     put(icon_target_list_, {420, 74, 340, 116});
     label("icon-target-source-label", tr("Source image"), {420, 198, 105, 28});
     icon_target_source_ = gf::make_control<gf::ComboBox>(gf::StableId("icon-target-source"));
-    (*icon_target_source_).set_accessible_name(tr("Source image"));
+    (*icon_target_source_).accessible_name = tr("Source image");
     std::vector<std::string> sources;
     for (std::size_t index = 0; index < icon_sources_.frames.size(); ++index) {
         const Image& image = icon_sources_.frames[index].image;
@@ -40,12 +40,12 @@ void EditorDialog::initialize_icon_targets() {
                           (svg_source_matches(icon_sources_.frames[index]) ? "SVG · " : "") +
                           std::to_string(image.width) + " × " + std::to_string(image.height));
     }
-    (*icon_target_source_).set_items(sources);
+    (*icon_target_source_).items = sources;
     put(icon_target_source_, {530, 198, 230, 28});
     label("icon-target-depth-label", tr("Color depth"), {420, 236, 105, 28});
     icon_target_depth_ = gf::make_control<gf::ComboBox>(gf::StableId("icon-target-depth"));
-    (*icon_target_depth_).set_accessible_name(tr("Color depth"));
-    (*icon_target_depth_).set_items({"RGBA", "4 bpp DIB", "8 bpp DIB"});
+    (*icon_target_depth_).accessible_name = tr("Color depth");
+    (*icon_target_depth_).items = {"RGBA", "4 bpp DIB", "8 bpp DIB"};
     put(icon_target_depth_, {530, 236, 230, 28});
     icon_target_replace_ =
         gf::make_control<gf::CheckBox>(gf::StableId("icon-target-replace"), tr("Replace this image"));
@@ -55,13 +55,13 @@ void EditorDialog::initialize_icon_targets() {
     icon_target_before_ = gf::make_control<gf::RasterCanvas>(gf::StableId("icon-target-before"));
     icon_target_after_ = gf::make_control<gf::RasterCanvas>(gf::StableId("icon-target-after"));
     for (const std::shared_ptr<gf::RasterCanvas>& canvas : {icon_target_before_, icon_target_after_}) {
-        (*canvas).set_zoom(1);
-        (*canvas).set_view_origin({0, 0});
+        (*canvas).zoom = 1;
+        (*canvas).view_origin = {0, 0};
     }
     put(icon_target_before_, {420, 332, 160, 84});
     put(icon_target_after_, {600, 332, 160, 84});
     label("icon-custom-label", tr("Add custom dimensions or another depth variant"), {20, 330, 380, 30});
-    (*std::static_pointer_cast<gf::Label>(controls_.back())).set_text_wrapping(gf::TextWrapping::word);
+    (*std::static_pointer_cast<gf::Label>(controls_.back())).text_wrapping = gf::TextWrapping::word;
     label("icon-custom-width-label", tr("Width"), {20, 366, 60, 28});
     icon_target_width_ = number("icon-custom-width", {82, 366, 100, 28}, 1, 256, 32);
     label("icon-custom-height-label", tr("Height"), {202, 366, 60, 28});
@@ -99,7 +99,7 @@ void EditorDialog::refresh_icon_plan() {
         const std::vector<IconFrame> empty;
         const std::vector<IconFrame>& existing = icon_existing_ ? icon_sources_.frames : empty;
         const IconSizePolicy policy =
-            static_cast<IconSizePolicy>((*icon_policy_).selected_index().value_or(0));
+            static_cast<IconSizePolicy>((*icon_policy_).selected_index.read().value_or(0));
         const std::vector<int> sizes = chosen_icon_sizes();
         // Build the full review even when its output count is invalid, so the
         // owner can remove custom additions or uncheck presets to repair it.
@@ -163,18 +163,18 @@ void EditorDialog::refresh_icon_plan() {
         }
         render_icon_targets();
     } catch (const std::exception& error) {
-        (*icon_plan_).set_text("");
-        (*icon_manifest_).set_text("");
-        (*error_).set_text(tr(error.what()));
+        (*icon_plan_).text = "";
+        (*icon_manifest_).text = "";
+        (*error_).text = tr(error.what());
     }
 }
 void EditorDialog::render_icon_targets() {
     icon_target_sync_ = true;
     icon_plan_valid_ = false;
-    (*icon_target_discard_).set_enabled(false);
-    (*icon_target_source_).set_enabled(false);
-    (*icon_target_depth_).set_enabled(false);
-    (*icon_target_replace_).set_enabled(false);
+    (*icon_target_discard_).enabled = false;
+    (*icon_target_source_).enabled = false;
+    (*icon_target_depth_).enabled = false;
+    (*icon_target_replace_).enabled = false;
     try {
         std::size_t selected = (*icon_target_list_).selected_index().value_or(0);
         selected = std::min(selected, icon_targets_.empty() ? 0 : icon_targets_.size() - 1);
@@ -217,28 +217,28 @@ void EditorDialog::render_icon_targets() {
             labels.push_back(description);
             manifest += description + "\n";
         }
-        (*icon_target_list_).set_items(labels);
+        (*icon_target_list_).items = labels;
         (*icon_plan_)
-            .set_text(tr("Keep: ") + std::to_string(kept) + tr(" · Add: ") + std::to_string(added) +
+            .text = tr("Keep: ") + std::to_string(kept) + tr(" · Add: ") + std::to_string(added) +
                       tr(" · Replace: ") + std::to_string(replaced) + tr(" · Remove: ") +
-                      std::to_string(removed));
-        (*icon_manifest_).set_text(manifest);
+                      std::to_string(removed);
+        (*icon_manifest_).text = manifest;
         (*icon_manifest_).select(gf::Utf8Offset{0}, gf::Utf8Offset{0});
-        (*error_).set_text(warnings);
+        (*error_).text = warnings;
         if (!icon_targets_.empty()) {
             (*icon_target_list_).select_index(selected);
             const IconTargetRow& row = icon_targets_[selected];
-            (*icon_target_discard_).set_enabled(row.custom);
+            (*icon_target_discard_).enabled = row.custom;
             const IconGenerationTarget& target = row.target;
-            (*icon_target_source_).set_selected_index(target.source_index);
+            (*icon_target_source_).selected_index = target.source_index;
             (*icon_target_depth_)
-                .set_selected_index(target.bits_per_pixel == 32  ? 0
+                .selected_index = target.bits_per_pixel == 32  ? 0
                                     : target.bits_per_pixel == 4 ? 1
-                                                                 : 2);
-            (*icon_target_source_).set_enabled(row.generate && !row.removed);
-            (*icon_target_depth_).set_enabled(row.generate && !row.removed);
-            (*icon_target_replace_).set_enabled(target.existing_index >= 0 && !row.removed);
-            (*icon_target_replace_).set_checked(target.existing_index >= 0 && row.generate && !row.removed);
+                                                                 : 2;
+            (*icon_target_source_).enabled = row.generate && !row.removed;
+            (*icon_target_depth_).enabled = row.generate && !row.removed;
+            (*icon_target_replace_).enabled = target.existing_index >= 0 && !row.removed;
+            (*icon_target_replace_).checked = target.existing_index >= 0 && row.generate && !row.removed;
             IconFrame before;
             before.image.reset(target.width, target.height, {0, 0, 0, 0});
             if (target.existing_index >= 0) {
@@ -262,7 +262,7 @@ void EditorDialog::render_icon_targets() {
         Image blank;
         blank.reset(160, 84, {0, 0, 0, 0});
         publish_image(blank, *icon_target_after_);
-        (*error_).set_text(tr(error.what()));
+        (*error_).text = tr(error.what());
     }
     icon_target_sync_ = false;
 }
@@ -280,9 +280,9 @@ void EditorDialog::icon_target_changed(std::optional<std::size_t>) {
         return;
     }
     IconTargetRow& row = icon_targets_[index];
-    row.target.source_index = static_cast<int>((*icon_target_source_).selected_index().value_or(0));
+    row.target.source_index = static_cast<int>((*icon_target_source_).selected_index.read().value_or(0));
     const unsigned depths[] = {32, 4, 8};
-    row.target.bits_per_pixel = depths[(*icon_target_depth_).selected_index().value_or(0)];
+    row.target.bits_per_pixel = depths[(*icon_target_depth_).selected_index.read().value_or(0)];
     render_icon_targets();
 }
 void EditorDialog::icon_target_clicked(gf::ButtonBase& control) {
@@ -292,8 +292,8 @@ void EditorDialog::icon_target_clicked(gf::ButtonBase& control) {
     const std::size_t index = (*icon_target_list_).selected_index().value_or(icon_targets_.size());
     if (control.stable_id().value() == "icon-target-add") {
         IconTargetRow row;
-        row.target = {icon_source_current_, -1, static_cast<int>((*icon_target_width_).value()),
-                      static_cast<int>((*icon_target_height_).value()), 32};
+        row.target = {icon_source_current_, -1, static_cast<int>((*icon_target_width_).value.read()),
+                      static_cast<int>((*icon_target_height_).value.read()), 32};
         row.generate = row.custom = true;
         icon_targets_.push_back(row);
         render_icon_targets();
@@ -311,7 +311,7 @@ void EditorDialog::apply_icon_targets() {
     const std::shared_ptr<Editor> editor = editor_.lock();
     Document& document = (*editor).document;
     if (!icon_plan_valid_) {
-        throw std::runtime_error((*error_).text().empty() ? "Choose a valid target plan." : (*error_).text());
+        throw std::runtime_error((*error_).text.read().empty() ? "Choose a valid target plan." : (*error_).text.read());
     }
     if (document.revision != icon_revision_ || document.atlas_epoch != icon_epoch_) {
         throw std::runtime_error("The document changed. Reopen Icon sizes before generating.");

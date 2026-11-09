@@ -411,7 +411,7 @@ void Editor::paint_tool_preview(gf::Painter& painter) {
                                gf::Color::rgba(35, 60, 90));
         return;
     }
-    double scale = (*canvas_).zoom();
+    double scale = (*canvas_).zoom.read();
     painter.save();
     painter.clip_rect((*canvas_).bitmap_to_client({0, 0, document.image.width, document.image.height}));
     if (document.tool == Tool::Pencil && !dragging_) {

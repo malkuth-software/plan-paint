@@ -48,14 +48,14 @@ void EditorDialog::initialize_dither() {
     dither_count_ = number("dither-colors", {145, 52, 105, 28}, 2, 32, (*editor).dither_options.colors);
     label("dither-pattern-label", tr("Pattern"), {285, 52, 80, 28});
     dither_pattern_ = gf::make_control<gf::ComboBox>(gf::StableId("dither-pattern"));
-    (*dither_pattern_).set_accessible_name(tr("Dithering pattern"));
+    (*dither_pattern_).accessible_name = tr("Dithering pattern");
     for (const std::string& name : {tr("Crosswind"), tr("Weave"), tr("Scrambled"), tr("Drift"), tr("Posterize (no dither)")}) {
         (*dither_pattern_).add_item(name);
     }
-    (*dither_pattern_).set_selected_index(static_cast<std::size_t>((*editor).dither_options.pattern));
+    (*dither_pattern_).selected_index = static_cast<std::size_t>((*editor).dither_options.pattern);
     put(dither_pattern_, {367, 52, 228, 28});
     dither_preview_ = gf::make_control<gf::RasterCanvas>(gf::StableId("dither-preview"));
-    (*dither_preview_).set_accessible_name(tr("Dither result preview"));
+    (*dither_preview_).accessible_name = tr("Dither result preview");
     put(dither_preview_, {24, 96, 572, 320});
     dither_status_ = gf::make_control<gf::Label>(gf::StableId("dither-status"));
     put(dither_status_, {24, 426, 572, 28});
@@ -99,15 +99,15 @@ void EditorDialog::render_dither() {
         return;
     }
     stop_dither();
-    (*(*attached_window()).find("dialog-ok")).set_enabled(false);
-    (*dither_status_).set_text(tr("Preparing palette and preview…"));
-    (*error_).set_text("");
+    (*(*attached_window()).find("dialog-ok")).enabled = false;
+    (*dither_status_).text = tr("Preparing palette and preview…");
+    (*error_).text = "";
     dither_job_ = std::make_shared<DitherRenderJob>();
     (*dither_job_).source = (*editor).document.image;
     (*dither_job_).mask = (*editor).canvas_selection_mask();
-    (*dither_job_).options.colors = static_cast<int>((*dither_count_).value());
+    (*dither_job_).options.colors = static_cast<int>((*dither_count_).value.read());
     (*dither_job_).options.pattern =
-        static_cast<DitherPattern>((*dither_pattern_).selected_index().value_or(2));
+        static_cast<DitherPattern>((*dither_pattern_).selected_index.read().value_or(2));
     dither_worker_ = std::thread(
         DitherWork{dither_job_, this, std::static_pointer_cast<EditorDialog>(shared_from_this())});
 }
@@ -119,7 +119,7 @@ void EditorDialog::deliver_dither() {
         dither_worker_.join();
     }
     if (!(*dither_job_).error.empty()) {
-        (*error_).set_text((*dither_job_).error);
+        (*error_).text = (*dither_job_).error;
         return;
     }
     const Image& image = (*dither_job_).result;
@@ -127,10 +127,10 @@ void EditorDialog::deliver_dither() {
         return;
     }
     publish_image(image, *dither_preview_);
-    (*dither_preview_).set_zoom(std::min(572.0 / image.width, 320.0 / image.height));
+    (*dither_preview_).zoom = std::min(572.0 / image.width, 320.0 / image.height);
     (*dither_status_)
-        .set_text(std::to_string((*dither_job_).palette.size()) + tr(" colors — preview is the prepared result"));
-    (*(*attached_window()).find("dialog-ok")).set_enabled(true);
+        .text = std::to_string((*dither_job_).palette.size()) + tr(" colors — preview is the prepared result");
+    (*(*attached_window()).find("dialog-ok")).enabled = true;
 }
 void EditorDialog::accept_dither() {
     if (!dither_job_ || !(*dither_job_).done.load(std::memory_order_acquire) ||

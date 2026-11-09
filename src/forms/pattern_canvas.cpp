@@ -9,8 +9,8 @@ namespace paint::forms {
 namespace gf = gui_forms;
 PatternCanvas::PatternCanvas(gf::StableId id, std::weak_ptr<Editor> editor, std::shared_ptr<Image> tile)
     : Control(std::move(id)), editor_(std::move(editor)), tile_(std::move(tile)) {
-    set_focusable(true);
-    set_accessible_name(tr("Custom pattern canvas — black and white pencil"));
+    focusable = true;
+    accessible_name = tr("Custom pattern canvas — black and white pencil");
 }
 void PatternCanvas::initialize_control_tree() {
     const char* ids[] = {"pattern-return", "pattern-resize", "pattern-undo", "pattern-redo"};
@@ -29,17 +29,17 @@ void PatternCanvas::initialize_control_tree() {
     height_ = gf::make_control<gf::NumericUpDown>(gf::StableId("pattern-height"));
     for (const std::shared_ptr<gf::NumericUpDown>& field : {width_, height_}) {
         (*field).set_range(1, 128);
-        (*field).set_decimal_places(0);
-        (*field).set_increment(1);
-        (*field).set_value(8);
+        (*field).decimal_places = 0;
+        (*field).increment = 1;
+        (*field).value = 8;
         add_child(field);
     }
-    (*width_).set_value((*tile_).width);
-    (*height_).set_value((*tile_).height);
+    (*width_).value = (*tile_).width;
+    (*height_).value = (*tile_).height;
     (*width_).set_requested_bounds({250, 12, 75, 30});
     (*height_).set_requested_bounds({383, 12, 75, 30});
-    (*width_).set_accessible_name(tr("Pattern width in pixels"));
-    (*height_).set_accessible_name(tr("Pattern height in pixels"));
+    (*width_).accessible_name = tr("Pattern width in pixels");
+    (*height_).accessible_name = tr("Pattern height in pixels");
     const std::string texts[] = {
         tr("Width"), tr("Height"),
         tr("Custom pattern · Pencil only · Left: black / Right: white · 1–128 pixels per side"),
@@ -113,8 +113,8 @@ void PatternCanvas::changed() {
     if (editor) {
         (*editor).store_custom_pattern();
     }
-    (*width_).set_value((*tile_).width);
-    (*height_).set_value((*tile_).height);
+    (*width_).value = (*tile_).width;
+    (*height_).value = (*tile_).height;
     invalidate(gf::Dirty::layout | gf::Dirty::paint);
 }
 void PatternCanvas::resize_tile(int width, int height) {
@@ -153,7 +153,7 @@ void PatternCanvas::clicked(gf::ButtonBase& button) {
             (*editor).toggle_pattern_canvas();
         }
     } else if (id == "pattern-resize") {
-        resize_tile(static_cast<int>((*width_).value()), static_cast<int>((*height_).value()));
+        resize_tile(static_cast<int>((*width_).value.read()), static_cast<int>((*height_).value.read()));
     } else {
         undo(id == "pattern-redo");
     }
@@ -284,7 +284,7 @@ void Editor::store_custom_pattern() {
     try {
         write_file_atomic(bytes, pattern_storage_path_, tr("Could not save custom pattern").c_str());
     } catch (const std::exception& error) {
-        (*status_).set_text(error.what());
+        (*status_).text = error.what();
     }
 }
 void Editor::toggle_pattern_canvas() {
@@ -295,10 +295,10 @@ void Editor::toggle_pattern_canvas() {
         add_child(pattern_canvas_);
     }
     pattern_editing = !pattern_editing;
-    (*pattern_canvas_).set_visible(pattern_editing);
-    (*menu_).set_visible(!pattern_editing);
-    (*ribbon_).set_visible(!pattern_editing);
-    (*canvas_).set_visible(!pattern_editing);
+    (*pattern_canvas_).visible = pattern_editing;
+    (*menu_).visible = !pattern_editing;
+    (*ribbon_).visible = !pattern_editing;
+    (*canvas_).visible = !pattern_editing;
     if (window()) {
         static_cast<void>(
             (*window()).request_focus(pattern_editing ? std::static_pointer_cast<gf::Control>(pattern_canvas_)

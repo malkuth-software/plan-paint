@@ -3,9 +3,8 @@ if(RAINSTAR_TOOLKIT_SOURCE_DIR)
   set(GUI_FORMS_BUILD_GALLERY OFF CACHE BOOL "" FORCE)
   set(GUI_FORMS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
   set(GUI_FORMS_ENABLE_HARFBUZZ_TEXT ON CACHE BOOL "" FORCE)
-  if(WIN32)
-    set(GUI_FORMS_ENABLE_SKIA OFF CACHE BOOL "" FORCE)
-  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # The Win32 host renders through the private CPU Skia adapter since cp22.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(GUI_FORMS_ENABLE_LINUX_HOST ON CACHE BOOL "" FORCE)
   endif()
   add_subdirectory("${RAINSTAR_TOOLKIT_SOURCE_DIR}" toolkit EXCLUDE_FROM_ALL)
@@ -18,68 +17,24 @@ find_package(GUIForms 0.2 CONFIG REQUIRED COMPONENTS Application Threading)
 set_property(TARGET GUIForms::Application PROPERTY IMPORTED_NO_SYSTEM TRUE)
 include(CheckCXXSourceCompiles)
 set(CMAKE_REQUIRED_LIBRARIES GUIForms::Application)
-check_cxx_source_compiles("#include <gui_forms/live_surface.hpp>
+# Plan Paint is written against the cp22 checkpoint's standard: the
+# Application-first lifecycle, property cells and the canonical ribbon.
+check_cxx_source_compiles("#include <gui_forms/application.hpp>
+#include <gui_forms/controls/ribbon/ribbon.hpp>
+#include <gui_forms/basic_controls.hpp>
 int main() {
-  gui_forms::LiveSurfaceDescription description{2, 2};
-  description.opaque = true;
-  description.pixel_format = gui_forms::native_live_surface_pixel_format();
-  return gui_forms::LiveSurface::create(description) ? 0 : 1;
-}" RAINSTAR_LIVE_SURFACE)
-if(NOT RAINSTAR_LIVE_SURFACE)
-  message(FATAL_ERROR "Plan Paint requires the pinned standalone GUI.Forms LiveSurface API.")
-endif()
-check_cxx_source_compiles("#include <gui_forms/canvas.hpp>
-#include <type_traits>
-static_assert(!std::is_final_v<gui_forms::RasterCanvas>);
-int main() { return 0; }" RAINSTAR_EXTENSIBLE_CANVAS)
-check_cxx_source_compiles("#include <gui_forms/basic_controls.hpp>
-#include <gui_forms/application.hpp>
-int main() {
-  gui_forms::DropDownButton button(gui_forms::StableId(\"ribbon\"));
-  button.set_drop_down_edge(gui_forms::DropDownButtonEdge::bottom);
-  gui_forms::ApplicationWindowHandle handle;
-  static_cast<void>(handle.toggle_full_screen());
-  return 0;
-}" RAINSTAR_RIBBON_CONTROLS)
-check_cxx_source_compiles("#include <gui_forms/controls/scrollable_control/scrollable_control.hpp>
-#include <gui_forms/events/input_events/input_events.hpp>
-class Probe : public gui_forms::ScrollableControl {
- public:
-  Probe() : ScrollableControl(gui_forms::StableId(\"probe\")) {}
-  void check() { arrange_scroll_viewport({100, 100}, {200, 200}); }
-};
-int main() {
-  Probe probe; probe.check();
-  probe.set_cursor(gui_forms::CursorKind::resize_diagonal_down);
-  return gui_forms::PhysicalKey::f12 == 0x45U ? 0 : 1;
-}" RAINSTAR_SCROLLING_LAYOUT)
-check_cxx_source_compiles("#include <gui_forms/host.hpp>
-#include <type_traits>
-#include <utility>
-static_assert(std::is_same_v<decltype(std::declval<gui_forms::HostServices&>().read_clipboard_files()),
-                             gui_forms::HostClipboardFilesResult>);
-int main() { return 0; }" RAINSTAR_CLIPBOARD_FILES)
-check_cxx_source_compiles("#include <gui_forms/control.hpp>
-int main() { gui_forms::Control probe(gui_forms::StableId(\"probe\"));
-probe.set_custom_cursor({}, gui_forms::CursorKind::crosshair); return 0; }
-" RAINSTAR_CUSTOM_CURSORS)
-if(NOT RAINSTAR_CUSTOM_CURSORS)
-  message(FATAL_ERROR "Plan Paint requires the GUI.Forms custom cursor extension. See docs/CUSTOM_CURSORS.md.")
-endif()
+  gui_forms::ApplicationConfig config{};
+  static_cast<void>(config);
+  gui_forms::Label label(gui_forms::StableId(\"probe\"));
+  label.text = \"probe\";
+  return label.text.read().empty() ? 1 : 0;
+}" PLAN_PAINT_GUI_FORMS_STANDARD)
 unset(CMAKE_REQUIRED_LIBRARIES)
-if(NOT RAINSTAR_CLIPBOARD_FILES)
-  message(FATAL_ERROR "Plan Paint requires the GUI.Forms file-reference clipboard service. Fetch the pinned SDK from third_party/gui-forms.lock.json.")
-endif()
-if(NOT RAINSTAR_EXTENSIBLE_CANVAS)
-  message(FATAL_ERROR "Plan Paint requires GUI.Forms with the RasterCanvas extension (7444815 or later). See docs/GUI_FORMS_PORT.md.")
-endif()
-if(NOT RAINSTAR_RIBBON_CONTROLS)
-  message(FATAL_ERROR "Plan Paint requires the GUI.Forms ribbon composition extension. See docs/GUI_FORMS_PORT.md.")
-endif()
-if(NOT RAINSTAR_SCROLLING_LAYOUT)
-  message(FATAL_ERROR "Plan Paint requires the GUI.Forms scrolling-layout, keyboard, and diagonal-cursor extensions. See docs/GUI_FORMS_PORT.md.")
+if(NOT PLAN_PAINT_GUI_FORMS_STANDARD)
+  message(FATAL_ERROR "Plan Paint requires the GUI.Forms SDK pinned in third_party/gui-forms.lock.json (checkpoint cp22 or later).")
 endif()
 endif()
+
 # paint_core's CONV* uses stx_conv. An SDK's GUIFormsConfig finds it in this
 # scope; a pinned in-tree toolkit defines it as a global target; a toolkit
 # that installs stx at configure time leaves it in <build>/stx-prefix (or the

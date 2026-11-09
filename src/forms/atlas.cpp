@@ -21,7 +21,7 @@ AtlasThumbnail::AtlasThumbnail(gf::StableId id, std::weak_ptr<Editor> editor, in
     : Button(std::move(id), ""), editor_(std::move(editor)), index_(index) {
     set_theme_override(ribbon_theme());
     set_requested_bounds({0, 0, 82, 72});
-    set_margin({0, 0, 0, 0});
+    margin = {0, 0, 0, 0};
     click_ = Button::clicked().subscribe(
         *this, gf::Delegate<gf::ButtonBase&>::bind<AtlasThumbnail, &AtlasThumbnail::clicked>(*this));
 }
@@ -69,12 +69,12 @@ void AtlasThumbnail::synchronize() {
     set_requested_bounds({0, 0, icon ? 110.0 : 82.0, 72});
     bool selected = atlas.active == index_ ||
                     std::find(atlas.sequence.begin(), atlas.sequence.end(), index_) != atlas.sequence.end();
-    set_selected(selected);
-    set_accessible_name(tr("Frame ") + std::to_string(index_ + 1) +
+    selected = selected;
+    accessible_name = tr("Frame ") + std::to_string(index_ + 1) +
                         (atlas.active == index_ ? tr(", current") : "") + (selected ? tr(", selected") : "") +
                         (icon && index_ < atlas.count()
                              ? "; " + tr("Source: ") + icon_source_name(atlas.icons[index_])
-                             : ""));
+                             : "");
     update_image();
     invalidate(gf::Dirty::paint);
 }
@@ -200,7 +200,7 @@ void AtlasPanel::initialize_control_tree() {
         std::shared_ptr<gf::Button> control = gf::make_control<gf::Button>(
             gf::StableId(std::string(gallery_ ? "gallery-" : "") + ids[i]), labels[i]);
         (*control).set_theme_override(ribbon_theme());
-        (*control).set_font({gf::FontRole::control, 11, 400, false});
+        (*control).font = {gf::FontRole::control, 11, 400, false};
         const int slot = i >= 11 ? i - 3 : i;
         (*control).set_requested_bounds({6 + (slot % 3) * 106.0, 5 + (slot / 3) * 26.0, 102, 24});
         subscriptions_.push_back((*control).clicked().subscribe(
@@ -210,13 +210,13 @@ void AtlasPanel::initialize_control_tree() {
     }
     strip_ =
         gf::make_control<gf::FlowLayoutPanelCompat>(gf::StableId(gallery_ ? "gallery-frames" : "atlas-frames"));
-    (*strip_).set_auto_scroll(true);
-    (*strip_).set_padding({0, 0, 0, 0});
-    (*strip_).set_wrap_contents(gallery_);
-    (*strip_).set_item_spacing({4, 0});
+    (*strip_).auto_scroll = true;
+    (*strip_).padding = {0, 0, 0, 0};
+    (*strip_).wrap_contents = gallery_;
+    (*strip_).item_spacing = {4, 0};
     add_child(strip_);
     status_ = gf::make_control<gf::Label>(gf::StableId(gallery_ ? "gallery-status" : "atlas-status"));
-    (*status_).set_font({gf::FontRole::control, 11, 400, false});
+    (*status_).font = {gf::FontRole::control, 11, 400, false};
     add_child(status_);
     wrap_ = gf::make_control<gf::CheckBox>(gf::StableId(gallery_ ? "gallery-atlas-wrap" : "atlas-wrap"),
                                            tr("Warp edges"));
@@ -226,12 +226,12 @@ void AtlasPanel::initialize_control_tree() {
         gf::StableId(gallery_ ? "gallery-atlas-reference-clear" : "atlas-reference-clear"),
         tr("Dismiss reference"));
     for (const std::shared_ptr<gf::CheckBox>& check : {wrap_, alpha_}) {
-        (*check).set_font({gf::FontRole::control, 11, 400, false});
+        (*check).font = {gf::FontRole::control, 11, 400, false};
         subscriptions_.push_back((*check).clicked().subscribe(
             *this, gf::Delegate<gf::ButtonBase&>::bind<AtlasPanel, &AtlasPanel::clicked>(*this)));
         add_child(check);
     }
-    (*clear_reference_).set_font({gf::FontRole::control, 11, 400, false});
+    (*clear_reference_).font = {gf::FontRole::control, 11, 400, false};
     subscriptions_.push_back(
         (*clear_reference_)
             .clicked()
@@ -303,38 +303,38 @@ void AtlasPanel::synchronize() {
         active_ = atlas.active;
         reveal_current();
     }
-    (*wrap_).set_checked((*editor).atlas_wrap);
-    (*alpha_).set_checked((*editor).atlas_preserve_alpha);
-    (*wrap_).set_enabled(atlas.active >= 0);
-    (*alpha_).set_enabled(atlas.active >= 0);
-    (*clear_reference_).set_enabled(!(*editor).atlas_reference.pixels.empty());
-    (*buttons_[8]).set_visible(!gallery_);
-    (*buttons_[9]).set_enabled(atlas.kind == AtlasKind::Icon || atlas.kind == AtlasKind::Cursor);
-    (*buttons_[10]).set_enabled(count_ > 0);
-    (*buttons_[10]).set_text(atlas.kind == AtlasKind::Sheet ? tr("Toolbar strip") : tr("Export…"));
-    (*buttons_[11]).set_enabled(atlas.kind == AtlasKind::Icon || atlas.kind == AtlasKind::Cursor);
-    (*buttons_[12]).set_enabled(atlas.kind == AtlasKind::Icon || atlas.kind == AtlasKind::Cursor);
-    (*buttons_[13]).set_enabled(atlas.kind == AtlasKind::Icon || atlas.kind == AtlasKind::Cursor);
-    (*buttons_[3]).set_enabled(atlas.kind == AtlasKind::Sheet);
-    (*buttons_[4]).set_enabled(atlas.kind != AtlasKind::None);
-    (*buttons_[5]).set_enabled(count_ > 0);
-    (*buttons_[6]).set_enabled(count_ > 0);
-    (*buttons_[7]).set_enabled(atlas.kind == AtlasKind::Cursor);
-    (*status_).set_text(
+    (*wrap_).checked = (*editor).atlas_wrap;
+    (*alpha_).checked = (*editor).atlas_preserve_alpha;
+    (*wrap_).enabled = atlas.active >= 0;
+    (*alpha_).enabled = atlas.active >= 0;
+    (*clear_reference_).enabled = !(*editor).atlas_reference.pixels.empty();
+    (*buttons_[8]).visible = !gallery_;
+    (*buttons_[9]).enabled = atlas.kind == AtlasKind::Icon || atlas.kind == AtlasKind::Cursor;
+    (*buttons_[10]).enabled = count_ > 0;
+    (*buttons_[10]).text = atlas.kind == AtlasKind::Sheet ? tr("Toolbar strip") : tr("Export…");
+    (*buttons_[11]).enabled = atlas.kind == AtlasKind::Icon || atlas.kind == AtlasKind::Cursor;
+    (*buttons_[12]).enabled = atlas.kind == AtlasKind::Icon || atlas.kind == AtlasKind::Cursor;
+    (*buttons_[13]).enabled = atlas.kind == AtlasKind::Icon || atlas.kind == AtlasKind::Cursor;
+    (*buttons_[3]).enabled = atlas.kind == AtlasKind::Sheet;
+    (*buttons_[4]).enabled = atlas.kind != AtlasKind::None;
+    (*buttons_[5]).enabled = count_ > 0;
+    (*buttons_[6]).enabled = count_ > 0;
+    (*buttons_[7]).enabled = atlas.kind == AtlasKind::Cursor;
+    (*status_).text = 
         count_ == 0
             ? tr("Split a sprite sheet or create a set of icon or cursor sizes.")
             : (atlas.active < 0
                    ? tr("Whole sheet")
                    : tr("Frame ") + std::to_string(atlas.active + 1) + tr(" of ") + std::to_string(count_)) +
-                  tr(" · Ctrl-click frames to select a sequence; use Previous / Next to step through it."));
+                  tr(" · Ctrl-click frames to select a sequence; use Previous / Next to step through it.");
     if ((atlas.kind == AtlasKind::Icon || atlas.kind == AtlasKind::Cursor) && atlas.active >= 0 &&
         atlas.active < count_) {
         const IconFrame& frame = atlas.icons[atlas.active];
         const ContainerKind kind =
             atlas.kind == AtlasKind::Icon ? ContainerKind::Icon : ContainerKind::Cursor;
-        (*status_).set_text(tr("Frame ") + std::to_string(atlas.active + 1) + tr(" of ") +
+        (*status_).text = tr("Frame ") + std::to_string(atlas.active + 1) + tr(" of ") +
                             std::to_string(count_) + " · " + tr("Source: ") + icon_source_name(frame) +
-                            " · " + tr("Save: ") + icon_format_name(icon_output_format(frame, kind)));
+                            " · " + tr("Save: ") + icon_format_name(icon_output_format(frame, kind));
     }
 }
 void AtlasPanel::reveal_current() {

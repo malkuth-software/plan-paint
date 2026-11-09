@@ -95,36 +95,36 @@ void EditorDialog::initialize_asset_browser() {
     }
     label("asset-folder-label", tr("Folder"), {20, 48, 65, 28});
     asset_location_ = gf::make_control<gf::TextBox>(gf::StableId("asset-location"));
-    (*asset_location_).set_text(directory);
+    (*asset_location_).text = directory;
     put(asset_location_, {90, 48, 440, 28});
     label("asset-search-label", tr("Search"), {20, 88, 65, 28});
     asset_search_ = gf::make_control<gf::TextBox>(gf::StableId("asset-search"));
     put(asset_search_, {90, 88, 270, 28});
     asset_filter_ = gf::make_control<gf::ComboBox>(gf::StableId("asset-filter"));
-    (*asset_filter_).set_accessible_name(tr("Asset type"));
-    (*asset_filter_).set_items({tr("All images"), "ICO", "CUR", tr("Bitmap images"), "SVG"});
-    (*asset_filter_).set_selected_index(0);
+    (*asset_filter_).accessible_name = tr("Asset type");
+    (*asset_filter_).items = {tr("All images"), "ICO", "CUR", tr("Bitmap images"), "SVG"};
+    (*asset_filter_).selected_index = 0;
     put(asset_filter_, {380, 88, 160, 28});
     label("asset-bookmark-label", tr("Bookmarks"), {20, 128, 85, 28});
     asset_bookmark_ = gf::make_control<gf::ComboBox>(gf::StableId("asset-bookmark"));
     put(asset_bookmark_, {110, 128, 350, 28});
     asset_list_ = gf::make_control<gf::ListBox>(gf::StableId("asset-list"));
-    (*asset_list_).set_accessible_name(tr("Assets in folder"));
-    (*asset_list_).set_item_height(30);
+    (*asset_list_).accessible_name = tr("Assets in folder");
+    (*asset_list_).item_height = 30;
     put(asset_list_, {20, 170, 360, 220});
     asset_canvas_ = gf::make_control<gf::RasterCanvas>(gf::StableId("asset-preview"));
-    (*asset_canvas_).set_accessible_name(tr("Asset preview"));
-    (*asset_canvas_).set_zoom(1);
-    (*asset_canvas_).set_view_origin({0, 0});
+    (*asset_canvas_).accessible_name = tr("Asset preview");
+    (*asset_canvas_).zoom = 1;
+    (*asset_canvas_).view_origin = {0, 0};
     put(asset_canvas_, {400, 170, 360, 150});
     asset_representations_ = gf::make_control<gf::ComboBox>(gf::StableId("asset-representations"));
-    (*asset_representations_).set_accessible_name(tr("Images"));
+    (*asset_representations_).accessible_name = tr("Images");
     put(asset_representations_, {400, 326, 360, 28});
     asset_details_ = gf::make_control<gf::TextBox>(gf::StableId("asset-details"));
-    (*asset_details_).set_accessible_name(tr("Image properties"));
-    (*asset_details_).set_read_only(true);
-    (*asset_details_).set_multiline(true);
-    (*asset_details_).set_auto_scroll(true);
+    (*asset_details_).accessible_name = tr("Image properties");
+    (*asset_details_).read_only = true;
+    (*asset_details_).multiline = true;
+    (*asset_details_).auto_scroll = true;
     put(asset_details_, {400, 360, 360, 40});
     asset_status_ = gf::make_control<gf::Label>(gf::StableId("asset-status"));
     put(asset_status_, {20, 404, 740, 22});
@@ -182,11 +182,11 @@ void EditorDialog::initialize_asset_browser() {
     try {
         if (!(*editor).asset_bookmark_path.empty()) {
             asset_bookmarks_ = load_asset_bookmarks((*editor).asset_bookmark_path);
-            (*asset_bookmark_).set_items(asset_bookmarks_);
+            (*asset_bookmark_).items = asset_bookmarks_;
         }
     } catch (const std::exception& exception) {
         asset_bookmarks_valid_ = false;
-        (*error_).set_text(exception.what());
+        (*error_).text = exception.what();
     }
     synchronizing_ = false;
     clear_asset_preview();
@@ -217,14 +217,14 @@ void EditorDialog::clear_asset_preview() {
     (*asset_canvas_).clear_bitmap();
     const bool previous = synchronizing_;
     synchronizing_ = true;
-    (*asset_representations_).set_items({});
+    (*asset_representations_).items = {};
     synchronizing_ = previous;
-    (*asset_details_).set_text("");
-    (*asset_open_).set_enabled(false);
-    (*asset_stamp_).set_enabled(false);
-    (*asset_copy_).set_enabled(false);
-    (*asset_reveal_).set_enabled(false);
-    (*asset_batch_).set_enabled(false);
+    (*asset_details_).text = "";
+    (*asset_open_).enabled = false;
+    (*asset_stamp_).enabled = false;
+    (*asset_copy_).enabled = false;
+    (*asset_reveal_).enabled = false;
+    (*asset_batch_).enabled = false;
 }
 void EditorDialog::request_assets(bool scan) {
     if (!attached_window()) {
@@ -234,9 +234,9 @@ void EditorDialog::request_assets(bool scan) {
     (*request).scan = scan;
     (*request).generation = ++asset_generation_;
     if (scan) {
-        (*request).path = (*asset_location_).text();
-        (*request).query = (*asset_search_).text();
-        (*request).filter = static_cast<AssetFilter>((*asset_filter_).selected_index().value_or(0));
+        (*request).path = (*asset_location_).text.read();
+        (*request).query = (*asset_search_).text.read();
+        (*request).filter = static_cast<AssetFilter>((*asset_filter_).selected_index.read().value_or(0));
         synchronizing_ = true;
         (*asset_list_).clear_items();
         synchronizing_ = false;
@@ -249,8 +249,8 @@ void EditorDialog::request_assets(bool scan) {
         (*request).path = asset_listing_.entries[*selected].path;
     }
     clear_asset_preview();
-    (*error_).set_text("");
-    (*asset_status_).set_text(scan ? tr("Reading folder…") : tr("Loading preview…"));
+    (*error_).text = "";
+    (*asset_status_).text = scan ? tr("Reading folder…") : tr("Loading preview…");
     if (!asset_worker_) {
         asset_worker_ = std::make_shared<AssetBrowserWorker>();
         (*asset_worker_).thread = std::thread(AssetBrowserWork{
@@ -271,8 +271,8 @@ void EditorDialog::deliver_asset_browser(std::shared_ptr<const AssetBrowserResul
     }
     try {
         if (!(*result).error.empty()) {
-            (*error_).set_text((*result).error);
-            (*asset_status_).set_text(tr("Could not load the selected folder or asset."));
+            (*error_).text = (*result).error;
+            (*asset_status_).text = tr("Could not load the selected folder or asset.");
             return;
         }
         if ((*result).scan) {
@@ -283,20 +283,20 @@ void EditorDialog::deliver_asset_browser(std::shared_ptr<const AssetBrowserResul
                 identities.push_back(entry.path);
             }
             synchronizing_ = true;
-            (*asset_list_).set_items(std::move(labels));
+            (*asset_list_).items = std::move(labels);
             (*asset_list_).set_item_stable_ids(std::move(identities));
-            (*asset_list_).set_enabled(true);
-            (*asset_location_).set_text(asset_listing_.directory);
+            (*asset_list_).enabled = true;
+            (*asset_location_).text = asset_listing_.directory;
             synchronizing_ = false;
             const std::shared_ptr<Editor> editor = editor_.lock();
             if (editor) {
                 (*editor).asset_directory = asset_listing_.directory;
             }
             (*asset_status_)
-                .set_text(std::to_string(asset_listing_.entries.size()) + " " +
+                .text = std::to_string(asset_listing_.entries.size()) + " " +
                           (asset_listing_.truncated
                                ? tr("entries shown; listing limited. Narrow the search.")
-                               : tr("entries. Select a file to preview; open folders to navigate.")));
+                               : tr("entries. Select a file to preview; open folders to navigate."));
         } else {
             asset_preview_ = (*result).preview;
             std::vector<std::string> labels;
@@ -311,16 +311,16 @@ void EditorDialog::deliver_asset_browser(std::shared_ptr<const AssetBrowserResul
                 labels.push_back(std::move(label));
             }
             synchronizing_ = true;
-            (*asset_representations_).set_items(std::move(labels));
-            (*asset_representations_).set_selected_index((*asset_preview_).preferred);
+            (*asset_representations_).items = std::move(labels);
+            (*asset_representations_).selected_index = (*asset_preview_).preferred;
             synchronizing_ = false;
             show_asset_representation();
-            (*asset_batch_).set_enabled(true);
-            (*asset_open_).set_enabled(true);
-            (*asset_copy_).set_enabled(true);
+            (*asset_batch_).enabled = true;
+            (*asset_open_).enabled = true;
+            (*asset_copy_).enabled = true;
             (*asset_status_)
-                .set_text(tr(
-                    "Preview only. Open loads the file; stamp placement changes pixels only when applied."));
+                .text = tr(
+                    "Preview only. Open loads the file; stamp placement changes pixels only when applied.");
             if (asset_open_after_preview_) {
                 asset_open_after_preview_ = false;
                 asset_clicked(*asset_open_);
@@ -329,21 +329,21 @@ void EditorDialog::deliver_asset_browser(std::shared_ptr<const AssetBrowserResul
     } catch (const std::exception& exception) {
         synchronizing_ = false;
         clear_asset_preview();
-        (*error_).set_text(exception.what());
+        (*error_).text = exception.what();
     }
 }
 void EditorDialog::show_asset_representation() {
     if (!asset_preview_) {
         return;
     }
-    const std::size_t index = (*asset_representations_).selected_index().value_or(0);
+    const std::size_t index = (*asset_representations_).selected_index.read().value_or(0);
     const IconFrame& frame = (*asset_preview_).images.frames.at(index);
     publish_image(render_asset_preview(frame, 360, 150), *asset_canvas_);
     bool xor_pixels = false;
     for (std::size_t pixel = 0; pixel < frame.image.pixels.size(); ++pixel) {
         xor_pixels = xor_pixels || legacy_xor_pixel(frame, pixel);
     }
-    (*asset_stamp_).set_enabled(!xor_pixels);
+    (*asset_stamp_).enabled = !xor_pixels;
     std::string text = tr("Fit preview; nearest sampling, no enlargement.") + "\n" +
                        std::to_string((*asset_preview_).fingerprint.bytes) + " bytes";
     if ((*asset_preview_).images.kind == ContainerKind::Cursor) {
@@ -353,7 +353,7 @@ void EditorDialog::show_asset_representation() {
     if (xor_pixels) {
         text += " · " + tr("Legacy XOR: stamp unavailable.");
     }
-    (*asset_details_).set_text(text);
+    (*asset_details_).text = text;
 }
 void EditorDialog::asset_representation_changed(std::optional<std::size_t>) {
     if (!synchronizing_) {
@@ -369,8 +369,8 @@ void EditorDialog::asset_input_changed(const std::string&) {
     if (!synchronizing_) {
         ++asset_generation_;
         clear_asset_preview();
-        (*asset_list_).set_enabled(false);
-        (*asset_status_).set_text(tr("Press Search / refresh to apply the folder and search."));
+        (*asset_list_).enabled = false;
+        (*asset_status_).text = tr("Press Search / refresh to apply the folder and search.");
     }
 }
 void EditorDialog::asset_selected(const gf::ListSelectionChange& selection) {
@@ -382,15 +382,15 @@ void EditorDialog::asset_selected(const gf::ListSelectionChange& selection) {
     if (selection.active_index && *selection.active_index < asset_listing_.entries.size()) {
         const AssetEntry& entry = asset_listing_.entries[*selection.active_index];
         if (entry.kind == AssetKind::Folder) {
-            (*asset_open_).set_enabled(true);
-            (*asset_copy_).set_enabled(true);
-            (*asset_status_).set_text(entry.path);
+            (*asset_open_).enabled = true;
+            (*asset_copy_).enabled = true;
+            (*asset_status_).text = entry.path;
         } else {
             request_assets(false);
-            (*asset_copy_).set_enabled(true);
-            (*asset_batch_).set_enabled(true);
+            (*asset_copy_).enabled = true;
+            (*asset_batch_).enabled = true;
         }
-        (*asset_reveal_).set_enabled(true);
+        (*asset_reveal_).enabled = true;
     }
 }
 void EditorDialog::asset_activated(std::size_t index) {
@@ -400,8 +400,8 @@ void EditorDialog::asset_activated(std::size_t index) {
     if (asset_listing_.entries[index].kind != AssetKind::Folder && !asset_preview_) {
         request_assets(false);
         asset_open_after_preview_ = true;
-        (*asset_copy_).set_enabled(true);
-        (*asset_batch_).set_enabled(true);
+        (*asset_copy_).enabled = true;
+        (*asset_batch_).enabled = true;
     } else {
         asset_clicked(*asset_open_);
     }
@@ -409,8 +409,8 @@ void EditorDialog::asset_activated(std::size_t index) {
 void EditorDialog::asset_bookmark_changed(std::optional<std::size_t> index) {
     if (!synchronizing_ && index && *index < asset_bookmarks_.size()) {
         synchronizing_ = true;
-        (*asset_location_).set_text(asset_bookmarks_[*index]);
-        (*asset_search_).set_text("");
+        (*asset_location_).text = asset_bookmarks_[*index];
+        (*asset_search_).text = "";
         synchronizing_ = false;
         request_assets(true);
     }
@@ -424,18 +424,18 @@ void EditorDialog::asset_clicked(gf::ButtonBase& control) {
     }
     const std::string id(control.stable_id().value());
     try {
-        (*error_).set_text("");
+        (*error_).text = "";
         if (id == "asset-refresh") {
             request_assets(true);
         } else if (id == "asset-folder" || id == "asset-up") {
             const std::string folder =
                 id == "asset-folder"
-                    ? (*editor).choose_asset_directory(std::string((*asset_location_).text()))
-                    : path_to_utf8(path_from_utf8((*asset_location_).text()).parent_path());
+                    ? (*editor).choose_asset_directory(std::string((*asset_location_).text.read()))
+                    : path_to_utf8(path_from_utf8((*asset_location_).text.read()).parent_path());
             if (!folder.empty()) {
                 synchronizing_ = true;
-                (*asset_location_).set_text(folder);
-                (*asset_search_).set_text("");
+                (*asset_location_).text = folder;
+                (*asset_search_).text = "";
                 synchronizing_ = false;
                 request_assets(true);
             }
@@ -445,14 +445,14 @@ void EditorDialog::asset_clicked(gf::ButtonBase& control) {
             }
             std::vector<std::string> updated = asset_bookmarks_;
             if (id == "asset-bookmark-add") {
-                if (asset_listing_.directory.empty() || !(*asset_list_).enabled()) {
+                if (asset_listing_.directory.empty() || !(*asset_list_).enabled.read()) {
                     return;
                 }
                 if (std::find(updated.begin(), updated.end(), asset_listing_.directory) == updated.end()) {
                     updated.push_back(asset_listing_.directory);
                 }
             } else {
-                const std::optional<std::size_t> selected = (*asset_bookmark_).selected_index();
+                const std::optional<std::size_t> selected = (*asset_bookmark_).selected_index.read();
                 if (!selected || *selected >= updated.size()) {
                     return;
                 }
@@ -461,11 +461,11 @@ void EditorDialog::asset_clicked(gf::ButtonBase& control) {
             save_asset_bookmarks(updated, (*editor).asset_bookmark_path);
             asset_bookmarks_ = std::move(updated);
             synchronizing_ = true;
-            (*asset_bookmark_).set_items(asset_bookmarks_);
+            (*asset_bookmark_).items = asset_bookmarks_;
             synchronizing_ = false;
         } else {
             const std::optional<std::size_t> selected = (*asset_list_).selected_index();
-            if (!selected || *selected >= asset_listing_.entries.size() || !(*asset_list_).enabled()) {
+            if (!selected || *selected >= asset_listing_.entries.size() || !(*asset_list_).enabled.read()) {
                 return;
             }
             const AssetEntry entry = asset_listing_.entries[*selected];
@@ -479,11 +479,11 @@ void EditorDialog::asset_clicked(gf::ButtonBase& control) {
                 }
                 (*editor).batch_sources.push_back(entry.path);
                 (*asset_status_)
-                    .set_text(tr("Batch production") + ": " + std::to_string((*editor).batch_sources.size()));
+                    .text = tr("Batch production") + ": " + std::to_string((*editor).batch_sources.size());
             } else if (id == "asset-open" && entry.kind == AssetKind::Folder) {
                 synchronizing_ = true;
-                (*asset_location_).set_text(entry.path);
-                (*asset_search_).set_text("");
+                (*asset_location_).text = entry.path;
+                (*asset_search_).text = "";
                 synchronizing_ = false;
                 request_assets(true);
             } else if (asset_preview_ && asset_unchanged(*asset_preview_)) {
@@ -492,7 +492,7 @@ void EditorDialog::asset_clicked(gf::ButtonBase& control) {
                     (*editor).open_browser_asset(*preview);
                 } else if (id == "asset-stamp") {
                     Image stamp =
-                        asset_stamp(*preview, (*asset_representations_).selected_index().value_or(0));
+                        asset_stamp(*preview, (*asset_representations_).selected_index.read().value_or(0));
                     (*editor).use_asset_stamp(std::move(stamp));
                     (*editor).close_editor_dialog();
                 }
@@ -503,7 +503,7 @@ void EditorDialog::asset_clicked(gf::ButtonBase& control) {
         }
     } catch (const std::exception& exception) {
         synchronizing_ = false;
-        (*error_).set_text(exception.what());
+        (*error_).text = exception.what();
     }
 }
 } // namespace paint::forms

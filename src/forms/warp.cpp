@@ -650,7 +650,7 @@ bool Editor::warp_pointer(const gf::PointerEvent& event, Point point) {
             Point local{point.x - warp_original_.x, point.y - warp_original_.y};
             for (std::size_t i = 0; i < reshape_mesh_.nodes.size(); ++i) {
                 Point target = reshape_mesh_.nodes[i].target;
-                if (std::hypot(local.x - target.x, local.y - target.y) * (*canvas_).zoom() < 10) {
+                if (std::hypot(local.x - target.x, local.y - target.y) * (*canvas_).zoom.read() < 10) {
                     mesh_node_ = static_cast<int>(i);
                     (*canvas_).set_pointer_capture(true);
                     break;
@@ -804,8 +804,8 @@ void Editor::paint_warp_overlay(gf::Painter& painter) {
                                                              ? stamp_width
                                                              : stamp_height)
                                                       : stamp_preview_.height;
-        width *= (*canvas_).zoom();
-        height *= (*canvas_).zoom();
+        width *= (*canvas_).zoom.read();
+        height *= (*canvas_).zoom.read();
         const gf::Point client = stamp_placement_ ? screen(stamp_placement_center_) : *cursor_client_;
         gf::Rect bounds{client.x - width / 2, client.y - height / 2, width, height};
         const gui_drawing::PointF center = canvas().client_to_bitmap(client);
@@ -824,7 +824,7 @@ void Editor::paint_warp_overlay(gf::Painter& painter) {
                 painter.draw_image(stamp_image_, bounds, adding_stamp_material_ ? 0.5 : 0.65);
             }
         }
-        double scale = (*canvas_).zoom();
+        double scale = (*canvas_).zoom.read();
         if (stamp_preview_.pixels.empty()) {
             std::vector<Point> outline = stamp_outline(document.stamp_shape, static_cast<int>(width / scale),
                                                        static_cast<int>(height / scale));

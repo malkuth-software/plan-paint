@@ -189,14 +189,14 @@ bool Editor::resize_pointer(const gf::PointerEvent& event, Point point) {
             }
         }
         if (hovered >= 0) {
-            canvas().set_cursor(hovered == 9 || hovered == 11   ? gf::CursorKind::resize_vertical
+            canvas().cursor = hovered == 9 || hovered == 11   ? gf::CursorKind::resize_vertical
                                 : hovered == 8 || hovered == 10 ? gf::CursorKind::resize_horizontal
                                 : hovered == 1 || hovered == 5  ? gf::CursorKind::resize_vertical
                                 : hovered == 3 || hovered == 7  ? gf::CursorKind::resize_horizontal
                                 : hovered == 0 || hovered == 4  ? gf::CursorKind::resize_diagonal_down
                                 : hovered == 2 || hovered == 6  ? gf::CursorKind::resize_diagonal_up
                                 : document.tool == Tool::Text   ? gf::CursorKind::text
-                                                                : gf::CursorKind::crosshair);
+                                                                : gf::CursorKind::crosshair;
         }
         if (hovered < 0 || event.action != gf::PointerAction::down ||
             event.button != gf::PointerButton::primary) {

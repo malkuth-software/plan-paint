@@ -64,15 +64,15 @@ void EditorDialog::initialize_icon_states() {
     state_selected_ = document.atlas.sequence;
     label("state-scope-label", tr("Images"), {20, 48, 105, 28});
     state_scope_ = gf::make_control<gf::ComboBox>(gf::StableId("state-scope"));
-    (*state_scope_).set_accessible_name(tr("Images"));
-    (*state_scope_).set_items({tr("All representations"), tr("Current image"), tr("Selected sequence")});
-    (*state_scope_).set_selected_index(0);
+    (*state_scope_).accessible_name = tr("Images");
+    (*state_scope_).items = {tr("All representations"), tr("Current image"), tr("Selected sequence")};
+    (*state_scope_).selected_index = 0;
     put(state_scope_, {135, 48, 240, 28});
     label("state-preset-label", tr("Preset"), {405, 48, 105, 28});
     state_preset_ = gf::make_control<gf::ComboBox>(gf::StableId("state-preset"));
-    (*state_preset_).set_accessible_name(tr("Preset"));
-    (*state_preset_).set_items({tr("Normal"), tr("Hot"), tr("Disabled")});
-    (*state_preset_).set_selected_index(2);
+    (*state_preset_).accessible_name = tr("Preset");
+    (*state_preset_).items = {tr("Normal"), tr("Hot"), tr("Disabled")};
+    (*state_preset_).selected_index = 2;
     put(state_preset_, {520, 48, 240, 28});
     label("state-saturation-label", tr("Saturation %"), {20, 88, 145, 28});
     state_saturation_ = number("state-saturation", {165, 88, 80, 28}, 0, 200, 0);
@@ -82,32 +82,32 @@ void EditorDialog::initialize_icon_states() {
     state_opacity_ = number("state-opacity", {680, 88, 80, 28}, 0, 100, 55);
     label("state-policy-label", tr("Output"), {20, 128, 105, 28});
     state_policy_ = gf::make_control<gf::ComboBox>(gf::StableId("state-policy"));
-    (*state_policy_).set_accessible_name(tr("Output"));
-    (*state_policy_).set_items({"RGBA", tr("Indexed sources → DIB")});
-    (*state_policy_).set_selected_index(0);
+    (*state_policy_).accessible_name = tr("Output");
+    (*state_policy_).items = {"RGBA", tr("Indexed sources → DIB")};
+    (*state_policy_).selected_index = 0;
     put(state_policy_, {135, 128, 240, 28});
     label("state-image-label", tr("Preview"), {405, 128, 105, 28});
     state_image_ = gf::make_control<gf::ComboBox>(gf::StableId("state-image"));
-    (*state_image_).set_accessible_name(tr("Preview"));
+    (*state_image_).accessible_name = tr("Preview");
     put(state_image_, {520, 128, 240, 28});
     label("state-policy-note", tr("Indexed: 1/4/8 bpp; 2→4. Alpha <128 transparent; otherwise white matte."),
           {20, 162, 740, 26});
     const std::shared_ptr<gf::Label> policy_note = std::static_pointer_cast<gf::Label>(controls_.back());
-    (*policy_note).set_font({gf::FontRole::control, 11, 400, false, 0.05});
-    (*policy_note).set_text_wrapping(gf::TextWrapping::word);
+    (*policy_note).font = {gf::FontRole::control, 11, 400, false, 0.05};
+    (*policy_note).text_wrapping = gf::TextWrapping::word;
     label("state-before-label", tr("Original"), {20, 190, 355, 22});
     label("state-after-label", tr("Preview"), {405, 190, 355, 22});
     state_before_ = gf::make_control<gf::RasterCanvas>(gf::StableId("state-before"));
     state_after_ = gf::make_control<gf::RasterCanvas>(gf::StableId("state-after"));
-    (*state_before_).set_accessible_name(tr("Original"));
-    (*state_after_).set_accessible_name(tr("Preview"));
+    (*state_before_).accessible_name = tr("Original");
+    (*state_after_).accessible_name = tr("Preview");
     put(state_before_, {20, 215, 355, 135});
     put(state_after_, {405, 215, 355, 135});
     state_report_ = gf::make_control<gf::TextBox>(gf::StableId("state-report"));
-    (*state_report_).set_read_only(true);
-    (*state_report_).set_multiline(true);
-    (*state_report_).set_auto_scroll(true);
-    (*state_report_).set_accessible_name(tr("Output manifest"));
+    (*state_report_).read_only = true;
+    (*state_report_).multiline = true;
+    (*state_report_).auto_scroll = true;
+    (*state_report_).accessible_name = tr("Output manifest");
     put(state_report_, {20, 359, 740, 65});
     label("state-contract", tr("Preview snapshot; source images stay unchanged."), {20, 428, 740, 20});
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));
@@ -115,8 +115,8 @@ void EditorDialog::initialize_icon_states() {
     const std::shared_ptr<gf::Button> reset = button("state-reset", tr("Reset"), {20, 474, 140, 28});
     state_save_report_ = button("state-save-report", tr("Save report…"), {370, 474, 140, 28});
     state_export_ = button("state-export", tr("Export…"), {520, 474, 130, 28});
-    (*state_save_report_).set_enabled(false);
-    (*state_export_).set_enabled(false);
+    (*state_save_report_).enabled = false;
+    (*state_export_).enabled = false;
     button("dialog-cancel", tr("Close"), {660, 474, 100, 28});
     for (const std::shared_ptr<gf::Button>& control : {reset, state_save_report_, state_export_}) {
         subscriptions_.push_back((*control).clicked().subscribe(
@@ -163,11 +163,11 @@ void EditorDialog::state_choice_changed(std::optional<std::size_t>) {
 }
 void EditorDialog::state_preset_changed(std::optional<std::size_t>) {
     const IconStateRecipe recipe =
-        icon_state_preset(static_cast<IconStatePreset>((*state_preset_).selected_index().value_or(2)));
+        icon_state_preset(static_cast<IconStatePreset>((*state_preset_).selected_index.read().value_or(2)));
     state_updating_ = true;
-    (*state_saturation_).set_value(recipe.saturation);
-    (*state_brightness_).set_value(recipe.brightness);
-    (*state_opacity_).set_value(recipe.opacity);
+    (*state_saturation_).value = recipe.saturation;
+    (*state_brightness_).value = recipe.brightness;
+    (*state_opacity_).value = recipe.opacity;
     state_updating_ = false;
     render_icon_states();
 }
@@ -176,17 +176,17 @@ void EditorDialog::render_icon_states() {
         return;
     }
     stop_icon_states();
-    (*state_export_).set_enabled(false);
-    (*state_save_report_).set_enabled(false);
+    (*state_export_).enabled = false;
+    (*state_save_report_).enabled = false;
     (*state_before_).clear_bitmap();
     (*state_after_).clear_bitmap();
-    (*state_image_).set_items({});
-    (*state_report_).set_text(tr("Preparing preview…"));
-    (*error_).set_text("");
+    (*state_image_).items = {};
+    (*state_report_).text = tr("Preparing preview…");
+    (*error_).text = "";
     state_job_ = std::make_shared<IconStateJob>();
     IconStateJob& job = *state_job_;
     job.source = state_source_;
-    const std::size_t scope = (*state_scope_).selected_index().value_or(0);
+    const std::size_t scope = (*state_scope_).selected_index.read().value_or(0);
     if (scope == 0) {
         for (std::size_t index = 0; index < (*state_source_).frames.size(); ++index) {
             job.selection.push_back(static_cast<int>(index));
@@ -196,11 +196,11 @@ void EditorDialog::render_icon_states() {
     } else {
         job.selection = state_selected_;
     }
-    job.recipe.preset = static_cast<IconStatePreset>((*state_preset_).selected_index().value_or(2));
-    job.recipe.saturation = (*state_saturation_).value();
-    job.recipe.brightness = (*state_brightness_).value();
-    job.recipe.opacity = (*state_opacity_).value();
-    job.recipe.palette = (*state_policy_).selected_index().value_or(0) == 0 ? IconStatePalette::Rgba
+    job.recipe.preset = static_cast<IconStatePreset>((*state_preset_).selected_index.read().value_or(2));
+    job.recipe.saturation = (*state_saturation_).value.read();
+    job.recipe.brightness = (*state_brightness_).value.read();
+    job.recipe.opacity = (*state_opacity_).value.read();
+    job.recipe.palette = (*state_policy_).selected_index.read().value_or(0) == 0 ? IconStatePalette::Rgba
                                                                             : IconStatePalette::IndexedDib;
     state_worker_ = std::thread(
         IconStateWork{state_job_, this, std::static_pointer_cast<EditorDialog>(shared_from_this())});
@@ -215,8 +215,8 @@ void EditorDialog::deliver_icon_states(const std::shared_ptr<IconStateJob>& comp
     }
     const IconStateJob& job = *state_job_;
     if (!job.error.empty()) {
-        (*state_report_).set_text("");
-        (*error_).set_text(job.error);
+        (*state_report_).text = "";
+        (*error_).text = job.error;
         return;
     }
     std::vector<std::string> images;
@@ -235,19 +235,19 @@ void EditorDialog::deliver_icon_states(const std::shared_ptr<IconStateJob>& comp
         }
         report << '\n';
     }
-    (*state_report_).set_text(report.str());
-    (*state_image_).set_items(std::move(images));
-    (*state_image_).set_selected_index(0);
+    (*state_report_).text = report.str();
+    (*state_image_).items = std::move(images);
+    (*state_image_).selected_index = 0;
     show_icon_state_image(std::nullopt);
-    (*state_export_).set_enabled(!job.bytes.empty() && icon_state_ready(job.result));
-    (*state_save_report_).set_enabled(!job.report.empty());
+    (*state_export_).enabled = !job.bytes.empty() && icon_state_ready(job.result);
+    (*state_save_report_).enabled = !job.report.empty();
 }
 void EditorDialog::show_icon_state_image(std::optional<std::size_t>) {
     if (!state_job_ || !(*state_job_).done.load(std::memory_order_acquire)) {
         return;
     }
     const IconStateResult& result = (*state_job_).result;
-    const std::size_t index = (*state_image_).selected_index().value_or(result.entries.size());
+    const std::size_t index = (*state_image_).selected_index.read().value_or(result.entries.size());
     (*state_before_).clear_bitmap();
     (*state_after_).clear_bitmap();
     if (index >= result.entries.size()) {
@@ -282,11 +282,11 @@ void EditorDialog::state_clicked(gf::ButtonBase& control) {
             const std::string name =
                 stem + "-" + icon_state_name((*job).recipe.preset) + (cursor ? ".cur" : ".ico");
             if ((*editor).export_icon_variant((*job).bytes, cursor, name, state_source_path_)) {
-                (*error_).set_text(tr("Variant exported."));
+                (*error_).text = tr("Variant exported.");
             }
         }
     } catch (const std::exception& error) {
-        (*error_).set_text(error.what());
+        (*error_).text = error.what();
     }
 }
 } // namespace paint::forms

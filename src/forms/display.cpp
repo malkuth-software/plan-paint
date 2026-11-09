@@ -6,7 +6,7 @@
 namespace paint::forms {
 static void publish_pixels(const Image& source, gui_forms::RasterCanvas& canvas, Rect damage) {
     const int width = source.width, height = source.height;
-    std::shared_ptr<gui_drawing::Bitmap> bitmap = canvas.bitmap();
+    std::shared_ptr<gui_drawing::Bitmap> bitmap = canvas.bitmap.read();
     bool replacement = !bitmap || (*bitmap).width() != static_cast<unsigned>(width) ||
                        (*bitmap).height() != static_cast<unsigned>(height);
     if (replacement) {
@@ -40,7 +40,7 @@ static void publish_pixels(const Image& source, gui_forms::RasterCanvas& canvas,
     }
     static_cast<void>((*bitmap).commit_edit(edit.token));
     if (replacement) {
-        canvas.set_bitmap(bitmap);
+        canvas.bitmap = bitmap;
         if (canvas.last_resource_error() != gui_forms::ImageResourceError::none) {
             throw std::runtime_error(tr("The image exceeds the window's display resource budget"));
         }

@@ -32,7 +32,7 @@ class HelpHeader final : public gf::Button {
 };
 } // namespace
 HelpBook::HelpBook(gf::StableId id) : ScrollableControl(std::move(id)) {
-    set_auto_scroll(true);
+    auto_scroll = true;
     gf::ThemeDefinition theme = gf::windows_professional_theme_definition();
     theme.id = "rainstar-help-book";
     for (std::size_t i = 0; i < gf::control_surface_state_count; ++i) {
@@ -49,35 +49,35 @@ HelpBook::HelpBook(gf::StableId id) : ScrollableControl(std::move(id)) {
 }
 void HelpBook::initialize_control_tree() {
     close_ = gf::make_control<gf::Button>(gf::StableId("help-close"), "×");
-    (*close_).set_font({gf::FontRole::control, 24, 400, false});
-    (*close_).set_accessible_name(tr("Close Paint Help"));
+    (*close_).font = {gf::FontRole::control, 24, 400, false};
+    (*close_).accessible_name = tr("Close Paint Help");
     add_child(close_);
     title_ = gf::make_control<gf::Label>(gf::StableId("help-title"), tr("Plan Paint Help"));
     introduction_ = gf::make_control<gf::Label>(gf::StableId("help-welcome"), tr(help_welcome));
     for (const std::shared_ptr<gf::Label>& label : {title_, introduction_}) {
-        (*label).set_font({gf::FontRole::control, 18, 400, false});
+        (*label).font = {gf::FontRole::control, 18, 400, false};
         (*label).set_foreground(gf::Color::rgba(0, 0, 0));
-        (*label).set_text_wrapping(gf::TextWrapping::word);
-        if (current_language().right_to_left) { (*label).set_alignment(gf::HorizontalAlignment::far); }
+        (*label).text_wrapping = gf::TextWrapping::word;
+        if (current_language().right_to_left) { (*label).alignment = gf::HorizontalAlignment::far; }
         add_child(label);
     }
     for (std::size_t i = 0; i < std::size(help_topics); ++i) {
         const HelpTopic& topic = help_topics[i];
         std::shared_ptr<gf::Button> header = gf::make_control<HelpHeader>(
             gf::StableId("help-topic-" + std::to_string(i)), tr(topic.title), topic.open);
-        (*header).set_font({gf::FontRole::control, 18, 400, false});
-        (*header).set_text_alignment(gf::ContentAlignment::middle_left);
-        (*header).set_content_padding({4, 1, 4, 1});
-        (*header).set_accessible_name(tr(topic.title));
+        (*header).font = {gf::FontRole::control, 18, 400, false};
+        (*header).text_alignment = gf::ContentAlignment::middle_left;
+        (*header).content_padding = {4, 1, 4, 1};
+        (*header).accessible_name = tr(topic.title);
         subscriptions_.push_back((*header).clicked().subscribe(
             *this, gf::Delegate<gf::ButtonBase&>::bind<HelpBook, &HelpBook::toggle>(*this)));
         std::shared_ptr<gf::Label> body = gf::make_control<gf::Label>(
             gf::StableId("help-body-" + std::to_string(i)), tr(topic.body));
-        (*body).set_font({gf::FontRole::control, 18, 400, false});
+        (*body).font = {gf::FontRole::control, 18, 400, false};
         (*body).set_foreground(gf::Color::rgba(0, 0, 0));
-        (*body).set_text_wrapping(gf::TextWrapping::word);
-        if (current_language().right_to_left) { (*body).set_alignment(gf::HorizontalAlignment::far); }
-        (*body).set_visible(topic.open);
+        (*body).text_wrapping = gf::TextWrapping::word;
+        if (current_language().right_to_left) { (*body).alignment = gf::HorizontalAlignment::far; }
+        (*body).visible = topic.open;
         headers_.push_back(header);
         bodies_.push_back(body);
         add_child(header);
@@ -89,8 +89,8 @@ gf::Event<gf::ButtonBase&>& HelpBook::close_clicked() {
 }
 void HelpBook::toggle(gf::ButtonBase& button) {
     std::size_t index = std::stoul(std::string(button.stable_id().value().substr(11)));
-    bool open = !(*bodies_[index]).visible();
-    (*bodies_[index]).set_visible(open);
+    bool open = !(*bodies_[index]).visible.read();
+    (*bodies_[index]).visible = open;
     (*std::static_pointer_cast<HelpHeader>(headers_[index])).set_expanded(open);
     invalidate(gf::Dirty::layout | gf::Dirty::paint);
 }
@@ -104,7 +104,7 @@ void HelpBook::arrange(gf::Rect bounds) {
     std::vector<std::shared_ptr<gf::Control>> controls{introduction_};
     for (std::size_t i = 0; i < headers_.size(); ++i) {
         controls.push_back(headers_[i]);
-        if ((*bodies_[i]).visible()) {
+        if ((*bodies_[i]).visible.read()) {
             controls.push_back(bodies_[i]);
         }
     }

@@ -1,7 +1,7 @@
 {
   "repository": "malkuth-software/gui_forms",
-  "commit": "e077f9d5a5117312e65e8c3b741c4edd24013d56",
-  "cache_release": "build-e077f9d5a5117312e65e8c3b741c4edd24013d56",
+  "commit": "2d0f52006a5d1f8ce98a2191c841052b2dd500b7",
+  "cache_release": "build-2d0f52006a5d1f8ce98a2191c841052b2dd500b7",
   "compiler": "22.1.8",
   "caches": {
     "linux-arm64": {

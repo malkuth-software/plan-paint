@@ -39,10 +39,10 @@ struct Fixture {
     }
     gf::Point position(double x, double y) {
         paint::forms::PaintCanvas& canvas = (*editor).canvas();
-        gui_drawing::PointF origin = canvas.view_origin();
+        gui_drawing::PointF origin = canvas.view_origin.read();
         const gui_drawing::PointF point = canvas.view_point({x, y});
         return canvas.point_to_window(
-            {(point.x - origin.x) * canvas.zoom(), (point.y - origin.y) * canvas.zoom()});
+            {(point.x - origin.x) * canvas.zoom.read(), (point.y - origin.y) * canvas.zoom.read()});
     }
     bool pointer(gf::PointerAction action, double x, double y,
                  gf::PointerButton button = gf::PointerButton::primary,
@@ -220,10 +220,10 @@ void dialog_clipboard_and_close_contracts() {
     std::shared_ptr<gf::NumericUpDown> alpha =
         std::dynamic_pointer_cast<gf::NumericUpDown>((*fixture.window).find("color-Alpha"));
     require(red && green && blue && alpha, "retained color dialog exposes editable channels");
-    (*red).set_value(15);
-    (*green).set_value(40);
-    (*blue).set_value(65);
-    (*alpha).set_value(128);
+    (*red).value = 15;
+    (*green).value = 40;
+    (*blue).value = 65;
+    (*alpha).value = 128;
     require(!paint::equal(editor.document.ink.primary, {15, 40, 65, 128}),
             "color editing is staged until acceptance");
     std::shared_ptr<gf::Button> accept =
@@ -537,7 +537,7 @@ void ribbon_galleries_and_modal_transactions() {
     paint::forms::Editor& editor = *fixture.editor;
     routed_button(window, "brush-menu");
     window.perform_layout();
-    require(!window.find("ribbon-popup") && (*window.find("material-brush-4")).visible(),
+    require(!window.find("ribbon-popup") && (*window.find("material-brush-4")).visible.read(),
             "brush gallery opens in Materials pane");
     require((*require_button(window, "material-brush-4")).image_list() != nullptr,
             "brush gallery uses rendered artwork previews");
@@ -592,10 +592,10 @@ void ribbon_galleries_and_modal_transactions() {
     fixture.drag(5, 5, 20, 5);
     require(editor.document.undo_history.size() == undo_count, "modal blocks background drawing");
     std::shared_ptr<gf::TextBox> hex = std::dynamic_pointer_cast<gf::TextBox>(window.find("color-hex"));
-    (*hex).set_text("invalid");
+    (*hex).text = "invalid";
     routed_button(window, "dialog-ok");
     require(window.find("editor-dialog") != nullptr, "invalid hex keeps editor open");
-    (*hex).set_text("#A02060");
+    (*hex).text = "#A02060";
     routed_button(window, "dialog-cancel");
     require(paint::equal(editor.document.ink.primary, before) && !window.find("editor-dialog"),
             "Cancel discards staged color");
@@ -605,11 +605,11 @@ void ribbon_galleries_and_modal_transactions() {
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("resize-width"));
     std::shared_ptr<gf::NumericUpDown> height =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("resize-height"));
-    (*width).set_value(64);
-    require((*height).value() == 48, "resize keeps original aspect ratio");
+    (*width).value = 64;
+    require((*height).value.read() == 48, "resize keeps original aspect ratio");
     std::shared_ptr<gf::CheckBox> scale =
         std::dynamic_pointer_cast<gf::CheckBox>(window.find("resize-scale"));
-    (*scale).set_checked(false);
+    (*scale).checked = false;
     routed_button(window, "dialog-ok");
     require(editor.document.image.width == 64 && editor.document.image.height == 48,
             "Resize commits accepted dimensions");
@@ -621,7 +621,7 @@ void ribbon_tabs_status_and_context() {
     gf::Window& window = *fixture.window;
     paint::forms::Editor& editor = *fixture.editor;
     open_tab(window, "view-tab");
-    require(!(*window.find("paste")).visible() && (*window.find("show-rulers")).visible(),
+    require(!(*window.find("paste")).visible.read() && (*window.find("show-rulers")).visible.read(),
             "View replaces Home controls");
     editor.execute("show-rulers");
     window.perform_layout();
@@ -629,42 +629,42 @@ void ribbon_tabs_status_and_context() {
             "rulers reserve space around canvas");
     editor.execute("show-status");
     window.perform_layout();
-    require(!(*window.find("zoom-slider")).visible(), "status toggle hides all footer controls");
+    require(!(*window.find("zoom-slider")).visible.read(), "status toggle hides all footer controls");
     editor.execute("show-status");
     window.perform_layout();
     routed_button(window, "status-zoom-in");
     require(editor.canvas().zoom() == 2, "status plus doubles zoom");
     std::shared_ptr<gf::TrackBar> slider =
         std::dynamic_pointer_cast<gf::TrackBar>(window.find("zoom-slider"));
-    (*slider).set_value(2);
+    (*slider).value = 2;
     require(editor.canvas().zoom() == 4, "status slider controls logarithmic zoom");
     editor.canvas().set_view(4, {17, 9});
     gf::Point position = fixture.position(31, 22);
     static_cast<void>(window.dispatch_pointer({gf::PointerAction::move, gf::PointerButton::none, position}));
     std::shared_ptr<gf::Label> cursor = std::dynamic_pointer_cast<gf::Label>(window.find("cursor-status"));
-    require((*cursor).text() == "X: 31   Y: 22 px", "coordinates reflect image location after pan and zoom");
+    require((*cursor).text.read() == "X: 31   Y: 22 px", "coordinates reflect image location after pan and zoom");
     routed_button(window, "status-zoom-reset");
     require(editor.canvas().zoom() == 1, "percentage button resets actual size");
     editor.choose_tool(paint::Tool::Brush);
     open_tab(window, "patterns-tab");
-    require((*window.find("grain-scale")).visible() && !window.find("ribbon-popup"),
+    require((*window.find("grain-scale")).visible.read() && !window.find("ribbon-popup"),
             "patterns live on a ribbon page");
     routed_button(window, "r-pattern-12");
     require(editor.document.ink.pattern == paint::Pattern::Checker, "ribbon swatch selects ink pattern");
     std::shared_ptr<gf::NumericUpDown> grain =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("grain-scale"));
-    (*grain).set_value(1.75);
+    (*grain).value = 1.75;
     require(editor.document.ink.grain_scale == 1.75, "material settings update drawing ink");
     editor.choose_tool(paint::Tool::Stamp);
     open_tab(window, "tool-tab");
-    require((*window.find("stamp-shapes-menu")).visible() && !(*window.find("grain-scale")).visible(),
+    require((*window.find("stamp-shapes-menu")).visible.read() && !(*window.find("grain-scale")).visible.read(),
             "stamp context hides unrelated material settings");
     routed_button(window, "stamp-shapes-menu");
     routed_button(window, "popup-stamp-shape-1");
     require(editor.document.stamp_shape == paint::StampShape::Pill, "context changes stamp capture shape");
     editor.choose_tool(paint::Tool::Brush);
-    require(!(*window.find("stamp-shapes-menu")).visible() && !(*window.find("grain-scale")).visible() &&
-                (*window.find("tool-size")).visible(),
+    require(!(*window.find("stamp-shapes-menu")).visible.read() && !(*window.find("grain-scale")).visible.read() &&
+                (*window.find("tool-size")).visible.read(),
             "context swaps tool settings while materials remain on their shared pane");
     open_tab(window, "home-tab");
     routed_button(window, "shapes-menu");
@@ -707,7 +707,7 @@ void canvas_text_editing_and_commit() {
     gf::Window& window = *fixture.window;
     paint::forms::Editor& editor = *fixture.editor;
     routed_button(window, "text");
-    require(editor.document.tool == paint::Tool::Text && (*window.find("text-font")).visible(),
+    require(editor.document.tool == paint::Tool::Text && (*window.find("text-font")).visible.read(),
             "Text opens its formatting ribbon");
     fixture.click(12, 14);
     require(editor.text.active && editor.canvas().semantic_descriptor().role == gf::SemanticRole::text_box,
@@ -1039,16 +1039,16 @@ void atlas_grid_frames_and_cursor_save() {
     std::shared_ptr<gf::NumericUpDown> rows =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("atlas-1"));
     require(columns && rows, "atlas grid has native numeric controls");
-    (*columns).set_value(3);
-    (*rows).set_value(2);
+    (*columns).value = 3;
+    (*rows).value = 2;
     routed_button(window, "dialog-cancel");
     require(editor.document.atlas.kind == paint::AtlasKind::None, "grid cancel preserves document");
     editor.execute("atlas-grid");
     window.perform_layout();
     columns = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("atlas-0"));
     rows = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("atlas-1"));
-    (*columns).set_value(4);
-    (*rows).set_value(2);
+    (*columns).value = 4;
+    (*rows).value = 2;
     routed_button(window, "dialog-ok");
     require(editor.document.atlas.count() == 8 && editor.document.image.width == 32 &&
                 editor.document.image.height == 48,
@@ -1124,27 +1124,27 @@ void icon_representation_identity() {
     window.perform_layout();
     const std::shared_ptr<gf::Label> status =
         std::dynamic_pointer_cast<gf::Label>(window.find("icon-status"));
-    require(status && (*status).text().find("Source: 2 bpp PNG") != std::string::npos &&
-                (*status).text().find("Save: 2 bpp PNG") != std::string::npos,
+    require(status && (*status).text.read().find("Source: 2 bpp PNG") != std::string::npos &&
+                (*status).text.read().find("Save: 2 bpp PNG") != std::string::npos,
             "indexed source and save formats must be distinguishable in the strip status");
     editor.document.checkpoint();
     editor.document.image.set(0, 0, {80, 90, 100, 255});
     editor.refresh();
-    require((*status).text().find("Source: 2 bpp PNG") != std::string::npos &&
-                (*status).text().find("Save: 32 bpp DIB") != std::string::npos,
+    require((*status).text.read().find("Source: 2 bpp PNG") != std::string::npos &&
+                (*status).text.read().find("Save: 32 bpp DIB") != std::string::npos,
             "edited source must keep provenance but show the changed save format");
     editor.execute("undo");
-    require((*status).text().find("Save: 2 bpp PNG") != std::string::npos,
+    require((*status).text.read().find("Save: 2 bpp PNG") != std::string::npos,
             "Undo must restore the untouched save format in the UI");
 }
 void await_icon_sheet(gf::Window& window) {
     const std::chrono::steady_clock::time_point deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    while (!(*window.find("sheet-export")).enabled()) {
+    while (!(*window.find("sheet-export")).enabled.read()) {
         static_cast<void>(window.drain_posted_work());
         const std::shared_ptr<gf::Label> error =
             std::dynamic_pointer_cast<gf::Label>(window.find("dialog-error"));
-        if (error && !(*error).text().empty()) {
+        if (error && !(*error).text.read().empty()) {
             return;
         }
         require(std::chrono::steady_clock::now() < deadline,
@@ -1168,19 +1168,19 @@ void icon_sheet_preview_and_export() {
     const std::size_t history = editor.document.undo_history.size();
     editor.execute("atlas-compare");
     await_icon_sheet(window);
-    require((*window.find("sheet-export")).enabled(), "completed sheet enables explicit export");
+    require((*window.find("sheet-export")).enabled.read(), "completed sheet enables explicit export");
     const std::shared_ptr<gf::RasterCanvas> preview =
         std::dynamic_pointer_cast<gf::RasterCanvas>(window.find("sheet-preview"));
     const std::shared_ptr<gf::ComboBox> zoom =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("sheet-zoom"));
-    (*zoom).set_selected_index(1);
+    (*zoom).selected_index = 1;
     window.perform_layout();
     require(std::abs((*preview).bitmap_to_client({0, 0, 1, 1}).width * window.scale() - 1) < 1e-8,
             "actual-pixel proof must map one image pixel to one physical display pixel");
     const std::shared_ptr<gf::ComboBox> background =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("sheet-background"));
-    (*background).set_selected_index(1);
-    (*background).set_selected_index(3);
+    (*background).selected_index = 1;
+    (*background).selected_index = 3;
     await_icon_sheet(window);
     services.path = (std::filesystem::temp_directory_path() / "rainstar-icon-contact-sheet.png").string();
     routed_button(window, "sheet-export");
@@ -1189,11 +1189,11 @@ void icon_sheet_preview_and_export() {
     std::filesystem::remove(services.path);
     const std::shared_ptr<gf::ComboBox> scope =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("sheet-scope"));
-    (*scope).set_selected_index(2);
+    (*scope).selected_index = 2;
     await_icon_sheet(window);
-    require(!(*window.find("sheet-export")).enabled() && !(*window.find("sheet-open")).enabled(),
+    require(!(*window.find("sheet-export")).enabled.read() && !(*window.find("sheet-open")).enabled.read(),
             "empty selected sequence must not export or open a stale preview");
-    (*scope).set_selected_index(0);
+    (*scope).selected_index = 0;
     routed_button(window, "dialog-cancel");
     static_cast<void>(window.drain_posted_work());
     require(!window.find("sheet-preview") && editor.document.revision == revision &&
@@ -1227,7 +1227,7 @@ void icon_sheet_new_document() {
     await_icon_sheet(window);
     const std::shared_ptr<gf::ComboBox> background =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("sheet-background"));
-    (*background).set_selected_index(3);
+    (*background).selected_index = 3;
     await_icon_sheet(window);
     services.path = (std::filesystem::temp_directory_path() / "paint-contact-new-document.png").string();
     routed_button(window, "sheet-export");
@@ -1271,7 +1271,7 @@ void icon_sheet_new_document() {
 void await_icon_export(gf::Window& window) {
     const std::chrono::steady_clock::time_point deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    while ((*window.find("export-cancel")).enabled()) {
+    while ((*window.find("export-cancel")).enabled.read()) {
         static_cast<void>(window.drain_posted_work());
         require(std::chrono::steady_clock::now() < deadline, "export worker completes through dispatcher");
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1296,15 +1296,15 @@ void icon_representation_export() {
     require(std::filesystem::create_directory(root), "export UI directory creation failed");
     services.path = root.string();
     editor.execute("atlas-export");
-    require(!(*window.find("export-run")).enabled(), "export must await a reviewed folder");
+    require(!(*window.find("export-run")).enabled.read(), "export must await a reviewed folder");
     routed_button(window, "export-folder");
     await_icon_export(window);
-    require((*window.find("export-run")).enabled() && std::filesystem::is_empty(root),
+    require((*window.find("export-run")).enabled.read() && std::filesystem::is_empty(root),
             "review wrote outputs or did not enable run");
     const std::shared_ptr<gf::TextBox> manifest =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("export-manifest"));
-    require((*manifest).text().find("16x16-rgba-001.png") != std::string::npos &&
-                (*manifest).text().find("32x32-rgba-002.png") != std::string::npos,
+    require((*manifest).text.read().find("16x16-rgba-001.png") != std::string::npos &&
+                (*manifest).text.read().find("32x32-rgba-002.png") != std::string::npos,
             "review omits actual representation identities");
     window.request_focus(window.find("export-prefix"));
     gf::KeyEvent enter;
@@ -1314,9 +1314,9 @@ void icon_representation_export() {
     require(window.find("export-manifest") && std::filesystem::is_empty(root),
             "Enter in settings ran or dismissed export");
     routed_button(window, "export-run");
-    require(!(*window.find("export-prefix")).enabled() && !(*window.find("export-strip")).enabled(), "running export settings and strip navigation are disabled");
+    require(!(*window.find("export-prefix")).enabled.read() && !(*window.find("export-strip")).enabled.read(), "running export settings and strip navigation are disabled");
     await_icon_export(window);
-    require((*manifest).text().find("Completed") != std::string::npos &&
+    require((*manifest).text.read().find("Completed") != std::string::npos &&
                 std::filesystem::exists(root / "icon-16x16-rgba-001.png") &&
                 std::filesystem::exists(root / "icon-32x32-rgba-002.png"),
             "UI export failed to publish both outputs");
@@ -1327,28 +1327,28 @@ void icon_representation_export() {
             "saved report lost representation identity");
     routed_button(window, "export-review");
     await_icon_export(window);
-    require(!(*window.find("export-run")).enabled() &&
-                (*manifest).text().find("Skipped") != std::string::npos,
+    require(!(*window.find("export-run")).enabled.read() &&
+                (*manifest).text.read().find("Skipped") != std::string::npos,
             "default collision policy would overwrite existing PNGs");
     const std::shared_ptr<gf::ComboBox> policy =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("export-collision"));
-    (*policy).set_selected_index(1);
+    (*policy).selected_index = 1;
     await_icon_export(window);
-    require((*window.find("export-run")).enabled() &&
-                (*manifest).text().find("001-2.png") != std::string::npos,
+    require((*window.find("export-run")).enabled.read() &&
+                (*manifest).text.read().find("001-2.png") != std::string::npos,
             "rename targets are not reviewable");
     const std::shared_ptr<gf::TextBox> prefix =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("export-prefix"));
-    (*prefix).set_text("../escape");
+    (*prefix).text = "../escape";
     await_icon_export(window);
-    require(!(*window.find("export-run")).enabled() && !(*window.find("export-report")).enabled(),
+    require(!(*window.find("export-run")).enabled.read() && !(*window.find("export-report")).enabled.read(),
             "invalid revised input left a stale runnable plan");
-    (*prefix).set_text("fresh");
+    (*prefix).text = "fresh";
     const std::shared_ptr<gf::TextBox> destination =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("export-destination"));
-    (*destination).set_text("");
+    (*destination).text = "";
     static_cast<void>(window.drain_posted_work());
-    require(!(*window.find("export-cancel")).enabled() && !(*window.find("export-run")).enabled(),
+    require(!(*window.find("export-cancel")).enabled.read() && !(*window.find("export-run")).enabled.read(),
             "clearing destination left a worker or stale runnable manifest");
     routed_button(window, "dialog-cancel");
     static_cast<void>(window.drain_posted_work());
@@ -1362,7 +1362,7 @@ void await_assets(gf::Window& window) {
         std::dynamic_pointer_cast<gf::Label>(window.find("asset-status"));
     const std::chrono::steady_clock::time_point deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    while ((*status).text() == "Reading folder…" || (*status).text() == "Loading preview…") {
+    while ((*status).text.read() == "Reading folder…" || (*status).text.read() == "Loading preview…") {
         static_cast<void>(window.drain_posted_work());
         require(std::chrono::steady_clock::now() < deadline, "asset browser worker timeout");
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1377,7 +1377,7 @@ void icon_ribbon_contracts() {
     gf::HostSession session(window, service_capabilities(), &services);
     require(session.dispatch({1, 0, gf::HostAttachEvent{{800, 520}, 1}}).accepted(),
             "icon ribbon host attaches");
-    require(!(*window.find("icon-tab")).visible(), "ordinary bitmap has no contextual Icon tab");
+    require(!(*window.find("icon-tab")).visible.read(), "ordinary bitmap has no contextual Icon tab");
     paint::IconFrame first, second;
     first.image.reset(32, 32, {255, 0, 0, 128});
     first.hotspot_x = 7;
@@ -1385,10 +1385,10 @@ void icon_ribbon_contracts() {
     second.image.reset(16, 16, {0, 255, 0, 255});
     editor.open_container({paint::ContainerKind::Icon, {first, second}}, "");
     window.perform_layout();
-    require((*window.find("icon-tab")).visible() && (*require_button(window, "icon-tab")).selected() &&
-                (*window.find("icon-panel")).visible() && !(*window.find("atlas-panel")).visible(),
+    require((*window.find("icon-tab")).visible.read() && (*require_button(window, "icon-tab")).selected() &&
+                (*window.find("icon-panel")).visible.read() && !(*window.find("atlas-panel")).visible.read(),
             "opening an icon selects its contextual command plane");
-    require(!(*window.find("icon-hotspot")).enabled(), "ICO does not offer cursor hotspot editing");
+    require(!(*window.find("icon-hotspot")).enabled.read(), "ICO does not offer cursor hotspot editing");
     const gf::Rect panel = (*window.find("icon-panel")).absolute_bounds();
     const char* commands[] = {"icon-sizes",       "icon-gallery", "icon-hotspot", "icon-palette",
                               "icon-alpha-tools", "icon-states",  "icon-compare", "icon-export",
@@ -1412,15 +1412,15 @@ void icon_ribbon_contracts() {
             "representation labels fit above the horizontal scrollbar");
     const std::shared_ptr<gf::Label> status =
         std::dynamic_pointer_cast<gf::Label>(window.find("icon-status"));
-    require((*status).text().find("32 × 32") != std::string::npos &&
-                (*status).text().find("Save: 32 bpp DIB") != std::string::npos,
+    require((*status).text.read().find("32 × 32") != std::string::npos &&
+                (*status).text.read().find("Save: 32 bpp DIB") != std::string::npos,
             "Icon status exposes dimensions and actual output encoding");
     routed_button(window, "icon-next");
     require(editor.document.atlas.active == 1, "Icon Next changes the actual editing representation");
     const std::uint64_t revision = editor.document.revision;
     open_tab(window, "home-tab");
-    require(editor.document.atlas.active == 1 && (*window.find("tool-9")).visible() &&
-                (*window.find("tool-10")).visible(),
+    require(editor.document.atlas.active == 1 && (*window.find("tool-9")).visible.read() &&
+                (*window.find("tool-10")).visible.read(),
             "Home retains path and stamp without losing the current icon image");
     open_tab(window, "icon-tab");
     require(editor.document.revision == revision && editor.document.atlas.active == 1,
@@ -1429,11 +1429,11 @@ void icon_ribbon_contracts() {
     require(window.find("palette-after") != nullptr, "Icon Palette routes to the existing conversion tool");
     editor.close_editor_dialog();
     routed_button(window, "icon-tab");
-    require(!(*window.find("icon-panel")).visible(), "selected Icon tab collapses its command plane");
+    require(!(*window.find("icon-panel")).visible.read(), "selected Icon tab collapses its command plane");
     open_tab(window, "icon-tab");
     editor.open_container({paint::ContainerKind::Cursor, {first, second}}, "");
     window.perform_layout();
-    require((*window.find("icon-hotspot")).enabled() &&
+    require((*window.find("icon-hotspot")).enabled.read() &&
                 (*require_button(window, "icon-sizes")).text() == "Cursor sizes…",
             "CUR uses cursor sizes and enables hotspot editing");
     routed_button(window, "icon-hotspot");
@@ -1441,16 +1441,16 @@ void icon_ribbon_contracts() {
     editor.close_editor_dialog();
     editor.document.new_image(24, 24);
     editor.refresh();
-    require(!(*window.find("icon-tab")).visible() && !(*window.find("icon-panel")).visible() &&
+    require(!(*window.find("icon-tab")).visible.read() && !(*window.find("icon-panel")).visible.read() &&
                 (*require_button(window, "home-tab")).selected(),
             "leaving an icon document dismisses the contextual page and selects Home");
     open_tab(window, "atlas-tab");
-    require((*window.find("atlas-grid")).visible(), "sprite-grid tools remain available in Atlas");
+    require((*window.find("atlas-grid")).visible.read(), "sprite-grid tools remain available in Atlas");
 }
 void await_batch(gf::Window& window) {
     const std::chrono::steady_clock::time_point deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(30);
-    while ((*window.find("batch-cancel")).enabled()) {
+    while ((*window.find("batch-cancel")).enabled.read()) {
         static_cast<void>(window.drain_posted_work());
         require(std::chrono::steady_clock::now() < deadline, "batch worker finishes");
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1477,21 +1477,21 @@ void icon_batch_contracts() {
         std::dynamic_pointer_cast<gf::TextBox>(window.find("batch-destination"));
     const std::shared_ptr<gf::ComboBox> output_mode =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("batch-collision"));
-    require((*output_mode).selected_index().value_or(99) == 0 && !(*destination).text().empty(),
+    require((*output_mode).selected_index.read().value_or(99) == 0 && !(*destination).text.read().empty(),
             "batch defaults to a new output folder beside the first source");
-    (*destination).set_text(root.string());
+    (*destination).text = root.string();
     routed_button(window, "batch-review");
     await_batch(window);
     const std::shared_ptr<gf::TextBox> manifest =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("batch-manifest"));
-    require((*window.find("batch-run")).enabled() && std::filesystem::is_empty(root) &&
-                (*manifest).text().find("Plan Paint output") != std::string::npos,
+    require((*window.find("batch-run")).enabled.read() && std::filesystem::is_empty(root) &&
+                (*manifest).text.read().find("Plan Paint output") != std::string::npos,
             "new-folder review discloses the full child path without creating it");
-    (*output_mode).set_selected_index(1);
-    require(!(*window.find("batch-run")).enabled(), "changing output mode revokes the review");
+    (*output_mode).selected_index = 1;
+    require(!(*window.find("batch-run")).enabled.read(), "changing output mode revokes the review");
     routed_button(window, "batch-review");
     await_batch(window);
-    require((*window.find("batch-run")).enabled() && std::filesystem::is_empty(root),
+    require((*window.find("batch-run")).enabled.read() && std::filesystem::is_empty(root),
             "batch review authorizes outputs without writing");
     window.request_focus(destination);
     window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::enter});
@@ -1499,20 +1499,20 @@ void icon_batch_contracts() {
             "Enter in batch settings cannot execute the job");
     const std::shared_ptr<gf::ComboBox> operation =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("batch-operation"));
-    (*operation).set_selected_index(2);
-    require(!(*window.find("batch-run")).enabled() && (*window.find("batch-preset")).enabled() &&
-                !(*window.find("batch-size-16")).enabled(),
+    (*operation).selected_index = 2;
+    require(!(*window.find("batch-run")).enabled.read() && (*window.find("batch-preset")).enabled.read() &&
+                !(*window.find("batch-size-16")).enabled.read(),
             "operation invalidates review and switches applicable fields");
-    (*operation).set_selected_index(0);
+    (*operation).selected_index = 0;
     routed_button(window, "batch-review");
     await_batch(window);
     const std::uint64_t revision = editor.document.revision;
     const std::size_t history = editor.document.undo_history.size();
     routed_button(window, "batch-run");
-    require(!(*operation).enabled(), "running batch freezes reviewed settings");
+    require(!(*operation).enabled.read(), "running batch freezes reviewed settings");
     await_batch(window);
-    require(std::filesystem::exists(root / "app-icon-1-icon.ico") && !(*window.find("batch-run")).enabled() &&
-                !(*window.find("batch-preset")).enabled(),
+    require(std::filesystem::exists(root / "app-icon-1-icon.ico") && !(*window.find("batch-run")).enabled.read() &&
+                !(*window.find("batch-preset")).enabled.read(),
             "completed job requires another review and restores applicable fields");
     require(editor.document.revision == revision && editor.document.undo_history.size() == history,
             "file production never enters document Undo");
@@ -1520,10 +1520,10 @@ void icon_batch_contracts() {
     routed_button(window, "batch-report");
     require(std::filesystem::exists(root / "report.json"),
             "batch result report saves through the native dialog");
-    (*operation).set_selected_index(4);
+    (*operation).selected_index = 4;
     window.perform_layout();
-    require((*window.find("batch-stamp-path")).visible() && !(*window.find("batch-policy")).visible() &&
-                !(*window.find("batch-opacity-label")).visible(),
+    require((*window.find("batch-stamp-path")).visible.read() && !(*window.find("batch-policy")).visible.read() &&
+                !(*window.find("batch-opacity-label")).visible.read(),
             "stamp settings replace incompatible profile and state fields");
     services.path = (repository / "assets/app-icon.png").string();
     routed_button(window, "batch-stamp-browse");
@@ -1533,35 +1533,35 @@ void icon_batch_contracts() {
         std::dynamic_pointer_cast<gf::CheckBox>(window.find("batch-stamp-flatten"));
     const std::shared_ptr<gf::TextBox> matte =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("batch-stamp-matte"));
-    require(!(*matte).enabled(), "matte is unavailable while alpha is retained");
-    (*opaque).set_checked(true);
-    (*matte).set_text("bad matte");
+    require(!(*matte).enabled.read(), "matte is unavailable while alpha is retained");
+    (*opaque).checked = true;
+    (*matte).text = "bad matte";
     routed_button(window, "batch-review");
-    require(!(*window.find("batch-run")).enabled() && !(*window.find("batch-cancel")).enabled(),
+    require(!(*window.find("batch-run")).enabled.read() && !(*window.find("batch-cancel")).enabled.read(),
             "invalid matte does not start a worker or authorize output");
-    (*matte).set_text("#123456");
+    (*matte).text = "#123456";
     routed_button(window, "batch-review");
     await_batch(window);
-    require((*window.find("batch-run")).enabled(), "fixed stamp can be reviewed");
+    require((*window.find("batch-run")).enabled.read(), "fixed stamp can be reviewed");
     const std::shared_ptr<gf::RasterCanvas> proof =
         std::dynamic_pointer_cast<gf::RasterCanvas>(window.find("batch-stamp-after"));
-    require(bool((*proof).bitmap()), "review publishes the first source proof");
+    require(bool((*proof).bitmap.read()), "review publishes the first source proof");
     const std::shared_ptr<gf::NumericUpDown> opacity =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("batch-stamp-opacity"));
-    (*opacity).set_value(50);
-    require(!(*window.find("batch-run")).enabled() && !(*proof).bitmap(),
+    (*opacity).value = 50;
+    require(!(*window.find("batch-run")).enabled.read() && !(*proof).bitmap.read(),
             "stamp recipe changes revoke the reviewed output and its proof");
     routed_button(window, "batch-review");
     await_batch(window);
     routed_button(window, "batch-run");
-    require(!(*opacity).enabled() && !(*matte).enabled(), "stamp controls freeze during publication");
+    require(!(*opacity).enabled.read() && !(*matte).enabled.read(), "stamp controls freeze during publication");
     await_batch(window);
     const paint::Image stamped = paint::load_image((root / "app-icon-1-stamped.png").string());
     require(stamped.get(0, 0).a == 255 && editor.document.revision == revision &&
                 editor.document.undo_history.size() == history,
             "stamp file output applies the matte without changing document history");
-    (*operation).set_selected_index(5);
-    require((*window.find("batch-palette-path")).visible() && !(*window.find("batch-stamp-path")).visible(),
+    (*operation).selected_index = 5;
+    require((*window.find("batch-palette-path")).visible.read() && !(*window.find("batch-stamp-path")).visible.read(),
             "shared palette exposes its own conversion fields");
     const std::string palette_text = paint::encode_icon_palette({{0, 0, 0, 255}, {255, 255, 255, 255}});
     services.path = (root / "shared.gpl").string();
@@ -1569,7 +1569,7 @@ void icon_batch_contracts() {
     routed_button(window, "batch-palette-browse");
     routed_button(window, "batch-review");
     await_batch(window);
-    require(!(*window.find("batch-run")).enabled(), "large artwork requires explicit ICO size conversion first");
+    require(!(*window.find("batch-run")).enabled.read(), "large artwork requires explicit ICO size conversion first");
     const std::shared_ptr<gf::ListBox> sources = std::dynamic_pointer_cast<gf::ListBox>(window.find("batch-sources"));
     (*sources).select_index(0);
     routed_button(window, "batch-remove");
@@ -1577,15 +1577,15 @@ void icon_batch_contracts() {
     routed_button(window, "batch-add");
     routed_button(window, "batch-review");
     await_batch(window);
-    require((*window.find("batch-run")).enabled(), "shared palette batch reviews through native file selection");
+    require((*window.find("batch-run")).enabled.read(), "shared palette batch reviews through native file selection");
     routed_button(window, "batch-run");
-    require(!(*window.find("batch-palette-depth")).enabled(), "running shared conversion freezes depth");
+    require(!(*window.find("batch-palette-depth")).enabled.read(), "running shared conversion freezes depth");
     await_batch(window);
     const paint::ImageContainer shared = paint::load_container((root / "app-icon-1-icon-1-palette.ico").string());
     require(paint::has_icon_palette(shared.frames[0]) && editor.document.revision == revision,
             "shared batch emits indexed ICO without document mutation");
-    (*operation).set_selected_index(0);
-    require(!(*window.find("batch-stamp-path")).visible() && (*window.find("batch-policy")).visible(),
+    (*operation).selected_index = 0;
+    require(!(*window.find("batch-stamp-path")).visible.read() && (*window.find("batch-policy")).visible.read(),
             "leaving stamp operation restores profile fields");
     routed_button(window, "batch-review");
     editor.close_editor_dialog();
@@ -1597,11 +1597,11 @@ void icon_batch_contracts() {
 void await_icon_states(gui_forms::Window& window) {
     const std::chrono::steady_clock::time_point deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(10);
-    while (!(*window.find("state-save-report")).enabled()) {
+    while (!(*window.find("state-save-report")).enabled.read()) {
         static_cast<void>(window.drain_posted_work());
         const std::shared_ptr<gui_forms::Label> error =
             std::dynamic_pointer_cast<gui_forms::Label>(window.find("dialog-error"));
-        if (!(*error).text().empty()) {
+        if (!(*error).text.read().empty()) {
             break;
         }
         require(std::chrono::steady_clock::now() < deadline, "state preview worker finishes");
@@ -1635,19 +1635,19 @@ void icon_states_contracts() {
     open_tab(window, "atlas-tab");
     routed_button(window, "atlas-states");
     await_icon_states(window);
-    require((*window.find("state-export")).enabled(), "state snapshot is ready to export");
+    require((*window.find("state-export")).enabled.read(), "state snapshot is ready to export");
     const gf::Rect close = (*window.find("dialog-cancel")).absolute_bounds();
     require(close.x >= 0 && close.y >= 0 && close.right() <= 800 && close.bottom() <= 520,
             "state dialog fits minimum window");
     const std::shared_ptr<gf::TextBox> report =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("state-report"));
-    require((*report).read_only() && (*report).text().find("#2") != std::string::npos,
+    require((*report).read_only.read() && (*report).text.read().find("#2") != std::string::npos,
             "state report accounts for both source representations");
     const std::shared_ptr<gf::ComboBox> preset =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("state-preset"));
-    (*preset).set_selected_index(0);
-    (*preset).set_selected_index(1);
-    (*preset).set_selected_index(2);
+    (*preset).selected_index = 0;
+    (*preset).selected_index = 1;
+    (*preset).selected_index = 2;
     await_icon_states(window);
     services.path = (root / "family-disabled.cur").string();
     routed_button(window, "state-export");
@@ -1680,17 +1680,17 @@ void icon_states_contracts() {
             "recipe previews and exports do not modify source or Undo history");
     const std::shared_ptr<gf::ComboBox> scope =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("state-scope"));
-    (*scope).set_selected_index(2);
+    (*scope).selected_index = 2;
     await_icon_states(window);
-    require(!(*window.find("state-export")).enabled(), "empty selected sequence blocks export");
-    (*scope).set_selected_index(0);
+    require(!(*window.find("state-export")).enabled.read(), "empty selected sequence blocks export");
+    (*scope).selected_index = 0;
     await_icon_states(window);
     editor.document.image.set(0, 0, {0, 0, 255, 255});
     services.path = (root / "snapshot.cur").string();
     routed_button(window, "state-export");
     require(paint::equal(paint::load_container(services.path).frames[0].image.get(0, 0), {54, 54, 54, 70}),
             "preview and exported bytes use the same frozen source");
-    (*preset).set_selected_index(1);
+    (*preset).selected_index = 1;
     editor.close_editor_dialog();
     static_cast<void>(window.drain_posted_work());
     require(!window.find("state-after"), "closing cancels worker and late delivery cannot reopen dialog");
@@ -1708,23 +1708,23 @@ void icon_states_contracts() {
     await_icon_states(window);
     const std::shared_ptr<gf::TextBox> failed_report =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("state-report"));
-    require(!(*window.find("state-export")).enabled() && (*window.find("state-save-report")).enabled() &&
-                (*failed_report).text().find("XOR") != std::string::npos,
+    require(!(*window.find("state-export")).enabled.read() && (*window.find("state-save-report")).enabled.read() &&
+                (*failed_report).text.read().find("XOR") != std::string::npos,
             "one failed representation blocks family export and remains reportable");
     const std::shared_ptr<gf::ComboBox> image =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("state-image"));
-    (*image).set_selected_index(2);
+    (*image).selected_index = 2;
     const std::shared_ptr<gf::RasterCanvas> preview =
         std::dynamic_pointer_cast<gf::RasterCanvas>(window.find("state-after"));
-    require(!(*preview).bitmap(), "failed representation does not show another image's output");
+    require(!(*preview).bitmap.read(), "failed representation does not show another image's output");
     const std::shared_ptr<gf::ComboBox> selected =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("state-scope"));
     const std::shared_ptr<gf::ComboBox> policy =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("state-policy"));
-    (*selected).set_selected_index(2);
-    (*policy).set_selected_index(1);
+    (*selected).selected_index = 2;
+    (*policy).selected_index = 1;
     await_icon_states(window);
-    require((*window.find("state-export")).enabled(), "explicit scope can omit unsupported artwork");
+    require((*window.find("state-export")).enabled.read(), "explicit scope can omit unsupported artwork");
     services.path = (root / "ordered-family").string();
     services.cancel_paths = true;
     routed_button(window, "state-export");
@@ -1756,7 +1756,7 @@ void indexed_canvas_contracts() {
     editor.canvas().set_zoom(8);
     editor.execute("atlas-palette");
     const std::shared_ptr<gf::ComboBox> entry = std::dynamic_pointer_cast<gf::ComboBox>(window.find("palette-entry"));
-    (*entry).set_selected_index(1);
+    (*entry).selected_index = 1;
     routed_button(window, "palette-primary");
     require(editor.icon_index_paint && editor.icon_primary_index == 1 && editor.document.undo_history.empty(),
             "palette chooser selects an exact paint index without editing artwork");
@@ -1878,13 +1878,13 @@ void icon_palette_contracts() {
             "palette dialog fits minimum window");
     const std::shared_ptr<gf::RasterCanvas> preview =
         std::dynamic_pointer_cast<gf::RasterCanvas>(window.find("palette-after"));
-    require((*preview).bitmap() && (*window.find("palette-apply")).enabled(), "indexed preview rendered");
+    require((*preview).bitmap.read() && (*window.find("palette-apply")).enabled.read(), "indexed preview rendered");
     const std::shared_ptr<gf::TextBox> matte =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("palette-matte"));
-    (*matte).set_text("#invalid");
-    require(!(*window.find("palette-apply")).enabled(), "invalid matte blocks Apply");
-    (*matte).set_text("#000000");
-    require((*window.find("palette-apply")).enabled() && editor.document.revision == revision &&
+    (*matte).text = "#invalid";
+    require(!(*window.find("palette-apply")).enabled.read(), "invalid matte blocks Apply");
+    (*matte).text = "#000000";
+    require((*window.find("palette-apply")).enabled.read() && editor.document.revision == revision &&
                 editor.document.undo_history.empty(),
             "preview leaves document and history intact");
     routed_button(window, "palette-apply");
@@ -1912,18 +1912,18 @@ void icon_palette_contracts() {
     editor.execute("atlas-palette");
     const std::shared_ptr<gf::ComboBox> mode =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("palette-mode"));
-    (*mode).set_selected_index(1);
-    require(!(*window.find("palette-depth")).visible() && (*window.find("palette-entry")).visible(),
+    (*mode).selected_index = 1;
+    require(!(*window.find("palette-depth")).visible.read() && (*window.find("palette-entry")).visible.read(),
             "entry editing replaces conversion controls");
     const std::shared_ptr<gf::ComboBox> entry =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("palette-entry"));
     const std::shared_ptr<gf::TextBox> rgb =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("palette-rgb"));
-    (*entry).set_selected_index(1);
-    (*rgb).set_text("not-rgb");
-    require(!(*window.find("palette-apply")).enabled(), "invalid entry RGB disables Apply");
-    (*rgb).set_text("#A02050");
-    require((*window.find("palette-apply")).enabled() &&
+    (*entry).selected_index = 1;
+    (*rgb).text = "not-rgb";
+    require(!(*window.find("palette-apply")).enabled.read(), "invalid entry RGB disables Apply");
+    (*rgb).text = "#A02050";
+    require((*window.find("palette-apply")).enabled.read() &&
                 paint::equal(editor.document.image.get(1, 0), {30, 45, 90, 255}),
             "palette entry preview leaves live pixels intact");
     routed_button(window, "palette-apply");
@@ -1940,11 +1940,11 @@ void icon_palette_contracts() {
     editor.execute("atlas-palette");
     const std::shared_ptr<gf::ComboBox> conversion_mode =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("palette-mode"));
-    (*conversion_mode).set_selected_index(0);
+    (*conversion_mode).selected_index = 0;
     const std::shared_ptr<gf::ComboBox> depth =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("palette-depth"));
-    (*depth).set_selected_index(2);
-    require((*window.find("palette-apply")).enabled(), "changing depth prepares a new representation");
+    (*depth).selected_index = 2;
+    require((*window.find("palette-apply")).enabled.read(), "changing depth prepares a new representation");
     editor.document.checkpoint();
     editor.document.image.set(1, 0, {1, 2, 3, 4});
     routed_button(window, "palette-apply");
@@ -1961,7 +1961,7 @@ void icon_palette_contracts() {
     editor.execute("atlas-palette");
     routed_button(window, "palette-import");
     const std::shared_ptr<gf::ComboBox> shared_mode = std::dynamic_pointer_cast<gf::ComboBox>(window.find("palette-mode"));
-    require((*shared_mode).selected_index().value_or(0) == 2 && (*window.find("palette-apply")).enabled() &&
+    require((*shared_mode).selected_index.read().value_or(0) == 2 && (*window.find("palette-apply")).enabled.read() &&
             editor.document.revision == before_close, "file import selects reviewed shared conversion without applying");
     routed_button(window, "palette-export");
     require(paint::load_icon_palette(palette_path.string()).size() == 2 && editor.document.revision == before_close,
@@ -1977,7 +1977,7 @@ void icon_palette_contracts() {
 
 void await_validation(gf::Window& window) {
     const std::chrono::steady_clock::time_point deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
-    while (!(*window.find("validation-check")).enabled()) {
+    while (!(*window.find("validation-check")).enabled.read()) {
         static_cast<void>(window.drain_posted_work());
         require(std::chrono::steady_clock::now()<deadline,"validation worker completes");
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -1989,7 +1989,7 @@ void await_file_notice(Fixture& fixture, const std::string& expected) {
     do {
         (*fixture.editor).file_watch_tick();
         (*fixture.window).perform_layout();
-        if ((*notice).text() == expected) { return; }
+        if ((*notice).text.read() == expected) { return; }
         require(std::chrono::steady_clock::now() < deadline, "file watcher reaches expected state");
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     } while (true);
@@ -2038,7 +2038,7 @@ void external_file_reload() {
     await_file_notice(fixture, "");
     std::filesystem::remove(path);
     await_file_notice(fixture, "File missing from disk.");
-    require(!(*(*fixture.window).find("file-reload")).enabled(), "missing file disables notice reload");
+    require(!(*(*fixture.window).find("file-reload")).enabled.read(), "missing file disables notice reload");
     editor.execute("reload");
     require(editor.document.image.get(2, 3).r == 80, "failed missing-file reload leaves artwork intact");
     std::filesystem::create_directory(path);
@@ -2060,7 +2060,7 @@ void external_file_reload() {
     // Drain an obsolete sample before deleting this test's files.
     for (int i = 0; i < 5; ++i) { editor.file_watch_tick(); std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
     (*fixture.window).perform_layout();
-    require(!(*(*fixture.window).find("file-change-notice")).visible(), "obsolete result cannot show a notice on new artwork");
+    require(!(*(*fixture.window).find("file-change-notice")).visible.read(), "obsolete result cannot show a notice on new artwork");
     std::filesystem::remove_all(root);
 }
 void icon_validation_controls() {
@@ -2074,16 +2074,16 @@ void icon_validation_controls() {
     const std::uint64_t revision=editor.document.revision;
     routed_button(window,"icon-validate"); await_validation(window);
     const std::shared_ptr<gf::TextBox> report=std::dynamic_pointer_cast<gf::TextBox>(window.find("validation-report"));
-    require(report && (*report).text().find("Missing profile sizes: 24 32 48 64 128 256")!=std::string::npos &&
-        (*report).text().find("Duplicate size/depth entries: 1")!=std::string::npos,"validation lists actual missing and duplicate entries");
+    require(report && (*report).text.read().find("Missing profile sizes: 24 32 48 64 128 256")!=std::string::npos &&
+        (*report).text.read().find("Duplicate size/depth entries: 1")!=std::string::npos,"validation lists actual missing and duplicate entries");
     const std::shared_ptr<gf::TextBox> sizes=std::dynamic_pointer_cast<gf::TextBox>(window.find("validation-sizes"));
-    (*sizes).set_text("16");
-    require(!(*window.find("validation-save")).enabled(),"profile edits invalidate report");
+    (*sizes).text = "16";
+    require(!(*window.find("validation-save")).enabled.read(),"profile edits invalidate report");
     routed_button(window,"validation-check"); await_validation(window);
-    require((*report).text().find("Missing profile sizes: 0")!=std::string::npos,"custom profile is explicit");
+    require((*report).text.read().find("Missing profile sizes: 0")!=std::string::npos,"custom profile is explicit");
     const std::shared_ptr<gf::ComboBox> depth=std::dynamic_pointer_cast<gf::ComboBox>(window.find("validation-depth"));
-    (*depth).set_selected_index(2); routed_button(window,"validation-check"); await_validation(window);
-    require((*report).text().find("Missing profile sizes: 16")!=std::string::npos,"depth requirement uses saved output depth");
+    (*depth).selected_index = 2; routed_button(window,"validation-check"); await_validation(window);
+    require((*report).text.read().find("Missing profile sizes: 16")!=std::string::npos,"depth requirement uses saved output depth");
     const std::filesystem::path path=std::filesystem::temp_directory_path()/
         ("paint-validation-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".json");
     services.path=path.string(); routed_button(window,"validation-save");
@@ -2091,16 +2091,16 @@ void icon_validation_controls() {
     const std::string json(bytes.begin(),bytes.end());
     require(json.find("\"requiredDepth\":4")!=std::string::npos && json.find("\"duplicateOrdinals\":[[1,2]]")!=std::string::npos,"JSON captures reviewed profile and original ordinals");
     std::filesystem::remove(path);
-    (*sizes).set_text("16,"); routed_button(window,"validation-check"); await_validation(window);
-    require(!(*window.find("validation-save")).enabled(),"invalid profile cannot save stale report");
-    (*sizes).set_text("16"); routed_button(window,"validation-check"); editor.close_editor_dialog();
+    (*sizes).text = "16,"; routed_button(window,"validation-check"); await_validation(window);
+    require(!(*window.find("validation-save")).enabled.read(),"invalid profile cannot save stale report");
+    (*sizes).text = "16"; routed_button(window,"validation-check"); editor.close_editor_dialog();
     static_cast<void>(window.drain_posted_work());
     require(editor.document.revision==revision && editor.document.undo_history.empty() &&
         paint::equal(editor.document.image.get(0,0),frame.image.get(0,0)),"validation and cancellation do not edit pixels or history");
 }
 void await_strip(gf::Window& window) {
     const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now()+std::chrono::seconds(30);
-    while (!(*window.find("strip-preview")).enabled()) {
+    while (!(*window.find("strip-preview")).enabled.read()) {
         static_cast<void>(window.drain_posted_work());
         require(std::chrono::steady_clock::now()<deadline,"toolbar preview completes");
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2120,12 +2120,12 @@ void toolbar_strip_controls() {
     const std::size_t history=editor.document.undo_history.size();
     editor.execute("atlas-export"); await_strip(window);
     const std::shared_ptr<gf::TextBox> order=std::dynamic_pointer_cast<gf::TextBox>(window.find("strip-order"));
-    require(order && (*order).text()=="2, 1" && (*window.find("strip-export")).enabled(),"Atlas export opens strip with selected sequence");
-    (*order).set_text("1,");
-    require(!(*window.find("strip-export")).enabled(),"edited order invalidates preview");
+    require(order && (*order).text.read()=="2, 1" && (*window.find("strip-export")).enabled.read(),"Atlas export opens strip with selected sequence");
+    (*order).text = "1,";
+    require(!(*window.find("strip-export")).enabled.read(),"edited order invalidates preview");
     routed_button(window,"strip-preview"); await_strip(window);
-    require(!(*window.find("strip-export")).enabled(),"invalid sequence cannot export");
-    (*order).set_text("2,1,2"); routed_button(window,"strip-preview"); await_strip(window);
+    require(!(*window.find("strip-export")).enabled.read(),"invalid sequence cannot export");
+    (*order).text = "2,1,2"; routed_button(window,"strip-preview"); await_strip(window);
     const std::filesystem::path path=std::filesystem::temp_directory_path()/
         ("paint-strip-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".png");
     services.path=path.string(); routed_button(window,"strip-export");
@@ -2133,10 +2133,10 @@ void toolbar_strip_controls() {
     require(exported.width==4 && exported.height==4 && paint::equal(exported.get(1,1),sheet.get(3,1)),"PNG exports explicit repeated sequence");
     std::filesystem::remove(path);
     const std::shared_ptr<gf::ComboBox> format=std::dynamic_pointer_cast<gf::ComboBox>(window.find("strip-format"));
-    (*format).set_selected_index(1);
-    require(!(*window.find("strip-background")).enabled() && !(*window.find("strip-export")).enabled(),"BMP forces matte and requires new preview");
+    (*format).selected_index = 1;
+    require(!(*window.find("strip-background")).enabled.read() && !(*window.find("strip-export")).enabled.read(),"BMP forces matte and requires new preview");
     const std::shared_ptr<gf::TextBox> matte=std::dynamic_pointer_cast<gf::TextBox>(window.find("strip-matte"));
-    (*matte).set_text("#123456"); routed_button(window,"strip-preview"); await_strip(window);
+    (*matte).text = "#123456"; routed_button(window,"strip-preview"); await_strip(window);
     std::filesystem::path bmp=path; bmp.replace_extension(".bmp"); services.path=bmp.string(); routed_button(window,"strip-export");
     exported=paint::load_image(bmp.string());
     require(exported.get(0,0).a==255 && paint::equal(exported.get(3,3),{18,52,86,255}),"BMP keeps opaque matte in unused cells");
@@ -2153,18 +2153,18 @@ void toolbar_strip_controls() {
     paint::IconFrame frame; frame.image=sheet; icons.frames.push_back(frame);
     editor.open_container(icons,"");
     editor.execute("atlas-export"); routed_button(window,"export-strip"); await_strip(window);
-    require((*window.find("strip-export")).enabled() && !window.find("export-run"),"icon representation export routes into toolbar strips");
+    require((*window.find("strip-export")).enabled.read() && !window.find("export-run"),"icon representation export routes into toolbar strips");
     editor.close_editor_dialog();
 }
 void await_transform(gf::Window& window) {
     const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-    while (!(*window.find("transform-preview")).enabled()) {
+    while (!(*window.find("transform-preview")).enabled.read()) {
         static_cast<void>(window.drain_posted_work());
         require(std::chrono::steady_clock::now() < deadline, "transform worker completes");
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     const std::shared_ptr<gf::Label> error = std::dynamic_pointer_cast<gf::Label>(window.find("dialog-error"));
-    require((*error).text().empty(), "transform preview succeeds");
+    require((*error).text.read().empty(), "transform preview succeeds");
 }
 void numeric_transform_controls() {
     Fixture fixture;
@@ -2174,12 +2174,12 @@ void numeric_transform_controls() {
     original.reset(16,16,{0,0,0,0}); original.set(6,7,{210,40,70,180});
     editor.document.replace(original, "");
     editor.execute("numeric-transform"); await_transform(window);
-    require(!(*window.find("transform-apply")).enabled(), "neutral transform cannot add history");
+    require(!(*window.find("transform-apply")).enabled.read(), "neutral transform cannot add history");
     const std::shared_ptr<gf::NumericUpDown> offset = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("transform-value-0"));
-    (*offset).set_value(2);
-    require(!(*window.find("transform-apply")).enabled(), "edited settings invalidate previous proof");
+    (*offset).value = 2;
+    require(!(*window.find("transform-apply")).enabled.read(), "edited settings invalidate previous proof");
     routed_button(window,"transform-preview"); await_transform(window);
-    require((*window.find("transform-apply")).enabled() && editor.document.undo_history.empty() &&
+    require((*window.find("transform-apply")).enabled.read() && editor.document.undo_history.empty() &&
         paint::equal(editor.document.image.get(6,7), original.get(6,7)), "preview never edits live pixels");
     routed_button(window,"transform-apply");
     require(!window.find("transform-apply") && editor.document.undo_history.size() == 1 &&
@@ -2190,7 +2190,7 @@ void numeric_transform_controls() {
     const int origin = editor.document.selection.x;
     editor.execute("numeric-transform"); await_transform(window);
     const std::shared_ptr<gf::NumericUpDown> selection_offset = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("transform-value-0"));
-    (*selection_offset).set_value(3);
+    (*selection_offset).value = 3;
     routed_button(window,"transform-preview"); await_transform(window);
     routed_button(window,"transform-apply");
     require(editor.document.selection.active && editor.document.selection.x == origin+3, "selection stays editable after transform");
@@ -2216,21 +2216,21 @@ void icon_effect_controls() {
     const std::size_t history = editor.document.undo_history.size();
     editor.execute("atlas-effects");
     const std::shared_ptr<gf::ComboBox> choice = std::dynamic_pointer_cast<gf::ComboBox>(window.find("effect-choice"));
-    require(bool(choice) && !(*window.find("effect-apply")).enabled(), "neutral effect opens without an edit");
-    (*choice).set_selected_index(6);
+    require(bool(choice) && !(*window.find("effect-apply")).enabled.read(), "neutral effect opens without an edit");
+    (*choice).selected_index = 6;
     const std::shared_ptr<gf::TextBox> color = std::dynamic_pointer_cast<gf::TextBox>(window.find("effect-color"));
     const std::shared_ptr<gf::TextBox> status = std::dynamic_pointer_cast<gf::TextBox>(window.find("effect-status"));
-    require((*window.find("effect-apply")).enabled() && (*status).text().find("clipped") != std::string::npos &&
+    require((*window.find("effect-apply")).enabled.read() && (*status).text.read().find("clipped") != std::string::npos &&
                 editor.document.undo_history.size() == history, "shadow proof warns about clipping without changing history");
-    (*color).set_text("invalid");
-    require(!(*window.find("effect-apply")).enabled(), "invalid shadow color disables Apply");
-    (*color).set_text("#183050");
+    (*color).text = "invalid";
+    require(!(*window.find("effect-apply")).enabled.read(), "invalid shadow color disables Apply");
+    (*color).text = "#183050";
     editor.close_editor_dialog();
     require(editor.document.undo_history.size() == history && paint::equal(editor.document.image.get(14,8),first.image.get(14,8)),
             "closing preview cancels without modifying pixels");
     editor.execute("atlas-effects");
     const std::shared_ptr<gf::ComboBox> grayscale = std::dynamic_pointer_cast<gf::ComboBox>(window.find("effect-choice"));
-    (*grayscale).set_selected_index(2);
+    (*grayscale).selected_index = 2;
     routed_button(window,"effect-apply");
     require(editor.document.undo_history.size() == history + 1 && !window.find("effect-choice"), "Apply closes and adds one Undo step");
     const paint::Color pixel = editor.document.image.get(14,8);
@@ -2241,7 +2241,7 @@ void icon_effect_controls() {
     require(paint::equal(editor.document.image.get(14,8),first.image.get(14,8)), "Undo restores source artwork");
     editor.execute("atlas-effects");
     const std::shared_ptr<gf::ComboBox> stale = std::dynamic_pointer_cast<gf::ComboBox>(window.find("effect-choice"));
-    (*stale).set_selected_index(2);
+    (*stale).selected_index = 2;
     editor.document.checkpoint(); editor.document.image.set(0,0,{100,20,30,255});
     routed_button(window,"effect-apply");
     require(bool(window.find("effect-choice")) && paint::equal(editor.document.image.get(0,0), {100,20,30,255}),
@@ -2257,16 +2257,16 @@ void advanced_effect_controls() {
     editor.open_container(source,"");
     editor.execute("atlas-effects"); window.perform_layout();
     const std::shared_ptr<gf::ComboBox> choice=std::dynamic_pointer_cast<gf::ComboBox>(window.find("effect-choice"));
-    require((*choice).items().size()==8 && !(*window.find("effect-repeat")).enabled(),"basic effects remain prominent and empty repeat is disabled");
+    require((*choice).items().size()==8 && !(*window.find("effect-repeat")).enabled.read(),"basic effects remain prominent and empty repeat is disabled");
     routed_button(window,"effect-advanced");
     require((*choice).items().size()==15,"Advanced exposes every additional effect");
-    (*choice).set_selected_index(9);
+    (*choice).selected_index = 9;
     const std::shared_ptr<gf::NumericUpDown> black=std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("effect-value-0"));
     const std::shared_ptr<gf::NumericUpDown> white=std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("effect-value-1"));
     const std::shared_ptr<gf::NumericUpDown> gamma=std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("effect-value-2"));
-    (*black).set_value(100); (*white).set_value(90);
-    require(!(*window.find("effect-apply")).enabled(),"invalid levels cannot be applied");
-    (*black).set_value(10); (*white).set_value(240); (*gamma).set_value(1.25);
+    (*black).value = 100; (*white).value = 90;
+    require(!(*window.find("effect-apply")).enabled.read(),"invalid levels cannot be applied");
+    (*black).value = 10; (*white).value = 240; (*gamma).value = 1.25;
     const std::size_t history=editor.document.undo_history.size();
     require(editor.document.undo_history.size()==history && paint::equal(editor.document.image.get(0,0),frame.image.get(0,0)),"live levels preview does not edit pixels");
     routed_button(window,"effect-apply");
@@ -2278,7 +2278,7 @@ void advanced_effect_controls() {
     routed_button(window,"effect-repeat");
     const std::shared_ptr<gf::ComboBox> repeated=std::dynamic_pointer_cast<gf::ComboBox>(window.find("effect-choice"));
     const std::shared_ptr<gf::NumericUpDown> repeated_gamma=std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("effect-value-2"));
-    require((*repeated).selected_index()==9 && (*repeated_gamma).value()==1.25 && paint::equal(editor.document.image.get(0,0),frame.image.get(0,0)),
+    require((*repeated).selected_index.read()==9 && (*repeated_gamma).value.read()==1.25 && paint::equal(editor.document.image.get(0,0),frame.image.get(0,0)),
             "repeat restores advanced controls without applying before review");
     routed_button(window,"effect-apply");
     const paint::Image expected=paint::render_icon_effect(frame.image,saved).image;
@@ -2286,9 +2286,9 @@ void advanced_effect_controls() {
     editor.execute("atlas-effects");
     routed_button(window,"effect-advanced");
     const std::shared_ptr<gf::ComboBox> advanced=std::dynamic_pointer_cast<gf::ComboBox>(window.find("effect-choice"));
-    (*advanced).set_selected_index(14);
+    (*advanced).selected_index = 14;
     routed_button(window,"effect-advanced");
-    require((*advanced).selected_index()==0 && !(*window.find("effect-apply")).enabled(),"hiding Advanced resets an advanced preview safely");
+    require((*advanced).selected_index.read()==0 && !(*window.find("effect-apply")).enabled.read(),"hiding Advanced resets an advanced preview safely");
     editor.close_editor_dialog();
     require((*editor.last_icon_effect).effect==paint::IconEffect::Levels,"canceled previews do not replace last applied effect");
 }
@@ -2320,7 +2320,7 @@ void alpha_tools_contracts() {
             "alpha dialog fits minimum window");
     const std::shared_ptr<gf::RasterCanvas> before =
         std::dynamic_pointer_cast<gf::RasterCanvas>(window.find("alpha-before"));
-    require((*before).bitmap() && !(*window.find("alpha-apply")).enabled(),
+    require((*before).bitmap.read() && !(*window.find("alpha-apply")).enabled.read(),
             "view-only initial alpha preview");
     routed_button(window, "alpha-copy");
     require(services.clipboard.width == 256 && services.clipboard.height == 1 &&
@@ -2329,7 +2329,7 @@ void alpha_tools_contracts() {
                 std::to_integer<int>(services.clipboard.pixels[127 * 4]) == 127,
             "copy alpha emits opaque grayscale bytes");
     routed_button(window, "alpha-paste");
-    require(!(*window.find("alpha-apply")).enabled() && editor.document.revision == revision,
+    require(!(*window.find("alpha-apply")).enabled.read() && editor.document.revision == revision,
             "identity mask does not dirty or enable Apply");
     services.clipboard = {2, 1, 8, std::vector<std::byte>(8, std::byte{0})};
     services.clipboard.pixels[0] = std::byte{12};
@@ -2339,11 +2339,11 @@ void alpha_tools_contracts() {
     services.clipboard.pixels[5] = std::byte{255};
     services.clipboard.pixels[6] = std::byte{255};
     routed_button(window, "alpha-paste");
-    require(!(*window.find("alpha-apply")).enabled(), "mismatch requires explicit resize");
+    require(!(*window.find("alpha-apply")).enabled.read(), "mismatch requires explicit resize");
     routed_button(window, "alpha-resize");
-    require((*window.find("alpha-apply")).enabled(), "explicit resize prepares result");
+    require((*window.find("alpha-apply")).enabled.read(), "explicit resize prepares result");
     routed_button(window, "alpha-reset");
-    require(!(*window.find("alpha-apply")).enabled() && editor.document.revision == revision,
+    require(!(*window.find("alpha-apply")).enabled.read() && editor.document.revision == revision,
             "Reset discards preview without mutation");
     routed_button(window, "alpha-paste");
     routed_button(window, "alpha-apply");
@@ -2389,7 +2389,7 @@ struct RevealProbe {
 };
 void await_reveal(gf::Window& window) {
     const std::chrono::steady_clock::time_point deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
-    while (!(*window.find("asset-reveal")).enabled()) {
+    while (!(*window.find("asset-reveal")).enabled.read()) {
         static_cast<void>(window.drain_posted_work());
         require(std::chrono::steady_clock::now()<deadline,"reveal worker delivery timeout");
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -2402,23 +2402,23 @@ void geometry_corner_controls() {
     editor.choose_shape(paint::Shape::Rectangle);
     open_tab(window, "tool-tab");
     const std::shared_ptr<gf::NumericUpDown> radius = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("geometry-corners"));
-    require(radius && (*radius).visible(), "shape ribbon must expose corner radius");
-    (*radius).set_value(16);
+    require(radius && (*radius).visible.read(), "shape ribbon must expose corner radius");
+    (*radius).value = 16;
     editor.document.shape_outline = false; editor.document.shape_fill = true;
     fixture.drag(10, 10, 90, 80);
     require(white(editor.document.image.get(11, 11)) && !white(editor.document.image.get(45, 45)),
             "ribbon corner setting did not affect the committed filled shape");
     editor.execute("undo");
     require(white(editor.document.image.get(45, 45)), "softened shape must undo as one edit");
-    (*radius).set_value(0);
+    (*radius).value = 0;
     fixture.drag(10, 10, 90, 80);
     require(!white(editor.document.image.get(11, 11)), "zero radius must restore square corners");
     editor.choose_tool(paint::Tool::Pencil);
     open_tab(window, "tool-tab");
-    require(!(*radius).visible(), "geometry radius should not be offered for pencil painting");
+    require(!(*radius).visible.read(), "geometry radius should not be offered for pencil painting");
     editor.choose_tool(paint::Tool::Path);
     open_tab(window, "tool-tab");
-    require((*radius).visible(), "paths must expose corner softening too");
+    require((*radius).visible.read(), "paths must expose corner softening too");
 }
 void geometry_style_controls() {
     Fixture fixture;
@@ -2429,24 +2429,24 @@ void geometry_style_controls() {
     open_tab(window, "tool-tab");
     const std::shared_ptr<gf::ComboBox> style = std::dynamic_pointer_cast<gf::ComboBox>(window.find("geometry-stroke"));
     const std::shared_ptr<gf::NumericUpDown> organic = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("geometry-organic"));
-    require(style && organic && (*style).visible() && (*organic).visible(), "geometry ribbon lost style controls");
-    (*style).set_selected_index(1);
+    require(style && organic && (*style).visible.read() && (*organic).visible.read(), "geometry ribbon lost style controls");
+    (*style).selected_index = 1;
     fixture.drag(10, 30, 110, 30);
     require(!white(editor.document.image.get(20, 30)) && white(editor.document.image.get(32, 30)),
             "ribbon dashed style did not render a mark followed by a gap");
     editor.execute("undo");
-    (*style).set_selected_index(2);
+    (*style).selected_index = 2;
     fixture.drag(10, 30, 110, 30);
     require(!white(editor.document.image.get(10, 30)) && white(editor.document.image.get(16, 30)),
             "ribbon dotted style did not render a dot followed by a gap");
-    (*organic).set_value(1.5);
+    (*organic).value = 1.5;
     require(editor.document.ink.geometry.organic == 1.5, "ribbon Organic did not update geometry");
     const std::uint32_t seed = editor.document.ink.geometry.seed;
     (*std::dynamic_pointer_cast<gf::Button>(window.find("geometry-vary"))).perform_click();
     require(editor.document.ink.geometry.seed != seed, "Vary must select new Organic geometry");
     editor.choose_tool(paint::Tool::Pencil);
     open_tab(window, "tool-tab");
-    require(!(*style).visible() && !(*organic).visible() && !(*window.find("geometry-vary")).visible(),
+    require(!(*style).visible.read() && !(*organic).visible.read() && !(*window.find("geometry-vary")).visible.read(),
             "geometry styling must not appear in the pencil ribbon");
 }
 void geometry_marker_controls() {
@@ -2458,9 +2458,9 @@ void geometry_marker_controls() {
     open_tab(window, "tool-tab");
     const std::shared_ptr<gf::ComboBox> first = std::dynamic_pointer_cast<gf::ComboBox>(window.find("geometry-start"));
     const std::shared_ptr<gf::ComboBox> last = std::dynamic_pointer_cast<gf::ComboBox>(window.find("geometry-end"));
-    require(first && last && (*first).visible() && (*last).visible(), "line ribbon must expose both endpoints");
-    (*first).set_selected_index(static_cast<std::size_t>(paint::EndpointMarker::Circle));
-    (*last).set_selected_index(static_cast<std::size_t>(paint::EndpointMarker::ZeroMany));
+    require(first && last && (*first).visible.read() && (*last).visible.read(), "line ribbon must expose both endpoints");
+    (*first).selected_index = static_cast<std::size_t>(paint::EndpointMarker::Circle);
+    (*last).selected_index = static_cast<std::size_t>(paint::EndpointMarker::ZeroMany);
     fixture.drag(10, 30, 110, 30);
     require(white(editor.document.image.get(16, 30)) && !white(editor.document.image.get(110, 37)),
             "independent ribbon markers did not draw the hollow circle and crow's foot");
@@ -2468,12 +2468,12 @@ void geometry_marker_controls() {
     require(white(editor.document.image.get(110, 37)), "endpoint markers must undo with their line");
     editor.choose_shape(paint::Shape::Rectangle);
     open_tab(window, "tool-tab");
-    require(!(*first).visible() && !(*last).visible(), "closed shapes must hide endpoint-only settings");
+    require(!(*first).visible.read() && !(*last).visible.read(), "closed shapes must hide endpoint-only settings");
     editor.choose_tool(paint::Tool::Path);
     editor.document.continuous_path = false;
     editor.refresh();
     open_tab(window, "tool-tab");
-    require((*first).visible() && !(*first).enabled(), "closed paths must disable endpoint markers");
+    require((*first).visible.read() && !(*first).enabled.read(), "closed paths must disable endpoint markers");
 }
 void sticky_note_contracts() {
     Fixture fixture;
@@ -2488,7 +2488,7 @@ void sticky_note_contracts() {
     window.perform_layout();
     require(!window.find("editor-dialog") && editor.text.active && editor.text.note &&
                 window.focused_control().get() == &editor.canvas() &&
-                (*window.find("sticky-paper")).visible() && (*window.find("sticky-width")).visible(),
+                (*window.find("sticky-paper")).visible.read() && (*window.find("sticky-width")).visible.read(),
             "sticky insertion must immediately edit on canvas with ribbon settings, without a popup");
     require(editor.document.undo_history.size() == history && !editor.text.preview.pixels.empty(),
             "blank note paper should be visible while the canvas remains unchanged");
@@ -2500,11 +2500,11 @@ void sticky_note_contracts() {
     editor.execute("redo");
     require(editor.text.edit.content == "Plan", "inline note text Redo failed");
     const std::shared_ptr<gf::NumericUpDown> width = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("sticky-width"));
-    (*width).set_value(96);
+    (*width).value = 96;
     const std::shared_ptr<gf::ComboBox> paper = std::dynamic_pointer_cast<gf::ComboBox>(window.find("sticky-paper"));
-    (*paper).set_selected_index(8);
+    (*paper).selected_index = 8;
     const std::shared_ptr<gf::TextBox> color = std::dynamic_pointer_cast<gf::TextBox>(window.find("sticky-color"));
-    (*color).set_text("#BBDDEE");
+    (*color).text = "#BBDDEE";
     require(editor.text.bounds.w == 96 && (*editor.text.note).paper == 8 &&
                 (*editor.text.note).paper_color.b == 238 && editor.text.edit.content == "Plan",
             "ribbon settings must update the current note without discarding text");
@@ -2525,7 +2525,7 @@ void sticky_note_contracts() {
     require(!editor.text.active && !editor.text.note, "Cancel must discard inline paper and text");
     editor.choose_tool(paint::Tool::Text);
     fixture.click(20, 20);
-    require(editor.text.active && !editor.text.note && !(*window.find("sticky-paper")).visible(),
+    require(editor.text.active && !editor.text.note && !(*window.find("sticky-paper")).visible.read(),
             "ordinary text must not inherit a note background or paper controls");
 }
 void imported_stamp_placement_contracts() {
@@ -2539,16 +2539,16 @@ void imported_stamp_placement_contracts() {
     editor.use_asset_stamp(asset);
     window.perform_layout();
     require(editor.stamp_placement_active() && editor.can_apply_stamp_placement() &&
-                (*window.find("context-stamp-apply")).visible() &&
-                (*window.find("context-stamp-cancel")).visible() &&
-                !(*window.find("context-stamp-add")).visible(),
+                (*window.find("context-stamp-apply")).visible.read() &&
+                (*window.find("context-stamp-cancel")).visible.read() &&
+                !(*window.find("context-stamp-add")).visible.read(),
             "imported placement needs visible Apply/Cancel and no material capture commands");
     fixture.drag(16, 16, 60, 40);
     editor.stamp_scale = 2;
     editor.stamp_angle = 90;
     editor.regenerate_stamp();
     editor.refresh();
-    require(!editor.can_apply_stamp_placement() && !(*window.find("context-stamp-apply")).enabled(),
+    require(!editor.can_apply_stamp_placement() && !(*window.find("context-stamp-apply")).enabled.read(),
             "stale transform preview must not be applied while rendering");
     editor.apply_stamp_placement();
     require(editor.document.revision == revision, "premature Apply changed the document");
@@ -2663,24 +2663,24 @@ void asset_reveal_contracts() {
     editor.asset_directory=root.string(); editor.execute("browse-assets"); await_assets(window);
     const std::uint64_t revision=editor.document.revision;
     const std::shared_ptr<gf::ListBox> list=std::dynamic_pointer_cast<gf::ListBox>(window.find("asset-list"));
-    require(!(*window.find("asset-reveal")).enabled(),"reveal requires a selected item");
+    require(!(*window.find("asset-reveal")).enabled.read(),"reveal requires a selected item");
     (*list).select_index(0); routed_button(window,"asset-reveal"); await_reveal(window);
     const std::filesystem::path listing_root = std::filesystem::canonical(root);
     require(probe.path==(listing_root/"folder").string(),"folder reveal selects the folder itself");
     (*list).select_index(1); await_assets(window);
-    require(!(*window.find("asset-open")).enabled() && (*window.find("asset-reveal")).enabled(),"corrupt assets still support reveal");
+    require(!(*window.find("asset-open")).enabled.read() && (*window.find("asset-reveal")).enabled.read(),"corrupt assets still support reveal");
     routed_button(window,"asset-reveal"); await_reveal(window);
     const std::shared_ptr<gf::Label> status=std::dynamic_pointer_cast<gf::Label>(window.find("asset-status"));
-    require(probe.path==(listing_root/"broken.png").string() && (*status).text()=="Requested file selection in the file manager.","reveal dispatches selected path and reports request accurately");
+    require(probe.path==(listing_root/"broken.png").string() && (*status).text.read()=="Requested file selection in the file manager.","reveal dispatches selected path and reports request accurately");
     probe.result=paint::RevealOutcome::FolderRequested;
     routed_button(window,"asset-reveal"); await_reveal(window);
-    require((*status).text().find("selection is unavailable")!=std::string::npos,"fallback explains missing file selection");
+    require((*status).text.read().find("selection is unavailable")!=std::string::npos,"fallback explains missing file selection");
     probe.fail=true; routed_button(window,"asset-reveal"); await_reveal(window);
     const std::shared_ptr<gf::Label> error=std::dynamic_pointer_cast<gf::Label>(window.find("dialog-error"));
-    require((*error).text()=="Desktop unavailable","desktop failure remains visible");
+    require((*error).text.read()=="Desktop unavailable","desktop failure remains visible");
     const int calls=probe.calls; std::filesystem::remove(path);
     routed_button(window,"asset-reveal"); await_reveal(window);
-    require(probe.calls==calls && (*status).text()=="Could not reveal the selected asset.","deleted item is rejected before desktop dispatch");
+    require(probe.calls==calls && (*status).text.read()=="Could not reveal the selected asset.","deleted item is rejected before desktop dispatch");
     require(editor.document.revision==revision,"reveal never edits artwork");
     (*list).select_index(0); probe.fail=false; probe.wait_for_cancel.store(true); probe.entered.store(false);
     routed_button(window,"asset-reveal");
@@ -2728,7 +2728,7 @@ void asset_browser_contracts() {
     await_assets(window);
     const std::shared_ptr<gf::RasterCanvas> preview =
         std::dynamic_pointer_cast<gf::RasterCanvas>(window.find("asset-preview"));
-    require((*preview).bitmap() && (*window.find("asset-stamp")).enabled(),
+    require((*preview).bitmap.read() && (*window.find("asset-stamp")).enabled.read(),
             "asset selection did not render preview");
     routed_button(window, "asset-batch");
     require(editor.batch_sources.size() == 1 &&
@@ -2736,18 +2736,18 @@ void asset_browser_contracts() {
             "asset browser queues the selected source for production");
     const std::shared_ptr<gf::TextBox> search =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("asset-search"));
-    (*search).set_text("missing");
-    require(!(*list).enabled() && !(*window.find("asset-stamp")).enabled() &&
-                !(*window.find("asset-batch")).enabled(),
+    (*search).text = "missing";
+    require(!(*list).enabled.read() && !(*window.find("asset-stamp")).enabled.read() &&
+                !(*window.find("asset-batch")).enabled.read(),
             "query edit retained stale actions");
     routed_button(window, "asset-refresh");
     await_assets(window);
     require((*list).items().empty(), "query did not filter files and folders");
-    (*search).set_text("");
+    (*search).text = "";
     routed_button(window, "asset-refresh");
     await_assets(window);
     (*list).select_index(0);
-    require(!(*window.find("asset-batch")).enabled(), "folders cannot be added as batch input files");
+    require(!(*window.find("asset-batch")).enabled.read(), "folders cannot be added as batch input files");
     routed_button(window, "asset-open");
     await_assets(window);
     require((*list).items().empty(), "folder navigation failed");
@@ -2824,24 +2824,24 @@ void icon_generation_review_and_cancel() {
     std::shared_ptr<gf::ComboBox> policy =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("icon-size-policy"));
     std::shared_ptr<gf::Label> summary = std::dynamic_pointer_cast<gf::Label>(window.find("icon-size-plan"));
-    require(policy && summary && (*policy).selected_index().value_or(99) == 0 &&
-                (*summary).text().find("Keep: 3") != std::string::npos &&
-                (*summary).text().find("Add: 2") != std::string::npos,
+    require(policy && summary && (*policy).selected_index.read().value_or(99) == 0 &&
+                (*summary).text.read().find("Keep: 3") != std::string::npos &&
+                (*summary).text.read().find("Add: 2") != std::string::npos,
             "icon generation defaults to preserving existing artwork with a live plan");
-    (*policy).set_selected_index(2);
+    (*policy).selected_index = 2;
     const std::shared_ptr<gf::TextBox> manifest =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("icon-size-manifest"));
-    require(manifest && (*manifest).read_only() &&
-                (*manifest).text().find("Remove #2 · 24 × 24") != std::string::npos,
+    require(manifest && (*manifest).read_only.read() &&
+                (*manifest).text.read().find("Remove #2 · 24 × 24") != std::string::npos,
             "review identifies the particular representation that will be removed");
     window.perform_layout();
     require((*manifest).scroll_offset().y == 0,
             "updated generation manifest starts at its first image");
-    require((*summary).text().find("Remove: 1") != std::string::npos && editor.document.atlas.count() == 3 &&
+    require((*summary).text.read().find("Remove: 1") != std::string::npos && editor.document.atlas.count() == 3 &&
                 editor.document.undo_history.size() == history,
             "exact-profile preview identifies removal without mutating the document");
     routed_button(window, "icon-size-48");
-    require((*summary).text().find("Add: 1") != std::string::npos,
+    require((*summary).text.read().find("Add: 1") != std::string::npos,
             "target checkbox updates the generation plan before acceptance");
     routed_button(window, "dialog-cancel");
     require(editor.document.atlas.count() == 3 && editor.document.undo_history.size() == history,
@@ -2849,7 +2849,7 @@ void icon_generation_review_and_cancel() {
     editor.execute("atlas-icons");
     window.perform_layout();
     policy = std::dynamic_pointer_cast<gf::ComboBox>(window.find("icon-size-policy"));
-    (*policy).set_selected_index(2);
+    (*policy).selected_index = 2;
     routed_button(window, "dialog-ok");
     require(editor.document.atlas.count() == 4 && editor.document.undo_history.size() == history + 1,
             "accept applies the reviewed exact profile as one transaction");
@@ -2866,7 +2866,7 @@ void svg_icon_source_controls() {
     editor.execute("atlas-icons");
     window.perform_layout();
     std::shared_ptr<gf::TextBox> manifest = std::dynamic_pointer_cast<gf::TextBox>(window.find("icon-size-manifest"));
-    require((*manifest).text().find("SVG") != std::string::npos && (*manifest).text().find("Upscaling") == std::string::npos,
+    require((*manifest).text.read().find("SVG") != std::string::npos && (*manifest).text.read().find("Upscaling") == std::string::npos,
             "generation review identifies the retained vector source at every target size");
     routed_button(window, "dialog-cancel");
     editor.document.checkpoint();
@@ -2875,7 +2875,7 @@ void svg_icon_source_controls() {
     editor.execute("atlas-icons");
     window.perform_layout();
     manifest = std::dynamic_pointer_cast<gf::TextBox>(window.find("icon-size-manifest"));
-    require((*manifest).text().find("SVG") == std::string::npos && (*manifest).text().find("Upscaling") != std::string::npos,
+    require((*manifest).text.read().find("SVG") == std::string::npos && (*manifest).text.read().find("Upscaling") != std::string::npos,
             "edited imports visibly switch generation to their current bitmap source");
     editor.close_editor_dialog();
 }
@@ -2910,23 +2910,23 @@ void explicit_icon_target_controls() {
         std::dynamic_pointer_cast<gf::CheckBox>(window.find("icon-target-replace"));
     const std::shared_ptr<gf::ComboBox> policy =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("icon-size-policy"));
-    require(list && input && depth && replace && !(*replace).checked(),
+    require(list && input && depth && replace && !(*replace).checked.read(),
             "per-target controls start by retaining every existing representation");
-    (*policy).set_selected_index(1);
-    require(!(*replace).checked() && !(*input).enabled(),
+    (*policy).selected_index = 1;
+    require(!(*replace).checked.read() && !(*input).enabled.read(),
             "replacement policy alone cannot select existing artwork for replacement");
     (*list).select_index(1);
     routed_button(window, "icon-target-replace");
-    (*input).set_selected_index(0);
-    (*depth).set_selected_index(1);
+    (*input).selected_index = 0;
+    (*depth).selected_index = 1;
     for (int size : {16, 32, 48, 256}) {
         routed_button(window, "icon-size-" + std::to_string(size));
     }
-    (*std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("icon-custom-width"))).set_value(20);
-    (*std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("icon-custom-height"))).set_value(12);
+    (*std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("icon-custom-width"))).value = 20;
+    (*std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("icon-custom-height"))).value = 12;
     routed_button(window, "icon-target-add");
-    (*input).set_selected_index(2);
-    (*depth).set_selected_index(2);
+    (*input).selected_index = 2;
+    (*depth).selected_index = 2;
     require(editor.document.undo_history.empty() && editor.document.atlas.count() == 3 &&
                 window.find("icon-target-before") && window.find("icon-target-after"),
             "target selection and custom previews do not mutate the document");
@@ -3014,14 +3014,14 @@ void desktop_transactions_drop_and_handles() {
     std::shared_ptr<gf::CheckBox> monochrome =
         std::dynamic_pointer_cast<gf::CheckBox>(window.find("properties-monochrome"));
     require(static_cast<bool>(monochrome), "properties exposes monochrome conversion");
-    (*monochrome).set_checked(true);
+    (*monochrome).checked = true;
     routed_button(window, "dialog-cancel");
     require(paint::equal(editor.document.image.get(4, 4), original.get(4, 4)),
             "properties cancel preserves image");
     editor.execute("properties");
     window.perform_layout();
     monochrome = std::dynamic_pointer_cast<gf::CheckBox>(window.find("properties-monochrome"));
-    (*monochrome).set_checked(true);
+    (*monochrome).checked = true;
     routed_button(window, "dialog-ok");
     require(paint::equal(editor.document.image.get(4, 4), {255, 255, 255, 129}),
             "monochrome conversion preserves alpha");
@@ -3369,7 +3369,7 @@ void selection_handles_repaint_during_capture() {
             int height = 30 + (handles[handle][1] == 0.5 ? 0 : static_cast<int>(delta));
             std::shared_ptr<gf::Label> status =
                 std::dynamic_pointer_cast<gf::Label>(window.find("selection-status"));
-            require((*status).text() ==
+            require((*status).text.read() ==
                         std::to_string(width) + " × " + std::to_string(height) + " px selected",
                     "selection status follows live side or corner resize dimensions");
             require(editor.document.selection.image.width == 40 &&
@@ -3465,7 +3465,7 @@ void zoom_out_clamps_each_axis() {
     editor.canvas().set_view(1, {500, 20});
     std::shared_ptr<gf::TrackBar> slider =
         std::dynamic_pointer_cast<gf::TrackBar>(window.find("zoom-slider"));
-    (*slider).set_value(std::log2(0.75));
+    (*slider).value = std::log2(0.75);
     gui_drawing::PointF origin = editor.canvas().view_origin();
     require(std::abs(-origin.x * 0.75 + 250) < 1e-9, "zoom-out exposes the right edge without empty space");
     require(std::abs(-origin.y * 0.75 - (viewport.height - 75) / 2) < 1e-9,
@@ -3473,13 +3473,13 @@ void zoom_out_clamps_each_axis() {
     double previous = -origin.x * 0.75;
     for (int step = 1; step <= 30; ++step) {
         double scale = 0.75 - step * 0.01;
-        (*slider).set_value(std::log2(scale));
+        (*slider).value = std::log2(scale);
         double translation = -editor.canvas().view_origin().x * scale;
         require(translation >= previous && translation - previous <= 10.000001,
                 "continuous zoom-out approaches and crosses fit without a final snap");
         previous = translation;
     }
-    (*slider).set_value(std::log2(0.25));
+    (*slider).value = std::log2(0.25);
     require(std::abs(-editor.canvas().view_origin().x * 0.25 - 125) < 1e-9,
             "further shrinking remains centered");
     editor.execute("fit");
@@ -3497,7 +3497,7 @@ void restored_help_and_selection_workflows() {
             "patterns page does not duplicate tools or expose mesh");
     routed_button(window, "tool-0");
     open_tab(window, "tool-tab");
-    require(!(*window.find("context-reshape")).visible(), "mesh hidden before a selection exists");
+    require(!(*window.find("context-reshape")).visible.read(), "mesh hidden before a selection exists");
     editor.choose_tool(paint::Tool::Lasso);
     fixture.pointer(gf::PointerAction::down, 10, 10);
     fixture.pointer(gf::PointerAction::move, 45, 10);
@@ -3505,11 +3505,11 @@ void restored_help_and_selection_workflows() {
     fixture.pointer(gf::PointerAction::up, 10, 45);
     window.perform_layout();
     require((*require_button(window, "tool-0")).selected(), "lasso retains Select tool highlight");
-    require((*window.find("context-reshape")).visible() && (*window.find("rotation-degrees")).visible(),
+    require((*window.find("context-reshape")).visible.read() && (*window.find("rotation-degrees")).visible.read(),
             "completed lasso reveals selection mesh and rotation controls");
     std::shared_ptr<gf::NumericUpDown> angle =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("rotation-degrees"));
-    (*angle).set_value(30);
+    (*angle).value = 30;
     routed_button(window, "rotate-custom");
     await_background(fixture);
     require(editor.document.selection.active, "rotation applies through the Selection ribbon");
@@ -3520,11 +3520,11 @@ void restored_help_and_selection_workflows() {
     window.perform_layout();
     require(editor.show_help && editor.canvas().client_rectangle().width == width - 370,
             "F1 opens the original docked book and reduces canvas viewport");
-    require((*window.find("help-body-1")).visible() && !(*window.find("help-body-2")).visible(),
+    require((*window.find("help-body-1")).visible.read() && !(*window.find("help-body-2")).visible.read(),
             "first chapter is open and remaining topics are folded");
     routed_button(window, "help-topic-1");
     routed_button(window, "help-topic-2");
-    require((*window.find("help-body-2")).visible(), "help chapters expand through normal routed buttons");
+    require((*window.find("help-body-2")).visible.read(), "help chapters expand through normal routed buttons");
     static_cast<void>(window.dispatch_key(help));
     window.perform_layout();
     require(!editor.show_help && editor.canvas().client_rectangle().width == width, "F1 closes book");
@@ -3577,19 +3577,19 @@ void path_hover_snap_and_controls() {
     open_tab(window, "tool-tab");
     std::shared_ptr<gf::CheckBox> continuous =
         std::dynamic_pointer_cast<gf::CheckBox>(window.find("continuous-path"));
-    require((*continuous).checked(), "continuous path starts checked for an open chain");
+    require((*continuous).checked.read(), "continuous path starts checked for an open chain");
     fixture.click(15, 20);
     fixture.click(95, 20);
     fixture.click(95, 80);
     require(white(editor.document.image.get(55, 50)), "checked continuous path has no closing edge");
     routed_button(window, "continuous-path");
-    require(!(*continuous).checked() && !editor.document.continuous_path &&
+    require(!(*continuous).checked.read() && !editor.document.continuous_path &&
                 !white(editor.document.image.get(55, 50)),
             "unchecked continuous path closes the polygon and matches checkbox state");
     routed_button(window, "continuous-path");
-    require((*continuous).checked() && white(editor.document.image.get(55, 50)),
+    require((*continuous).checked.read() && white(editor.document.image.get(55, 50)),
             "checked continuous path removes the closing edge again");
-    require(!(*window.find("r-pattern-0")).visible(), "path context does not duplicate Patterns");
+    require(!(*window.find("r-pattern-0")).visible.read(), "path context does not duplicate Patterns");
     open_tab(window, "home-tab");
     editor.document.ink.brush = paint::Brush::Airbrush;
     routed_button(window, "primary");
@@ -3656,7 +3656,7 @@ void explicit_path_node_editing() {
     open_tab(window, "tool-tab");
     const std::shared_ptr<gf::CheckBox> mode =
         std::dynamic_pointer_cast<gf::CheckBox>(window.find("edit-path-nodes"));
-    require(mode && (*mode).visible() && (*mode).semantic_descriptor().name == "Edit nodes",
+    require(mode && (*mode).visible.read() && (*mode).semantic_descriptor().name == "Edit nodes",
             "path editing lacks a visible named control");
     (*mode).perform_click();
     require(editor.edit_path_nodes, "Edit nodes does not activate");
@@ -3713,7 +3713,7 @@ void healing_context_controls() {
     for (const char* id : {"heal-clone", "heal-aligned", "heal-alpha"}) {
         const std::shared_ptr<gf::CheckBox> control =
             std::dynamic_pointer_cast<gf::CheckBox>(window.find(id));
-        require(control && (*control).visible(), "healing option is discoverable in the tool ribbon");
+        require(control && (*control).visible.read(), "healing option is discoverable in the tool ribbon");
         (*control).perform_click();
     }
     require(editor.heal_options.clone && !editor.heal_options.aligned && !editor.heal_options.preserve_alpha,
@@ -3911,8 +3911,8 @@ void centered_circle_and_materials() {
     editor.refresh();
     routed_button(window, "secondary");
     open_tab(window, "patterns-tab");
-    require((*window.find("material-brush-4")).visible() && (*window.find("r-pattern-12")).visible() &&
-                (*window.find("grain-scale")).visible(),
+    require((*window.find("material-brush-4")).visible.read() && (*window.find("r-pattern-12")).visible.read() &&
+                (*window.find("grain-scale")).visible.read(),
             "fill brushes, patterns and material settings share one pane");
     routed_button(window, "material-brush-4");
     require(editor.document.alt_ink.brush == paint::Brush::Oil && !editor.document.shape_fill &&
@@ -3925,25 +3925,25 @@ void centered_circle_and_materials() {
             "line brush changes independently from fill");
     const std::shared_ptr<gf::ComboBox> rendering =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("render-quality"));
-    require(rendering && (*rendering).visible() && !(*window.find("smooth-lines")).visible(),
+    require(rendering && (*rendering).visible.read() && !(*window.find("smooth-lines")).visible.read(),
             "Materials must expose exactly one geometry rendering control");
-    (*rendering).set_selected_index(0);
+    (*rendering).selected_index = 0;
     require(!editor.document.ink.smooth, "Crisp is a working rendering choice in Materials");
     open_tab(window, "tool-tab");
-    require((*window.find("tool-size")).visible() && (*window.find("outline")).visible() &&
-                (*window.find("fill")).visible() && (*window.find("render-quality")).visible() &&
-                !(*window.find("grain-scale")).visible() && !(*window.find("grain-angle")).visible() &&
-                !(*window.find("new-grain")).visible() && !window.find("edge-medium") &&
+    require((*window.find("tool-size")).visible.read() && (*window.find("outline")).visible.read() &&
+                (*window.find("fill")).visible.read() && (*window.find("render-quality")).visible.read() &&
+                !(*window.find("grain-scale")).visible.read() && !(*window.find("grain-angle")).visible.read() &&
+                !(*window.find("new-grain")).visible.read() && !window.find("edge-medium") &&
                 !window.find("fill-medium"),
             "shape tools contain only tool settings and use shared Primary and Alt materials");
     open_tab(window, "patterns-tab");
-    require((*window.find("grain-angle")).visible() && (*window.find("new-grain")).visible(),
+    require((*window.find("grain-angle")).visible.read() && (*window.find("new-grain")).visible.read(),
             "all texture settings are available together in Materials");
 }
 void await_carpet(Fixture& fixture) {
     const std::chrono::steady_clock::time_point deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(15);
-    while (!(*(*fixture.window).find("dialog-ok")).enabled()) {
+    while (!(*(*fixture.window).find("dialog-ok")).enabled.read()) {
         static_cast<void>((*fixture.window).drain_posted_work());
         require(std::chrono::steady_clock::now() < deadline, "carpet render finishes on the UI dispatcher");
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -3953,7 +3953,7 @@ void gradient_fill_controls_and_undo() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
     gf::Window& window = *fixture.window;
-    require(!(*window.find("gradient-tab")).visible(), "Gradient tab starts hidden");
+    require(!(*window.find("gradient-tab")).visible.read(), "Gradient tab starts hidden");
     const gf::Rect bucket = (*window.find("tool-3")).absolute_bounds();
     const gf::Point arrow{bucket.right() - 3, bucket.y + bucket.height / 2};
     window.dispatch_pointer({gf::PointerAction::down, gf::PointerButton::primary, arrow});
@@ -3961,7 +3961,7 @@ void gradient_fill_controls_and_undo() {
     window.perform_layout();
     routed_button(window, "popup-bucket-gradient");
     require(editor.gradient_fill && editor.document.tool == paint::Tool::Fill &&
-                (*window.find("gradient-strip")).visible(),
+                (*window.find("gradient-strip")).visible.read(),
             "Fill menu activates gradient editor");
     const paint::Color primary = editor.document.ink.primary, alternate = editor.document.ink.secondary;
     const std::size_t stops = editor.fill_gradient.stops.size();
@@ -3971,21 +3971,21 @@ void gradient_fill_controls_and_undo() {
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("gradient-position"));
     const std::shared_ptr<gf::NumericUpDown> angle =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("gradient-angle"));
-    (*position).set_value(42);
-    (*angle).set_value(90);
+    (*position).value = 42;
+    (*angle).value = 90;
     require(std::abs(editor.fill_gradient.stops[editor.gradient_stop].position - .42) < 1e-9 &&
                 editor.fill_gradient.angle == 90,
             "Position and angle updates are independent and survive refresh");
     routed_button(window, "gradient-edit-color");
     const paint::Color original = editor.fill_gradient.stops[editor.gradient_stop].color;
     std::shared_ptr<gf::TextBox> hex = std::dynamic_pointer_cast<gf::TextBox>(window.find("color-hex"));
-    (*hex).set_text("#123ABC");
+    (*hex).text = "#123ABC";
     routed_button(window, "dialog-cancel");
     require(paint::equal(original, editor.fill_gradient.stops[editor.gradient_stop].color),
             "Cancel leaves stop unchanged");
     routed_button(window, "gradient-edit-color");
     hex = std::dynamic_pointer_cast<gf::TextBox>(window.find("color-hex"));
-    (*hex).set_text("#123ABC");
+    (*hex).text = "#123ABC";
     routed_button(window, "dialog-ok");
     require(paint::equal(editor.fill_gradient.stops[editor.gradient_stop].color, {18, 58, 188, 255}),
             "Color dialog changes selected stop");
@@ -4001,7 +4001,7 @@ void gradient_fill_controls_and_undo() {
     require(editor.fill_gradient.stops.size() == 6 && editor.fill_gradient.angle == 90,
             "Chrome preset loads nonuniform stops and its direction");
     routed_button(window, "gradient-radial");
-    require(editor.fill_gradient.kind == paint::GradientKind::Radial && !(*angle).enabled(),
+    require(editor.fill_gradient.kind == paint::GradientKind::Radial && !(*angle).enabled.read(),
             "Circular mode disables angle only");
     routed_button(window, "gradient-linear");
     editor.document.select({20, 20, 80, 60});
@@ -4021,14 +4021,14 @@ void gradient_fill_controls_and_undo() {
             "Gradient bucket undoes exactly");
     open_tab(window, "home-tab");
     routed_button(window, "tool-2");
-    require((*window.find("gradient-tab")).visible(),
+    require((*window.find("gradient-tab")).visible.read(),
             "Gradient configuration remains available across tools");
     open_tab(window, "home-tab");
     window.dispatch_pointer({gf::PointerAction::down, gf::PointerButton::primary, arrow});
     window.dispatch_pointer({gf::PointerAction::up, gf::PointerButton::primary, arrow});
     window.perform_layout();
     routed_button(window, "popup-bucket-solid");
-    require(!editor.gradient_fill && !(*window.find("gradient-tab")).visible(),
+    require(!editor.gradient_fill && !(*window.find("gradient-tab")).visible.read(),
             "Material fill hides gradient tab without losing its stops");
 }
 void dither_dialog_and_brush() {
@@ -4044,7 +4044,7 @@ void dither_dialog_and_brush() {
     require(window.find("dither-preview")!=nullptr,"Dither command opens preview dialog");
     const std::shared_ptr<gf::NumericUpDown> count=std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("dither-colors"));
     const std::shared_ptr<gf::ComboBox> pattern=std::dynamic_pointer_cast<gf::ComboBox>(window.find("dither-pattern"));
-    (*count).set_value(8);(*pattern).set_selected_index(3);await_carpet(fixture);
+    (*count).value = 8;(*pattern).selected_index = 3;await_carpet(fixture);
     require(editor.document.undo_history.size()==history && std::memcmp(before.pixels.data(),editor.document.image.pixels.data(),before.pixels.size()*sizeof(paint::Color))==0,"Dither preview does not edit document or history");
     routed_button(window,"dialog-ok");
     require(editor.document.undo_history.size()==history+1 && editor.dither_options.pattern==paint::DitherPattern::Drift,"Dither applies once and remembers pattern");
@@ -4062,7 +4062,7 @@ void dither_dialog_and_brush() {
     window.dispatch_pointer({gf::PointerAction::up,gf::PointerButton::primary,arrow});window.perform_layout();
     routed_button(window,"popup-family-dither");
     require(editor.brush_family==paint::BrushFamily::Dither,"Brush menu selects dithering family");
-    require((*window.find("dither-brush-noise")).visible(),"Dither brush exposes its noise mode");
+    require((*window.find("dither-brush-noise")).visible.read(),"Dither brush exposes its noise mode");
     routed_button(window,"dither-brush-noise");
     require(editor.dither_brush_mode==paint::DitherBrushMode::Noise,"Dither noise option routes");
     editor.document.ink.size=32;
@@ -4091,7 +4091,7 @@ void glitter_menu_controls() {
             editor.document.tool == paint::Tool::Brush && editor.document.ink.brush == paint::Brush::Airbrush &&
             editor.document.ink.pattern == paint::Pattern::Solid && editor.document.ink.size >= 24,
             "Fine glitter shortcut must select a usable glitter spray from another brush family");
-    require((*window.find("spray-glitter")).visible(), "glitter shortcut must expose its toggle");
+    require((*window.find("spray-glitter")).visible.read(), "glitter shortcut must expose its toggle");
     const paint::Image before = editor.document.image;
     fixture.drag(24, 32, 100, 32);
     require(std::memcmp(before.pixels.data(), editor.document.image.pixels.data(), before.pixels.size() * 4) != 0,
@@ -4113,15 +4113,15 @@ void carpet_generator_controls() {
     require(window.find("carpet-slider-9") && window.find("carpet-hillshade"), "carpet controls missing");
     const std::shared_ptr<gf::TextBox> dye =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("carpet-color"));
-    (*dye).set_text("#12");
+    (*dye).text = "#12";
     static_cast<void>(window.drain_posted_work());
-    require(!(*window.find("dialog-ok")).enabled(), "invalid dye text permits accepting stale texture");
-    (*dye).set_text("#1645C5");
+    require(!(*window.find("dialog-ok")).enabled.read(), "invalid dye text permits accepting stale texture");
+    (*dye).text = "#1645C5";
     await_carpet(fixture);
     const std::shared_ptr<gf::TrackBar> tilt =
         std::dynamic_pointer_cast<gf::TrackBar>(window.find("carpet-slider-8"));
-    (*tilt).set_value(30);
-    (*tilt).set_value(35);
+    (*tilt).value = 30;
+    (*tilt).value = 35;
     await_carpet(fixture);
     routed_button(window, "carpet-hillshade");
     await_carpet(fixture);
@@ -4186,9 +4186,9 @@ void spirograph_accessible_pegs() {
                         blank.size() * sizeof(paint::Color)) == 0 && !editor.canvas().has_pointer_capture(),
             "numbered peg setup draws on the canvas or captures the pointer");
     routed_button(window, "spiro-remove");
-    require(!(*window.find("spiro-holes-menu")).enabled() &&
-                !(*window.find("spiro-load-primary")).enabled() &&
-                !(*window.find("spiro-load-alt")).enabled(),
+    require(!(*window.find("spiro-holes-menu")).enabled.read() &&
+                !(*window.find("spiro-load-primary")).enabled.read() &&
+                !(*window.find("spiro-load-alt")).enabled.read(),
             "peg setup controls stay enabled after the insert is removed");
     editor.spiro_choice("spiro-insert-28"); // Wheel 84, with 35 holes.
     routed_button(window, "spiro-holes-menu");
@@ -4219,15 +4219,15 @@ void rendering_quality_controls() {
     open_tab(*fixture.window, "tool-tab");
     const std::shared_ptr<gf::ComboBox> quality =
         std::dynamic_pointer_cast<gf::ComboBox>((*fixture.window).find("render-quality"));
-    require(quality && (*quality).visible() && (*quality).selected_index() == 1,
+    require(quality && (*quality).visible.read() && (*quality).selected_index.read() == 1,
             "rendering quality choices are not reachable or Smooth is not the default");
-    (*quality).set_selected_index(2);
+    (*quality).selected_index = 2;
     require(editor.document.ink.smooth && editor.document.ink.supersample,
             "4x choice does not select supersampling");
-    (*quality).set_selected_index(0);
+    (*quality).selected_index = 0;
     require(!editor.document.ink.smooth && !editor.document.ink.supersample,
             "Crisp choice does not disable smoothing");
-    (*quality).set_selected_index(1);
+    (*quality).selected_index = 1;
     require(editor.document.ink.smooth && !editor.document.ink.supersample,
             "Smooth choice does not restore the original rendering");
 }
@@ -4245,7 +4245,7 @@ void spirograph_lift_controls(int guide = 0, int insert = paint::spiro_default_i
     }
     if (guide == 17) {
         const std::shared_ptr<gf::Button> outside = require_button(window, "spiro-outside");
-        require((*outside).selected() && !(*outside).enabled(),
+        require((*outside).selected.read() && !(*outside).enabled.read(),
                 "closed rack must expose its fixed outside contact mode");
         const paint::Point center = editor.spiro.center;
         fixture.drag(center.x, center.y, center.x + 12, center.y + 9);
@@ -4341,8 +4341,8 @@ void spirograph_resize_controls(int guide = 0, int insert = paint::spiro_default
     const std::uint64_t revision = editor.document.revision;
     const std::shared_ptr<gf::NumericUpDown> scale =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("spiro-scale"));
-    require(scale && (*scale).visible(), "spirograph scale field is not reachable");
-    (*scale).set_value(.8);
+    require(scale && (*scale).visible.read(), "spirograph scale field is not reachable");
+    (*scale).value = .8;
     require(editor.spiro.scale == .8, "spirograph numeric scale does not resize the apparatus");
     editor.settings.rotate_view = true;
     editor.rotate_view(.35);
@@ -4394,7 +4394,7 @@ void spirograph_apparatus_and_ink() {
     routed_button(window, "popup-spirograph");
     require(editor.spiro.active && editor.document.tool == paint::Tool::Spirograph,
             "graph menu activates spirograph");
-    require(window.find("spiro-peg-1") && (*window.find("spiro-peg-1")).visible(),
+    require(window.find("spiro-peg-1") && (*window.find("spiro-peg-1")).visible.read(),
             "spirograph peg tray missing");
     editor.execute("fit");
     editor.settings.rotate_view = true;
@@ -4618,14 +4618,14 @@ void independent_color_materials_and_no_color() {
             "Pencil permits selecting Alt and assigning its color with solid Primary");
     routed_button(window, "primary");
     routed_button(window, "swatch-5");
-    require((*window.find("secondary")).enabled() &&
+    require((*window.find("secondary")).enabled.read() &&
                 paint::equal(editor.document.ink.secondary, paint::forms::ribbon_color(6)),
             "choosing a Primary color preserves the selectable Alt color");
     editor.choose_tool(paint::Tool::Brush);
     open_tab(window, "patterns-tab");
     require(!window.find("material-brush-0") && !window.find("material-enabled"),
             "Solid is one material choice without a duplicate Brush or Enabled switch");
-    require((*window.find("material-fill")).enabled() && (*window.find("alt-carries-body")).enabled(),
+    require((*window.find("material-fill")).enabled.read() && (*window.find("alt-carries-body")).enabled.read(),
             "Primary Solid leaves Alt and body assignment available");
     routed_button(window, "material-brush-4");
     routed_button(window, "r-pattern-12");
@@ -4644,7 +4644,7 @@ void independent_color_materials_and_no_color() {
             "selecting an Alt pattern clears its old brush");
     std::shared_ptr<gf::NumericUpDown> grain =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("grain-scale"));
-    (*grain).set_value(2);
+    (*grain).value = 2;
     require(editor.document.alt_ink.grain_scale == 2 && editor.document.ink.grain_scale == 1,
             "material controls edit the selected slot");
     open_tab(window, "home-tab");
@@ -4675,8 +4675,8 @@ void independent_color_materials_and_no_color() {
             "Alt carries body fills with Alt independently of Primary's pattern");
     routed_button(window, "material-edge");
     routed_button(window, "r-pattern-0");
-    require(paint::solid_material(editor.document.ink) && (*window.find("material-fill")).enabled() &&
-                (*window.find("alt-carries-body")).enabled(),
+    require(paint::solid_material(editor.document.ink) && (*window.find("material-fill")).enabled.read() &&
+                (*window.find("alt-carries-body")).enabled.read(),
             "Solid clears Primary texture without disabling Alt or body assignment");
     fixture.drag(10, 50, 110, 85);
     require(paint::equal(editor.document.image.get(40, 65), editor.document.ink.secondary),
@@ -4694,17 +4694,17 @@ void ribbon_collapse_and_reopen() {
     paint::forms::Editor& editor = *fixture.editor;
     routed_button(window, "home-tab");
     window.perform_layout();
-    require(editor.canvas().absolute_bounds().y == 27 && !(*window.find("paste")).visible() &&
-                (*window.find("view-tab")).visible(),
+    require(editor.canvas().absolute_bounds().y == 27 && !(*window.find("paste")).visible.read() &&
+                (*window.find("view-tab")).visible.read(),
             "active tab collapses the ribbon and gives its space to canvas");
     routed_button(window, "home-tab");
     window.perform_layout();
-    require(editor.canvas().absolute_bounds().y == 143 && (*window.find("paste")).visible(),
+    require(editor.canvas().absolute_bounds().y == 143 && (*window.find("paste")).visible.read(),
             "clicking the active tab again expands its controls");
     routed_button(window, "home-tab");
     routed_button(window, "view-tab");
     window.perform_layout();
-    require(editor.canvas().absolute_bounds().y == 143 && (*window.find("show-rulers")).visible(),
+    require(editor.canvas().absolute_bounds().y == 143 && (*window.find("show-rulers")).visible.read(),
             "a different tab expands the ribbon onto that page");
     routed_button(window, "show-rulers");
     routed_button(window, "view-tab");
@@ -4713,7 +4713,7 @@ void ribbon_collapse_and_reopen() {
             "rulers follow the collapsed tab row");
     routed_button(window, "tool-tab");
     window.perform_layout();
-    require(editor.canvas().absolute_bounds().y == 163 && (*window.find("tool-size")).visible(),
+    require(editor.canvas().absolute_bounds().y == 163 && (*window.find("tool-size")).visible.read(),
             "tool tab expands with correct ruler offset");
 }
 void about_reports_build_version() {
@@ -4725,7 +4725,7 @@ void about_reports_build_version() {
     window.perform_layout();
     const std::shared_ptr<gf::Label> version =
         std::dynamic_pointer_cast<gf::Label>(window.find("about-version"));
-    require(version && (*version).text() == "Plan Paint " RAINSTAR_VERSION && services.message.empty(),
+    require(version && (*version).text.read() == "Plan Paint " RAINSTAR_VERSION && services.message.empty(),
             "About reports the release version inside the application's own dialog");
     require((*window.find("about-dedication")).absolute_bounds().bottom() <
                 (*window.find("about-credits")).absolute_bounds().y,
@@ -4923,7 +4923,7 @@ void freehand_wand_picker_and_size() {
     const std::shared_ptr<gf::NumericUpDown> size =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("custom-tool-size"));
     require(static_cast<bool>(size), "status size opens custom size popup");
-    (*size).set_value(173);
+    (*size).value = 173;
     routed_button(window, "dialog-ok");
     require(editor.document.ink.size == 173, "custom size exceeds the old 64 pixel limit");
 }
@@ -5202,14 +5202,14 @@ void english_language_recovery() {
             ("plan-paint-english-recovery-" + language + ".txt")).string();
         editor.settings.save();
         const std::shared_ptr<gf::Button> help = require_button(window, "help-english");
-        require((*help).text() == "Help! English!" && (*help).visible(), "English escape is readable in non-English UI");
+        require((*help).text.read() == "Help! English!" && (*help).visible.read(), "English escape is readable in non-English UI");
         (*help).perform_click();
         window.perform_layout();
         require((*require_button(window, "dialog-ok")).text() == "OK" &&
                 (*require_button(window, "dialog-cancel")).text() == "Cancel", "escape dialog buttons remain English");
         const std::shared_ptr<gf::Label> question = std::dynamic_pointer_cast<gf::Label>(window.find("english-help-question"));
-        require(question && (*question).text() == "Is English your language?" &&
-                (*question).alignment() == gf::HorizontalAlignment::near, "English question stays left aligned in RTL UI");
+        require(question && (*question).text.read() == "Is English your language?" &&
+                (*question).alignment.read() == gf::HorizontalAlignment::near, "English question stays left aligned in RTL UI");
         (*require_button(window, "dialog-cancel")).perform_click();
         require(editor.settings.language == language, "Cancel preserves language");
         (*help).perform_click();
@@ -5226,7 +5226,7 @@ void english_language_recovery() {
     require(!(*english.window).find("help-english"), "English UI has no redundant recovery button");
     (*english.editor).execute("settings");
     const std::shared_ptr<gf::ComboBox> choices = std::dynamic_pointer_cast<gf::ComboBox>((*english.window).find("settings-language"));
-    require(choices && (*choices).maximum_drop_down_items() >= (*choices).items().size(),
+    require(choices && (*choices).maximum_drop_down_items.read() >= (*choices).items().size(),
             "language picker requests every choice rather than an unexplained short list");
 }
 
@@ -5242,19 +5242,19 @@ void scroll_distance_bounds_and_settings() {
     const gf::Point position = canvas.point_to_window({area.width / 2, area.height / 2});
     gf::PointerEvent event{gf::PointerAction::wheel, gf::PointerButton::none, position};
     for (double scale : {0.5, 1.0, 4.0}) {
-        canvas.set_zoom(scale);
-        canvas.set_view_origin({800 - area.width / (2 * scale), 600 - area.height / (2 * scale)});
-        const gui_drawing::PointF before = canvas.view_origin();
+        canvas.zoom = scale;
+        canvas.view_origin = {800 - area.width / (2 * scale), 600 - area.height / (2 * scale)};
+        const gui_drawing::PointF before = canvas.view_origin.read();
         event.wheel_delta = {2, -3};
         window.dispatch_pointer(event);
-        require(std::abs((canvas.view_origin().x - before.x) * scale + 12) < 1e-9 &&
-                    std::abs((canvas.view_origin().y - before.y) * scale - 18) < 1e-9,
+        require(std::abs((canvas.view_origin.read().x - before.x) * scale + 12) < 1e-9 &&
+                    std::abs((canvas.view_origin.read().y - before.y) * scale - 18) < 1e-9,
                 "two axis scrolling travels modest screen distances at every zoom");
         for (double direction : {-1.0, 1.0}) {
             event.wheel_delta = {direction * 100000, direction * 100000};
             window.dispatch_pointer(event);
-            const double center_x = canvas.view_origin().x + area.width / (2 * scale);
-            const double center_y = canvas.view_origin().y + area.height / (2 * scale);
+            const double center_x = canvas.view_origin.read().x + area.width / (2 * scale);
+            const double center_y = canvas.view_origin.read().y + area.height / (2 * scale);
             require(std::abs(center_x - (direction < 0 ? 1600 : 0)) < 1e-9 &&
                         std::abs(center_y - (direction < 0 ? 1200 : 0)) < 1e-9,
                     "large diagonal wheel input stops the viewport center at both canvas edges");
@@ -5266,19 +5266,19 @@ void scroll_distance_bounds_and_settings() {
     window.perform_layout();
     std::shared_ptr<gf::NumericUpDown> distance =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("settings-scroll"));
-    require(distance && (*distance).value() == 6, "settings presents modest default scroll distance");
+    require(distance && (*distance).value.read() == 6, "settings presents modest default scroll distance");
     std::shared_ptr<gf::TrackBar> hue = std::dynamic_pointer_cast<gf::TrackBar>(window.find("settings-theme-hue"));
-    (*hue).set_value(330);
+    (*hue).value = 330;
     require(editor.preview_interface_hue == 330 && editor.settings.interface_hue == 220,
             "theme preview is immediate but does not save before OK");
-    (*distance).set_value(2.5);
+    (*distance).value = 2.5;
     std::shared_ptr<gf::ComboBox> backing =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("settings-background"));
-    (*backing).set_selected_index(static_cast<std::size_t>(paint::CanvasBacking::BrownFelt));
+    (*backing).selected_index = static_cast<std::size_t>(paint::CanvasBacking::BrownFelt);
     std::shared_ptr<gf::ComboBox> gesture =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("settings-shape-gesture"));
-    require(gesture && (*gesture).selected_index().value_or(0) == 1, "settings exposes active drag option");
-    (*gesture).set_selected_index(0);
+    require(gesture && (*gesture).selected_index.read().value_or(0) == 1, "settings exposes active drag option");
+    (*gesture).selected_index = 0;
     routed_button(window, "dialog-cancel");
     require(editor.settings.drag_shapes && editor.settings.scroll_distance == 6 &&
                 editor.settings.canvas_backing == paint::CanvasBacking::PaleFelt,
@@ -5288,23 +5288,23 @@ void scroll_distance_bounds_and_settings() {
     editor.execute("settings");
     window.perform_layout();
     hue = std::dynamic_pointer_cast<gf::TrackBar>(window.find("settings-theme-hue"));
-    (*hue).set_value(280);
+    (*hue).value = 280;
     std::shared_ptr<gf::NumericUpDown> recovery_interval =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("settings-recovery-seconds"));
-    (*recovery_interval).set_value(30);
+    (*recovery_interval).value = 30;
     distance = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("settings-scroll"));
-    (*distance).set_value(2.5);
+    (*distance).value = 2.5;
     backing = std::dynamic_pointer_cast<gf::ComboBox>(window.find("settings-background"));
-    (*backing).set_selected_index(static_cast<std::size_t>(paint::CanvasBacking::TanFelt));
+    (*backing).selected_index = static_cast<std::size_t>(paint::CanvasBacking::TanFelt);
     const paint::Image unchanged = editor.document.image;
     const std::shared_ptr<gf::ComboBox> alpha_background =
         std::dynamic_pointer_cast<gf::ComboBox>(window.find("settings-alpha-background"));
     const std::shared_ptr<gf::TextBox> alpha_color =
         std::dynamic_pointer_cast<gf::TextBox>(window.find("settings-alpha-color"));
     gesture = std::dynamic_pointer_cast<gf::ComboBox>(window.find("settings-shape-gesture"));
-    (*gesture).set_selected_index(0);
-    (*alpha_background).set_selected_index(1);
-    (*alpha_color).set_text("#ED82C1");
+    (*gesture).selected_index = 0;
+    (*alpha_background).selected_index = 1;
+    (*alpha_color).text = "#ED82C1";
     routed_button(window, "dialog-ok");
     paint::EditorSettings reloaded;
     reloaded.storage_path = editor.settings.storage_path;
@@ -5504,7 +5504,7 @@ void guide_atlas_and_text_effect_interactions() {
             "selection-to-guide leaves feathered source pixels byte-identical");
     editor.execute("atlas-grid");
     window.perform_layout();
-    (*std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("atlas-0"))).set_value(2);
+    (*std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("atlas-0"))).value = 2;
     routed_button(window, "dialog-ok");
     require(!editor.guide.active() && editor.document.atlas.active >= 0,
             "atlas conversion clears stale guide");
@@ -5541,7 +5541,7 @@ void guide_atlas_and_text_effect_interactions() {
     routed_button(window, "text-contour");
     std::shared_ptr<gf::NumericUpDown> skew =
         std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("text-skew"));
-    (*skew).set_value(0.3);
+    (*skew).value = 0.3;
     require(editor.text.style.contour && editor.text.style.skew == 0.3,
             "text effect controls update editable session");
     painted = editor.document.image;
@@ -5910,36 +5910,36 @@ void canvas_controls_without_dragging() {
     const std::shared_ptr<gf::NumericUpDown> x = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("canvas-position-0"));
     const std::shared_ptr<gf::NumericUpDown> y = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("canvas-position-1"));
     require(x && y && (*x).semantic_descriptor().name == "Canvas X", "canvas coordinates expose meaningful semantic names");
-    (*x).set_value(12); (*y).set_value(14);
+    (*x).value = 12; (*y).value = 14;
     editor.canvas_control_action(0);
     editor.canvas_control_action(3);
     require(!editor.canvas().has_pointer_capture(), "latched stroke never captures the controls");
     require(paint::equal(editor.document.image.get(12, 14), editor.document.ink.primary), "start stroke paints its original image coordinate");
     fixture.pointer(gf::PointerAction::move, 80, 80);
     require(white(editor.document.image.get(80, 80)), "ordinary pointer hover cannot advance the latched stroke");
-    (*x).set_value(22);
+    (*x).value = 22;
     editor.canvas_control_action(0);
     editor.canvas_control_action(4);
     require(paint::equal(editor.document.image.get(20, 14), editor.document.ink.primary), "coordinate moves draw a continuous stroke");
     editor.canvas_control_action(5);
     require(white(editor.document.image.get(12, 14)) && white(editor.document.image.get(20, 14)), "one undo removes the complete latched stroke");
     editor.rotate_view(0.6);
-    (*x).set_value(25); (*y).set_value(33);
+    (*x).value = 25; (*y).value = 33;
     editor.canvas_control_action(0);
     editor.canvas_control_action(1);
     require(paint::equal(editor.document.image.get(25, 33), editor.document.ink.primary), "virtual coordinates survive arbitrary view rotation");
     editor.document.ink.secondary = {20, 160, 240, 255};
-    (*x).set_value(35); (*y).set_value(44);
+    (*x).value = 35; (*y).value = 44;
     editor.canvas_control_action(2);
     require(paint::equal(editor.document.image.get(35, 44), editor.document.ink.secondary), "alternate click uses the alternate material");
     editor.rotate_view(0);
     editor.choose_shape(paint::Shape::Rectangle);
     editor.settings.drag_shapes = false;
-    (*x).set_value(70); (*y).set_value(70); editor.canvas_control_action(3);
-    (*x).set_value(100); (*y).set_value(85); editor.canvas_control_action(0); editor.canvas_control_action(4);
+    (*x).value = 70; (*y).value = 70; editor.canvas_control_action(3);
+    (*x).value = 100; (*y).value = 85; editor.canvas_control_action(0); editor.canvas_control_action(4);
     require(!white(editor.document.image.get(85, 70)), "latched shape finish commits click-placement geometry");
     const paint::Image finished = editor.document.image;
-    (*x).set_value(120); (*y).set_value(90); editor.canvas_control_action(0);
+    (*x).value = 120; (*y).value = 90; editor.canvas_control_action(0);
     for (std::size_t i = 0; i < finished.pixels.size(); ++i) {
         require(paint::equal(editor.document.image.pixels[i], finished.pixels[i]), "finished shape no longer follows virtual cursor");
     }
