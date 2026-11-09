@@ -5,6 +5,6 @@
   "engine": ">=0.3",
   "sheet": {
     "path": "plan-paint.theme.css",
-    "sha256": "718c41c94227df2a9a8601a9e6df704f1ff523ac62ff304a340fac864b91a49b"
+    "sha256": "c9ca5736e7ea508ee26b86e300387cdf62d3bbc53e15657cdacea1cb5168a66c"
   }
 }

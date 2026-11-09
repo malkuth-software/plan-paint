@@ -52,8 +52,9 @@ ribbon::part(command-label) {
    soft shadow to the right; the selected tab pale like the plane's top;
    File a flat blue gradient tab; the plane's cobalt gradient between a
    dark and a white keyline at the top and a white and a dark keyline at
-   the bottom. The lip, the faded shadow and the tapered folder edges wait
-   for the Ribbon's tab capabilities (claude/look-integration). */
+   the bottom. The tapered folder edges and the faded shadows are the
+   Ribbon's tab capabilities, below; the selected tab meets the plane with
+   no lip and no line between them (owner, 2026-11-09). */
 ribbon::part(tab-rail) {
   background-color: #9bb5d8;
 }
@@ -66,7 +67,7 @@ ribbon::part(tab) {
   border-top-right-radius: 4px;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
-  box-shadow: 2px 0 0 #496c9f, 3px 1px 2px rgba(24, 56, 97, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.49);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.49);
 }
 
 ribbon::part(tab):hover {
@@ -76,7 +77,7 @@ ribbon::part(tab):hover {
 ribbon::part(tab):state(selected) {
   background-color: #e8f2ff;
   background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.57) 0%, rgba(0, 0, 0, 0) 72%);
-  box-shadow: 2px 0 0 #496c9f, 3px 1px 2px rgba(24, 56, 97, 0.22), inset 0 1px 0 #ffffff;
+  box-shadow: inset 0 1px 0 #ffffff;
 }
 
 ribbon::part(tab-label) {
@@ -92,20 +93,21 @@ ribbon::part(application-button) {
 
 ribbon::part(command-plane) {
   background-image: linear-gradient(to bottom, #e8f2ff 0%, #cadefb 28%, #a5c4f1 62%, #769fdf 100%);
-  border-top: 1px solid #abc0d8;
+  border-top: 0 solid transparent;
   border-bottom: 1px solid #91acca;
   border-left: 0 solid transparent;
   border-right: 0 solid transparent;
   border-radius: 0;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), inset 0 -1px 0 rgba(245, 251, 255, 0.82);
+  box-shadow: inset 0 -1px 0 rgba(245, 251, 255, 0.82);
 }
 
 /* The look integration's tab-row metrics and tab capabilities (GUI.Forms
    claude/look-integration): Plan Paint's 27-unit rail and 116-unit plane,
-   tabs three units apart, File at least 61 units; each tab's right edge
-   tapers like a folder tab, the selected tab stands three units taller and
-   runs two units into the plane over its keylines, and casts a faded
-   shadow onto its neighbour. */
+   tabs three units apart, File at least 61 units. Every tab is a folder:
+   its right edge tapers, and a faded shadow falls from it onto the next
+   tab, so each reads as tucked under its left neighbour. The selected tab
+   stands three units taller and runs two units into the plane with no
+   lip, flowing straight into it. */
 ribbon::part(tab-rail) {
   height: 27px;
 }
@@ -122,13 +124,12 @@ ribbon::part(tab) {
   gap: 3px;
   margin-top: 3px;
   taper: 4px #496c9f;
+  edge-shadow: 5px rgba(24, 56, 97, 0.3);
 }
 
 ribbon::part(tab):state(selected) {
   margin-top: 0;
   margin-bottom: -2px;
-  flare: 3px #e8f2ff;
-  edge-shadow: 5px rgba(24, 56, 97, 0.3);
 }
 
 ribbon::part(tab):disabled {
