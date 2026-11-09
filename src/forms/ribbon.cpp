@@ -617,6 +617,10 @@ void Ribbon::synchronize() {
     synchronize_sticky_ribbon();
     synchronize_gradient();
     synchronizing_ = false;
+    // The Help button stays highlighted while the help sidebar shows.
+    if (help_ && (*help_).selected.read() != (*editor).show_help) {
+        (*help_).selected = (*editor).show_help;
+    }
     update_panels();
 }
 

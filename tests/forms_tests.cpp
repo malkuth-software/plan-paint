@@ -128,6 +128,8 @@ struct RibbonTarget {
 constexpr const char* gallery_ids[] = {"shapes-gallery",           "palette-gallery", "patterns-gallery",
                                        "brushes-gallery",          "size-gallery",    "stamp-shape-gallery",
                                        "gradient-presets-gallery"};
+// Whether a realized command shows: a button's face, or a hosted control's
+// part (hosted commands have no face of their own).
 bool command_present(const gf::Ribbon::CommandParts& parts) {
     const bool hosted = parts.command_combo_box.present || parts.command_numeric_up_down.present ||
                         parts.command_check_box.present || parts.command_text_box.present ||
@@ -161,17 +163,47 @@ std::optional<ShownItem> shown_gallery_item(gf::Window& window, const std::strin
         if (!shown) {
             continue;
         }
-        for (const gf::RibbonGallery::Item& item : (*gallery).realized_items()) {
-            if (item.stable_id == id && item.parts.item_face.present) {
-                const ShownItem result{gallery, item};
-                return result;
+        // An in-ribbon gallery shows a few lines of its items; press its
+        // scroll buttons, as a user does, until the item shows: up to the
+        // first line, then down. (The first press focuses the gallery, which
+        // scrolls its selected item into view; scrolling by wheel or
+        // scroll_to_line first would leave the item press to land on that
+        // line instead.)
+        bool holds = false;
+        for (const gf::RibbonGalleryItem& entry : (*gallery).items()) {
+            holds = holds || entry.stable_id == id;
+        }
+        if (!holds) {
+            continue;
+        }
+        const bool scrolls = !(*gallery).overlay_open();
+        bool upward = true;
+        std::size_t presses = 0;
+        while (true) {
+            for (const gf::RibbonGallery::Item& item : (*gallery).realized_items()) {
+                if (item.stable_id == id && item.parts.item_face.present) {
+                    const ShownItem result{gallery, item};
+                    return result;
+                }
             }
+            if (upward && !(*gallery).can_scroll_up()) {
+                upward = false;
+            }
+            const gf::RibbonGallery::Parts parts = (*gallery).parts();
+            const gf::PartGeometry& button = upward ? parts.scroll_up : parts.scroll_down;
+            const bool movable = upward || (*gallery).can_scroll_down();
+            if (!scrolls || !button.present || !movable || presses > 2U * (*gallery).items().size()) {
+                break;
+            }
+            const gf::Point at = centre(window_rect(*gallery, button.bounds));
+            static_cast<void>(window.dispatch_pointer({gf::PointerAction::down, gf::PointerButton::primary, at}));
+            static_cast<void>(window.dispatch_pointer({gf::PointerAction::up, gf::PointerButton::primary, at}));
+            window.perform_layout();
+            presses = presses + 1U;
         }
     }
     return std::nullopt;
 }
-// Whether a realized command shows: a button's face, or a hosted control's
-// part (hosted commands have no face of their own).
 std::optional<gf::Ribbon::CommandItem> shown_command(gf::Window& window, const std::string& id) {
     window.perform_layout();
     const std::shared_ptr<gf::Ribbon> bar = find_ribbon_bar(window);
@@ -942,8 +974,10 @@ void ribbon_tabs_status_and_context() {
     routed_button(window, "popup-stamp-shape-1");
     require(editor.document.stamp_shape == paint::StampShape::Pill, "context changes stamp capture shape");
     editor.choose_tool(paint::Tool::Brush);
+    // The Brush keeps its size on the Home size gallery; its tool tab shows
+    // the stabilizer (the original moved tool-size off-page for the Brush).
     require(!shown(window, "stamp-shapes-menu") && !shown(window, "grain-scale") &&
-                shown(window, "tool-size"),
+                shown(window, "stroke-stabilize"),
             "context swaps tool settings while materials remain on their shared pane");
     open_tab(window, "home-tab");
     const std::shared_ptr<gf::RibbonGallery> shapes =
@@ -956,6 +990,9 @@ void ribbon_tabs_status_and_context() {
             require(item.label == "Rectangle", "gallery shapes expose distinct names");
         }
     }
+    // As in the original, the gallery marks the current shape only while the
+    // Shape tool is in use.
+    editor.choose_tool(paint::Tool::Shape);
     require(shown(window, "shape-3") && selected(window, "shape-3"),
             "the in-ribbon shapes gallery shows and selects the current shape");
     routed_button(window, "shape-0");
@@ -977,7 +1014,14 @@ void ribbon_structure_and_contextual_sets() {
             "core tabs show and every contextual set starts unavailable");
     open_tab(window, "home-tab");
     for (const char* id : gallery_ids) {
-        require(window.find(id) != nullptr, "every stock gallery exists");
+        // The drop-down galleries join the tree only while open; the tests
+        // that choose sizes and stamp shapes open them.
+        const std::string_view name(id);
+        if (name == "size-gallery" || name == "stamp-shape-gallery") {
+            continue;
+        }
+        const std::string missing = std::string("every stock gallery exists: ") + id;
+        require(find_control(window, id) != nullptr, missing.c_str());
     }
     require(shown(window, "shapes-gallery") && shown(window, "palette-gallery") && shown(window, "swatch-0"),
             "Home hosts the shapes and palette galleries");
@@ -5007,7 +5051,9 @@ void ribbon_collapse_and_reopen() {
             "rulers follow the collapsed tab row");
     routed_button(window, "tool-tab");
     window.perform_layout();
-    require(editor.canvas().absolute_bounds().y == expanded + 20 && shown(window, "tool-size"),
+    // The default tool is the Pencil, whose tab carries the stabilizer and
+    // no size (the original moved tool-size off-page for the Pencil).
+    require(editor.canvas().absolute_bounds().y == expanded + 20 && shown(window, "stroke-stabilize"),
             "tool tab expands with correct ruler offset");
 }
 void about_reports_build_version() {
@@ -5047,7 +5093,11 @@ void ribbon_preserves_artwork_position() {
     for (double zoom : {0.25, 1.0, 3.75, 16.0}) {
         for (bool rulers : {false, true}) {
             open_tab(window, "home-tab");
-            editor.show_rulers = rulers;
+            // Through the command, which invalidates the editor's layout (a
+            // bare field write would leave the cached arrangement in place).
+            if (editor.show_rulers != rulers) {
+                editor.execute("show-rulers");
+            }
             window.perform_layout();
             editor.canvas().set_view(zoom, {-42.5, 67.25});
             const gf::Rect before = editor.canvas().bitmap_to_client({85, 90, 1, 1});
@@ -6398,3 +6448,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 }
+
+
+
