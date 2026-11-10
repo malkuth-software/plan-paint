@@ -123,6 +123,26 @@ gf::RibbonCommandSpec Ribbon::hosted(const std::string& id, const std::string& t
     spec.width = width;
     return spec;
 }
+// A hint: plain, translatable text in the ribbon, one label command per
+// line of the translated text (ids `id`, `id-2`, ...), each in its own row.
+void Ribbon::hint(gf::RibbonGroupSpec& target, const std::string& id, const std::string& text) {
+    std::size_t start = 0;
+    int line = 1;
+    while (start <= text.size()) {
+        std::size_t end = text.find('\n', start);
+        if (end == std::string::npos) {
+            end = text.size();
+        }
+        gf::RibbonCommandSpec spec;
+        spec.stable_id = line == 1 ? id : id + "-" + std::to_string(line);
+        spec.kind = Kind::label;
+        spec.size = Size::small;
+        spec.text = text.substr(start, end - start);
+        target.commands.push_back(std::move(spec));
+        start = end + 1;
+        ++line;
+    }
+}
 // A number field with its label above it. The label is a small command
 // that moves keyboard focus to the field: hosted commands show no label of
 // their own (their text is the field's accessible name).
@@ -189,13 +209,14 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     // two groups has a caption.
     gf::RibbonGroupSpec quick = group("quick", "");
     quick.layouts = {paired_rows()};
-    // Stacked groups fill column by column, so Save stands over Undo with
-    // Redo beside it (the original's Save spanned both; GUI.Forms gap).
+    // The original's block: Save on the upper row, Undo and Redo side by
+    // side beneath it.
     quick.commands.push_back(button("save", tr("Save"), 14, Size::small));
     gf::RibbonCommandSpec undo = button("undo", tr("Undo (Ctrl/Command+Z)"), 15, Size::small);
     gf::RibbonCommandSpec redo = button("redo", tr("Redo (Ctrl/Command+Y)"), 16, Size::small);
     icon_only(undo);
     icon_only(redo);
+    redo.beside_previous = true;
     quick.commands.push_back(std::move(undo));
     quick.commands.push_back(std::move(redo));
     tab.groups.push_back(std::move(quick));
@@ -445,14 +466,22 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
     if (geometry || (*editor).spiro.selected_peg >= 0) {
         number(settings, "tool-size", tr("Size (px)"));
     }
+    // The original's three rows: Size, Continuous path (Path only), then
+    // Edge and Fill side by side; Edit nodes heads the next column.
+    if (tool == Tool::Path) {
+        settings.commands.push_back(hosted("continuous-path", tr("Continuous path"), Kind::check_box));
+    }
     if (geometry) {
-        settings.commands.push_back(hosted("outline", tr("Edge"), Kind::check_box));
-        settings.commands.push_back(hosted("fill", tr("Fill"), Kind::check_box));
+        // Widths given until GUI.Forms measures a hosted check box in the
+        // check box's own font (it measures in the ribbon label font, so
+        // Fill overlapped Edge's label in a shared row).
+        settings.commands.push_back(hosted("outline", tr("Edge"), Kind::check_box, 66));
+        settings.commands.push_back(hosted("fill", tr("Fill"), Kind::check_box, 56));
+        settings.commands.back().beside_previous = true;
         settings.commands.push_back(hosted("render-quality", tr("Line and shape rendering"), Kind::combo_box, combo_width));
         settings.commands.back().choices = {tr("Crisp"), tr("Smooth"), tr("4× Smooth")};
     }
     if (tool == Tool::Path) {
-        settings.commands.push_back(hosted("continuous-path", tr("Continuous path"), Kind::check_box));
         settings.commands.push_back(hosted("edit-path-nodes", tr("Edit nodes"), Kind::check_box));
     }
     if (brush && family == BrushFamily::Additive) {
@@ -462,8 +491,11 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
         }
     }
     if (brush || tool == Tool::Pencil) {
+        // The stabilizer and its lag share a row, as in the original.
         settings.commands.push_back(hosted("stroke-stabilize", tr("Stabilizer"), Kind::check_box));
         number(settings, "stroke-lag", tr("Lag (px)"));
+        settings.commands[settings.commands.size() - 2].beside_previous = true;
+        settings.commands.back().beside_previous = true;
     }
     if (brush && family == BrushFamily::Dither) {
         settings.commands.push_back(hosted("dither-brush-noise", tr("Brightness / saturation noise"), Kind::check_box));
@@ -473,21 +505,29 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
     }
     if (selection) {
         settings.commands.push_back(hosted("transparent-selection", tr("Transparent selection"), Kind::check_box));
+        // Transparent selection above two pairs: Select all and Invert,
+        // then Crop and Delete (the original's rows).
         settings.commands.push_back(button("context-select-all", tr("Select all"), -1, Size::small));
         settings.commands.push_back(button("context-invert-selection", tr("Invert"), -1, Size::small));
+        settings.commands.back().beside_previous = true;
         settings.commands.push_back(button("context-crop", tr("Crop"), 4, Size::small));
         settings.commands.push_back(button("context-delete", tr("Delete"), -1, Size::small));
+        settings.commands.back().beside_previous = true;
     }
     if (tool == Tool::Guide) {
+        // One row, as in the original: Clear guide, Set guide, Protect body.
         settings.commands.push_back(button("guide-clear", tr("Clear guide"), -1, Size::small));
         settings.commands.push_back(button("guide-set", tr("Set guide"), -1, Size::small));
+        settings.commands.back().beside_previous = true;
         settings.commands.push_back(hosted("guide-fill", tr("Protect body"), Kind::check_box));
+        settings.commands.back().beside_previous = true;
     }
     if (tool == Tool::Magnifier) {
         settings.commands.push_back(button("context-zoom-in", tr("Zoom in"), 12, Size::large));
         settings.commands.push_back(button("context-zoom-out", tr("Zoom out"), 12, Size::large));
     }
     if (tool == Tool::Picker) {
+        hint(settings, "picker-hint", tr("Click: Primary · right-click: Alt\nDrag: pan the view"));
         settings.commands.push_back(hosted("picker-mode", tr("Eyedropper sampling"), Kind::combo_box, 240));
         settings.commands.back().choices = {tr("Exact pixel"), tr("Small average (5 × 5)"),
                                             tr("Representative (reject flecks)")};
@@ -495,6 +535,7 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
     }
     if (tool == Tool::Stamp) {
         if (placement) {
+            hint(settings, "stamp-placement-hint", tr("Position preview; Apply to paint. Escape cancels."));
             settings.commands.push_back(button("context-stamp-apply", tr("Apply"), -1, Size::small));
             settings.commands.push_back(button("context-stamp-cancel", tr("Cancel"), -1, Size::small));
         } else {
@@ -508,7 +549,8 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
         }
     }
     if (!settings.commands.empty()) {
-        settings.layouts = {paired_rows()};
+        // The original's tool settings stood in three rows.
+        settings.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3)};
         tab.groups.push_back(std::move(settings));
     }
 
@@ -590,6 +632,11 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
         gf::RibbonGroupSpec finish = group("finish", tr("Finish"));
         finish.commands.push_back(button("warp-place", tr("Place"), -1, Size::small));
         finish.commands.push_back(button("warp-cancel", tr("Cancel"), -1, Size::small));
+        // The handle guide beside Place and Cancel, as in the original.
+        hint(finish, "warp-hint",
+             tr("Gold edge handles skew; square handles resize.\nDrag the rotation handle to turn. "
+                "Shift snaps to 15°. Escape deselects."));
+        finish.layouts = {paired_rows()};
         tab.groups.push_back(std::move(finish));
     }
     return tab;

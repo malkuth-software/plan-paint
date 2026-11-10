@@ -186,6 +186,8 @@ class Ribbon final : public gui_forms::Control {
     gui_forms::RibbonCommandSpec hosted(const std::string& id, const std::string& text,
                                         gui_forms::RibbonCommandKind kind, double width = 0);
     void number(gui_forms::RibbonGroupSpec& group, const std::string& id, const std::string& text, double width = 0);
+    // A hint as plain label commands, one per line of `text` (ids id, id-2, ...).
+    void hint(gui_forms::RibbonGroupSpec& target, const std::string& id, const std::string& text);
     gui_forms::RibbonCommandSpec gallery_command(const std::string& id, const GalleryEntry& entry);
     gui_forms::ImageId icon(int index, int size);
     gui_forms::ImageId artwork(const std::string& name, const Image& image);

@@ -1014,6 +1014,41 @@ gf::ImageId home_command_image(gf::Window& window, const std::string& id) {
     }
     return {};
 }
+// The original's rows, restored once GUI.Forms gave stacked rows commands
+// side by side (beside_previous), and its hints, as ribbon labels.
+void ribbon_original_rows_and_hints() {
+    Fixture fixture;
+    gf::Window& window = *fixture.window;
+    paint::forms::Editor& editor = *fixture.editor;
+    open_tab(window, "home-tab");
+    const gf::Rect save = bounds_of(window, "save");
+    const gf::Rect undo = bounds_of(window, "undo");
+    const gf::Rect redo = bounds_of(window, "redo");
+    require(undo.y == redo.y && redo.x > undo.x && save.bottom() <= undo.y + 0.5 && save.x == undo.x,
+            "Save stands over Undo and Redo, which share the row beneath it");
+    editor.choose_tool(paint::Tool::Select);
+    open_tab(window, "tool-tab");
+    const gf::Rect select_all = bounds_of(window, "context-select-all");
+    const gf::Rect invert = bounds_of(window, "context-invert-selection");
+    const gf::Rect crop = bounds_of(window, "context-crop");
+    const gf::Rect remove = bounds_of(window, "context-delete");
+    require(select_all.y == invert.y && crop.y == remove.y && crop.y > select_all.y && invert.x > select_all.x,
+            "the selection settings stand in the original's rows: Select all and Invert, then Crop and Delete");
+    editor.choose_tool(paint::Tool::Picker);
+    window.perform_layout();
+    // A label publishes its text part only (no face: it is never hit or run).
+    bool hint_lines = false;
+    bool second_line = false;
+    for (const gf::Ribbon::CommandItem& command : (*find_ribbon_bar(window)).realized_commands()) {
+        if (command.stable_id == "picker-hint" && command.parts.command_label.present) {
+            hint_lines = true;
+        }
+        if (command.stable_id == "picker-hint-2" && command.parts.command_label.present) {
+            second_line = true;
+        }
+    }
+    require(hint_lines && second_line, "the picker's hint returns as two ribbon labels");
+}
 void ribbon_structure_and_contextual_sets() {
     Fixture fixture;
     gf::Window& window = *fixture.window;
@@ -6575,6 +6610,7 @@ int main(int argc, char** argv) {
         ribbon_tabs_status_and_context();
         ribbon_galleries_and_modal_transactions();
         ribbon_structure_and_contextual_sets();
+        ribbon_original_rows_and_hints();
         std::cout << "GUI.Forms: RGBA, routed capture, undo, material strokes, curves/save, selections, "
                      "path, stamp and anchored zoom passed\n";
         return 0;

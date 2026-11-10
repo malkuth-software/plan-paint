@@ -4,25 +4,22 @@
    The canonical ribbon with soft, large bubble buttons: at rest a command
    sinks into the flat command plane (RB decision 15, "flat at rest, raised
    when hot"); under the pointer it rises as a rounded, softly lit bubble
-   with a soft shadow below it; pressed, the light moves inside. The
-   owner's reference (the original ribbon) raises the faces at rest too:
-   the original cobalt action material, soft shadow beneath. */
+   with a soft shadow below it; pressed, the light moves inside. */
 
 :root {
   ink-on-soft-paper: #153765 on #e8f2ff;
 }
 
-ribbon::part(command-face) {
+/* The soft-dither hover (owner, 2026-11-09): command faces are flat at
+   rest and rise in the engine's dithered bulge while hot, as gallery items
+   and tabs do; no resting or hover face is authored here (an authored
+   resting face would beat the built-in rise). The pressed, checked and
+   disabled faces keep the original cobalt frame. */
+ribbon::part(command-face):active,
+ribbon::part(command-face):checked,
+ribbon::part(command-face):disabled {
   border-radius: 3px;
   border: 1px solid #6384b2;
-  background-image: linear-gradient(to bottom, #d2e4fb 0%, #a3c1ec 100%);
-  box-shadow: 0 1px 0 rgba(41, 75, 119, 0.33), inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(49, 86, 134, 0.53);
-  transition: face 120ms ease;
-}
-
-ribbon::part(command-face):hover {
-  border-color: #355e96;
-  background-image: linear-gradient(to bottom, #dae9fc 0%, #b1ccf2 100%);
 }
 
 ribbon::part(command-face):active {
@@ -102,12 +99,13 @@ ribbon::part(command-plane) {
 }
 
 /* The look integration's tab-row metrics and tab capabilities (GUI.Forms
-   claude/look-integration): Plan Paint's 27-unit rail and 116-unit plane,
-   tabs three units apart, File at least 61 units. Every tab is a folder:
-   its right edge tapers, and a faded shadow falls from it onto the next
-   tab, so each reads as tucked under its left neighbour. The selected tab
-   stands three units taller and runs two units into the plane with no
-   lip, flowing straight into it. */
+   claude/look-integration): Plan Paint's 27-unit rail and 116-unit plane.
+   The tabs are stacked folders (owner, 2026-11-09): each overlaps the next
+   by its four-unit taper (a negative gap), its tapered right edge lying
+   over the next tab, and a visible soft shadow falls from that edge onto
+   the tab beneath. The selected tab lies over both neighbours, stands
+   three units taller and runs two units into the plane with no lip,
+   flowing straight into it. */
 ribbon::part(tab-rail) {
   height: 27px;
 }
@@ -116,15 +114,11 @@ ribbon::part(command-plane) {
   height: 116px;
 }
 
-ribbon::part(application-button) {
-  min-width: 61px;
-}
-
 ribbon::part(tab) {
-  gap: 3px;
+  gap: -4px;
   margin-top: 3px;
   taper: 4px #496c9f;
-  edge-shadow: 5px rgba(24, 56, 97, 0.3);
+  edge-shadow: 9px rgba(24, 56, 97, 0.45);
 }
 
 ribbon::part(tab):state(selected) {
@@ -195,5 +189,5 @@ ribbon::part(tab-label):state(selected) {
   color: #2d4258;
 }
 .dialog-text.problem {
-  color: #a13127;
+  color: role(signal-on-paper);
 }
