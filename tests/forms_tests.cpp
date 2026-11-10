@@ -8,6 +8,7 @@
 #include "forms/ribbon.hpp"
 #include "icon_palette.hpp"
 #include "localization.hpp"
+#include "plan_paint_theme.hpp"
 #include "safe_file.hpp"
 #include <chrono>
 #include <cmath>
@@ -39,6 +40,26 @@ struct Fixture {
         (*editor).document.new_image(128, 96);
         (*editor).refresh();
         window = std::make_unique<gf::Window>(editor, gf::Size{1280, 820});
+        (*window).perform_layout();
+    }
+    // As the application runs: the GUI.Forms base and Plan Paint's theme
+    // package (main.cpp), compiled into the window's own resources before
+    // the window is made, so it starts with the theme.
+    struct Themed {};
+    explicit Fixture(Themed) {
+        editor = gf::make_control<paint::forms::Editor>(gf::StableId("test.editor"));
+        (*editor).settings.drag_shapes = true;
+        (*editor).document.new_image(128, 96);
+        (*editor).refresh();
+        const std::shared_ptr<gf::ApplicationResources> resources = std::make_shared<gf::ApplicationResources>();
+        gf::ThemeCompileOptions options{};
+        options.base = gf::ThemeBase::gui_forms;
+        const gf::ThemePackage packages[] = {paint::plan_paint_theme()};
+        const gf::ThemeCompileResult compiled =
+            (*resources).compile_theme_packages(packages, gf::ThemeLibrary{}, options);
+        require(static_cast<bool>(compiled.theme()), "Plan Paint's theme package compiles");
+        (*resources).set_theme(compiled.theme());
+        window = std::make_unique<gf::Window>(editor, gf::Size{1280, 820}, resources);
         (*window).perform_layout();
     }
     gf::Point position(double x, double y) {
@@ -1080,10 +1101,11 @@ void dialog_overlay_without_runtime_windows() {
     paint::forms::Editor& editor = *fixture.editor;
     editor.execute("about");
     window.perform_layout();
-    require(editor.dialog_window() == nullptr && find_control(window, "dialog-cancel") != nullptr,
+    // About has one button, OK.
+    require(editor.dialog_window() == nullptr && find_control(window, "dialog-ok") != nullptr,
             "without runtime windows the About dialog opens over the editor");
-    routed_button(window, "dialog-cancel");
-    require(find_control(window, "dialog-cancel") == nullptr, "Cancel closes the overlay dialog");
+    routed_button(window, "dialog-ok");
+    require(find_control(window, "dialog-ok") == nullptr, "OK closes the overlay dialog");
 }
 void ribbon_original_rows_and_hints() {
     Fixture fixture;
@@ -2961,8 +2983,24 @@ void geometry_marker_controls() {
     open_tab(window, "tool-tab");
     require(shown(window, "geometry-start") && !enabled(window, "geometry-start"), "closed paths must disable endpoint markers");
 }
+// The layout of the selected tab's group `id`, or none while it is not shown.
+std::optional<gf::Ribbon::Group> shown_group(gf::Window& window, const std::string& id) {
+    window.perform_layout();
+    const std::shared_ptr<gf::Ribbon> bar = find_ribbon_bar(window);
+    if (!bar) {
+        return std::nullopt;
+    }
+    for (const gf::Ribbon::Group& group : (*bar).realized_groups()) {
+        if (group.stable_id == id) {
+            return group;
+        }
+    }
+    return std::nullopt;
+}
 void sticky_note_contracts() {
-    Fixture fixture;
+    // The ribbon's width at 1280 depends on the theme's fonts: test as the
+    // application runs.
+    Fixture fixture{Fixture::Themed{}};
     paint::forms::Editor& editor = *fixture.editor;
     gf::Window& window = *fixture.window;
     editor.sticky_note_settings.width = 80;
@@ -2977,6 +3015,20 @@ void sticky_note_contracts() {
     require(window.focused_control().get() == &editor.canvas(), "sticky insertion must focus the canvas");
     require(shown(window, "sticky-paper") && shown(window, "sticky-width"),
             "sticky insertion must show its ribbon settings");
+    {
+        // At 1280 the font group's check boxes fold into three rows first;
+        // the size group stays whole. Wide enough, nothing folds.
+        const std::optional<gf::Ribbon::Group> font = shown_group(window, "text-font-group");
+        const std::optional<gf::Ribbon::Group> size = shown_group(window, "sticky-size");
+        require(font && size && (*font).layout == 1U && !(*font).collapsed && (*size).layout == 0U &&
+                    !(*size).collapsed,
+                "a sticky note's font check boxes must fold before its size group collapses");
+        window.resize(gf::Size{2400, 820});
+        const std::optional<gf::Ribbon::Group> wide_font = shown_group(window, "text-font-group");
+        require(wide_font && (*wide_font).layout == 0U, "a wide ribbon keeps the sticky font group at two rows");
+        window.resize(gf::Size{1280, 820});
+        window.perform_layout();
+    }
     require(editor.document.undo_history.size() == history && !editor.text.preview.pixels.empty(),
             "blank note paper should be visible while the canvas remains unchanged");
     gf::TextInputEvent input{"Plan"};

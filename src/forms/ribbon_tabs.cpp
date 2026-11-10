@@ -654,6 +654,13 @@ gf::RibbonTabSpec Ribbon::text_tab() {
     tab.tab_set = "text-tools";
     gf::RibbonGroupSpec font = group("text-font-group", tr("Font"));
     font.layouts = {paired_rows()};
+    if (sticky) {
+        // A sticky note's settings overflow 1280 px at the theme's fonts; the
+        // font group's check boxes fold into three rows (the size field's
+        // label then stands above it under the family box) before the
+        // sticky groups give way.
+        font.layouts.push_back(sized_layout(gf::RibbonGroupSize::medium, 0, Size::small, 3));
+    }
     gf::RibbonCommandSpec faces = hosted("text-font", tr("Font family"), Kind::combo_box, 200);
     faces.choices = {"Portsmouth", "Portsmouth Mono"};
     for (const std::string& path : font_paths_) {
@@ -707,7 +714,11 @@ gf::RibbonTabSpec Ribbon::text_tab() {
     tab.groups.push_back(std::move(finish));
     // Finishing and the font stay on the plane longest: the transform, the
     // letter treatment and the colours fold into buttons first.
-    // (A sticky note's colours are one command, which never folds.)
+    // (A sticky note's colours are one command, which never folds; its
+    // font group folds its check boxes first, then the cycle runs.)
+    if (sticky) {
+        tab.reduction_order.push_back({"text-font-group", gf::RibbonReductionKind::layout});
+    }
     if (!sticky) {
         tab.reduction_order.push_back({"text-transform", gf::RibbonReductionKind::layout});
         tab.reduction_order.push_back({"text-letters", gf::RibbonReductionKind::layout});

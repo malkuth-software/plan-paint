@@ -135,6 +135,8 @@ target_link_libraries(paint-cursor-tests PRIVATE paint_forms)
 add_test(NAME paint-cursors COMMAND paint-cursor-tests)
 add_executable(paint-forms-tests tests/forms_tests.cpp)
 target_link_libraries(paint-forms-tests PRIVATE paint_forms)
+# The sticky-note contract runs with Plan Paint's theme, as the application does.
+gui_forms_add_theme(paint-forms-tests themes/plan-paint FUNCTION plan_paint_theme NAMESPACE paint)
 add_test(NAME paint-forms COMMAND paint-forms-tests --general)
 add_test(NAME paint-icon-production-forms COMMAND paint-forms-tests --icon-production)
 install(TARGETS plan-paint BUNDLE DESTINATION . RUNTIME DESTINATION .)
