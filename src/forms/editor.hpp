@@ -495,7 +495,9 @@ class Editor final : public gui_forms::Control {
     void zoom_slider_changed(double value);
     void status_clicked(gui_forms::ButtonBase& button);
     void command_invoked(const gui_forms::CommandInvocation& invocation);
-    gui_forms::MenuItemSpec menu_item(const std::string& id, const std::string& text);
+    gui_forms::MenuItemSpec menu_item(const std::string& id, const std::string& text,
+                                      const std::string& shortcut = {});
+    static gui_forms::MenuItemSpec menu_separator(const std::string& id);
     void begin(Point point, bool secondary);
     void move(Point point);
     void end(Point point);
