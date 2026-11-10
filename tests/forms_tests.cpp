@@ -5058,6 +5058,33 @@ void opacity_indicator_contracts() {
                 paint::forms::opacity_indicator({0, 0, 0, 1}).text == "1%" &&
                 paint::forms::opacity_indicator({0, 0, 0, 254}).text == "99%",
             "opacity endpoints must distinguish transparent, translucent and opaque colors");
+    // The ribbon's Primary and Alt images carry the opacity badge, as the
+    // original swatch buttons did: a translucent ink's sample shows the
+    // badge's complement colour in its bottom-right corner, and the same ink
+    // at full opacity shows none.
+    paint::Ink translucent;
+    translucent.primary = {240, 30, 80, 128};
+    paint::Ink opaque = translucent;
+    opaque.primary.a = 255;
+    const paint::Color badge = paint::forms::opacity_indicator(translucent.primary).foreground;
+    const paint::Image badged = paint::forms::material_sample(translucent);
+    const paint::Image plain = paint::forms::material_sample(opaque);
+    require(badged.width == 32 && badged.height == 32 && plain.width == 32,
+            "material samples are the ribbon's 32 by 32 large image");
+    int badge_pixels = 0;
+    int opaque_marks = 0;
+    for (int y = 18; y < 32; ++y) {
+        for (int x = 12; x < 32; ++x) {
+            if (paint::equal(badged.get(x, y), badge)) {
+                ++badge_pixels;
+            }
+            if (paint::equal(plain.get(x, y), badge)) {
+                ++opaque_marks;
+            }
+        }
+    }
+    require(badge_pixels > 8, "a translucent swatch must show its N% opacity badge in the corner");
+    require(opaque_marks == 0, "an opaque swatch shows no opacity badge");
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
     gf::Window& window = *fixture.window;

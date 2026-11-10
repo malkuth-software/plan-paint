@@ -22,6 +22,10 @@ struct OpacityIndicator {
     Color foreground, outline;
 };
 OpacityIndicator opacity_indicator(Color color);
+// The Primary and Alt commands' image: the ink over a transparency
+// checkerboard, 32 by 32, with an "N%" opacity badge in the bottom-right
+// corner while the colour is translucent (as the original swatches had).
+Image material_sample(const Ink& ink);
 // A font file's display name in the font list.
 std::string font_label(const std::string& path);
 // A colour or material swatch button, used by the colour dialogs.

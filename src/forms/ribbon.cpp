@@ -11,6 +11,7 @@
 #include "localization.hpp"
 #include "material.hpp"
 #include "platform.hpp"
+#include "text.hpp"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -230,8 +231,35 @@ class OverlayAnchor final : public gf::Control {
 };
 // The editor command a render-quality choice runs.
 const char* const render_commands[] = {"render-crisp", "render-smooth", "render-smooth-4x"};
+// The opacity badge the original swatches drew: "N%" in the swatch's
+// bottom-right corner, in the inverse of the colour with a contrasting
+// one-pixel outline, shown only while the colour is not fully opaque.
+void draw_opacity_badge(Image& sample, Color color) {
+    if (color.a == 255) {
+        return;
+    }
+    const OpacityIndicator indicator = opacity_indicator(color);
+    TextStyle style;
+    style.size = 11;
+    style.bold = true;
+    style.word_wrap = false;
+    const TextLayout layout = layout_text(indicator.text, style);
+    const Color clear{0, 0, 0, 0};
+    const double left = static_cast<double>(sample.width - 2 - layout.width);
+    const double top = static_cast<double>(sample.height - 2 - layout.height);
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            if (x != 0 || y != 0) {
+                render_text(sample, Point{left + x, top + y}, layout, style, indicator.outline, clear);
+            }
+        }
+    }
+    render_text(sample, Point{left, top}, layout, style, indicator.foreground, clear);
+}
+} // namespace
 // A material sample for the Primary and Alt commands' images: the ink over a
-// transparency checkerboard, at the ribbon's large icon size.
+// transparency checkerboard, at the ribbon's large icon size, with the
+// opacity badge while the colour is translucent.
 Image material_sample(const Ink& ink) {
     Image sample;
     sample.reset(32, 32, {255, 255, 255, 255});
@@ -248,13 +276,14 @@ Image material_sample(const Ink& ink) {
                 sample.set(step + width, 31 - step, {210, 35, 40, 255});
             }
         }
+        draw_opacity_badge(sample, ink.primary);
         return sample;
     }
     Ink fill = ink;
     draw_shape(sample, Shape::Rectangle, {-1, -1}, {33, 33}, fill, false, true, fill.brush, &fill);
+    draw_opacity_badge(sample, ink.primary);
     return sample;
 }
-} // namespace
 
 std::string font_label(const std::string& path) {
     const std::string name = std::filesystem::path(path).filename().string();
