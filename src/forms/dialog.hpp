@@ -89,6 +89,11 @@ class EditorDialog final : public gui_forms::Control {
   public:
     EditorDialog(gui_forms::StableId id, std::weak_ptr<Editor> editor, EditorDialogKind kind, bool secondary);
     ~EditorDialog() override;
+    // Cancels and joins every background job the dialog started, so none
+    // posts to the dialog's window after this returns. The editor calls it
+    // while that window still lives (a windowed dialog's window goes on
+    // the editor's next turn); the destructor calls it again.
+    void stop_background_work();
     void on_attached_to_window() override;
     void on_detaching_from_window(gui_forms::SurfaceRoot& window) noexcept override;
     void deliver_carpet();

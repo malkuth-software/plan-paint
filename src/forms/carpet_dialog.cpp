@@ -45,6 +45,9 @@ struct CarpetWork {
 };
 } // namespace
 EditorDialog::~EditorDialog() {
+    stop_background_work();
+}
+void EditorDialog::stop_background_work() {
     stop_numeric_transform();
     stop_icon_batch();
     stop_icon_states();

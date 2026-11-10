@@ -2292,6 +2292,11 @@ void Editor::close_editor_dialog() {
     }
     editor_dialog_popup_.disconnect();
     editor_dialog_refuses_input_ = false;
+    // Its workers stop while its window still lives: a delivery posted to a
+    // window already destroyed would throw on the worker's thread.
+    if (editor_dialog_) {
+        (*editor_dialog_).stop_background_work();
+    }
     if (editor_dialog_window_.active()) {
         const gf::ApplicationWindowHandle dialog = editor_dialog_window_;
         editor_dialog_window_ = {};

@@ -199,6 +199,14 @@ struct ModalDialogProbe {
     NativeExercise* exercise = nullptr;
     void operator()() const;
 };
+// On the turn after ready: the run lists its windows only once ready has
+// returned, so the dialog checks start here.
+struct DialogWindowStart {
+    NativeExercise* exercise = nullptr;
+    gf::Window* window = nullptr;
+    gf::ApplicationWindowHandle handle;
+    void operator()() const;
+};
 // After the modal loop: one window again; then the run ends.
 struct ModalDialogFinish {
     NativeExercise* exercise = nullptr;
@@ -227,6 +235,8 @@ struct NativeExercise {
     std::unique_ptr<paint::tests::NativeClipboardExchange> clipboard_exchange;
     int backing = 0, hue = 220;
     gf::Window* resize_window = nullptr;
+    std::unique_ptr<gf::Timer> modal_timer;
+    gf::SubscriptionToken modal_tick;
     std::unique_ptr<gf::Timer> resize_timer;
     gf::SubscriptionToken resize_tick;
     void await_batch(gf::Window& window) {
@@ -244,6 +254,11 @@ struct NativeExercise {
         if (!(*error).text.read().empty()) {
             throw std::runtime_error(std::string((*error).text.read()));
         }
+    }
+    void modal_probe_tick() {
+        (*modal_timer).stop();
+        const ModalDialogProbe probe{this};
+        probe();
     }
     void show_resize_preview() {
         (*resize_timer).stop();
@@ -978,14 +993,61 @@ struct NativeExercise {
     // An editor dialog in a window of its own: first driven from this loop
     // (modal_dialogs off), then modally through show_modal.
     void dialog_window_run(gf::Window& window, gf::ApplicationWindowHandle handle) {
+        static_cast<void>((*editor).begin_invoke(DialogWindowStart{this, &window, handle}));
+    }
+    void dialog_window_checks(gf::Window& window, gf::ApplicationWindowHandle handle) {
         const gf::ApplicationWindows windows = handle.windows();
         (*editor).modal_dialogs = false;
+        // Every editor dialog (all but the Linux print pair, which this
+        // host never opens) is a window of its own, owned by the editor's,
+        // and goes with its dialog.
+        const paint::forms::EditorDialogKind every_kind[] = {
+            paint::forms::EditorDialogKind::dither,          paint::forms::EditorDialogKind::tool_size,
+            paint::forms::EditorDialogKind::carpet,          paint::forms::EditorDialogKind::about,
+            paint::forms::EditorDialogKind::color,           paint::forms::EditorDialogKind::gradient_color,
+            paint::forms::EditorDialogKind::resize,          paint::forms::EditorDialogKind::atlas_grid,
+            paint::forms::EditorDialogKind::icon_sizes,      paint::forms::EditorDialogKind::cursor_sizes,
+            paint::forms::EditorDialogKind::hotspot,         paint::forms::EditorDialogKind::atlas_gallery,
+            paint::forms::EditorDialogKind::icon_sheet,      paint::forms::EditorDialogKind::icon_validation,
+            paint::forms::EditorDialogKind::toolbar_strip,   paint::forms::EditorDialogKind::icon_export,
+            paint::forms::EditorDialogKind::icon_batch,      paint::forms::EditorDialogKind::asset_browser,
+            paint::forms::EditorDialogKind::alpha_tools,     paint::forms::EditorDialogKind::icon_palette,
+            paint::forms::EditorDialogKind::icon_states,     paint::forms::EditorDialogKind::icon_effects,
+            paint::forms::EditorDialogKind::numeric_transform, paint::forms::EditorDialogKind::properties,
+            paint::forms::EditorDialogKind::settings,        paint::forms::EditorDialogKind::english_help,
+            paint::forms::EditorDialogKind::print_preview};
+        // The cursor and icon dialogs edit the active image of a cursor set
+        // (the hotspot dialog opens only for one).
+        (*editor).document.new_image(64, 64);
+        (*editor).document.make_icon_sizes({32, 16}, true, paint::IconSizePolicy::ExactProfile);
+        for (std::size_t index = 0; index < std::size(every_kind); ++index) {
+            (*editor).open_editor_dialog(every_kind[index]);
+            gf::Window* opened = (*editor).dialog_window();
+            if (opened == nullptr || opened == &window || windows.window_count() != 2 ||
+                window.find("editor-dialog") || !(*opened).find("editor-dialog")) {
+                throw std::runtime_error("Editor dialog kind " + std::to_string(index) +
+                                         " did not open as a window of its own (window " +
+                                         std::string(opened == nullptr ? "none" : opened == &window ? "main" : "own") +
+                                         ", windows " + std::to_string(windows.window_count()) + ", in main " +
+                                         std::string(window.find("editor-dialog") ? "yes" : "no") + ")");
+            }
+            const gf::Size size = (*opened).client_size();
+            if (size.width <= 0 || size.height <= 0) {
+                throw std::runtime_error("Editor dialog kind " + std::to_string(index) + " has an empty window");
+            }
+            (*editor).close_editor_dialog();
+            drain_all(window);
+            if (windows.window_count() != 1) {
+                throw std::runtime_error("Editor dialog kind " + std::to_string(index) + "'s window outlived it");
+            }
+        }
         (*editor).execute("about");
         gf::Window* dialog = (*editor).dialog_window();
         if (dialog == nullptr || dialog == &window || windows.window_count() != 2) {
             throw std::runtime_error("The About dialog did not open as a second window");
         }
-        if (window.find("dialog-cancel") || !(*dialog).find("dialog-cancel") || !find_shown(window, "dialog-cancel")) {
+        // About has one button, Close ("dialog-ok").
+        if (window.find("dialog-ok") || !(*dialog).find("dialog-ok") || !find_shown(window, "dialog-ok")) {
             throw std::runtime_error("The dialog's controls are not in the dialog's own window");
         }
         const gf::Size client = (*dialog).client_size();
@@ -1006,10 +1068,14 @@ struct NativeExercise {
         if ((*editor).dialog_window() != nullptr) {
             throw std::runtime_error("A modal dialog's window opened before the opening command finished");
         }
-        // Posted after the dialog's show_modal: runs inside its nested loop.
-        // The probe queues the finish check once it has closed the dialog.
+        // The show_modal call runs from the editor's posted work, so work
+        // posted behind it waits for the nested loop to end; a timer tick
+        // reaches the loop itself. The probe queues the finish check once it
+        // has closed the dialog.
         main_handle = handle;
-        static_cast<void>((*editor).begin_invoke(ModalDialogProbe{this}));
+        modal_timer = std::make_unique<gf::Timer>(window, std::chrono::milliseconds(200));
+        modal_tick = (*modal_timer).tick().subscribe(std::bind(&NativeExercise::modal_probe_tick, std::ref(*this)));
+        (*modal_timer).start();
     }
     void ready(gf::Window& window, gf::ApplicationWindowHandle handle) {
         if (!window.host_services()) {
@@ -1779,12 +1845,20 @@ struct WindowsFixtureReady {
 };
 #endif
 } // namespace
+void DialogWindowStart::operator()() const {
+    try {
+        (*exercise).dialog_window_checks(*window, handle);
+    } catch (const std::exception& failure) {
+        (*exercise).dialog_failure = failure.what();
+        static_cast<void>(handle.request_close());
+    }
+}
 void ModalDialogProbe::operator()() const {
     paint::forms::Editor& editor = *(*exercise).editor;
     gf::Window* dialog = editor.dialog_window();
     if (dialog == nullptr) {
         (*exercise).dialog_failure = "The modal About dialog has no window of its own inside its loop";
-    } else if (!(*dialog).find("dialog-cancel")) {
+    } else if (!(*dialog).find("dialog-ok")) {
         (*exercise).dialog_failure = "The modal dialog's controls are not in its window";
     }
     (*exercise).modal_seen = true;
@@ -1872,6 +1946,11 @@ int main(int argc, char** argv) {
         exercise.bugs = argc > 1 && std::string(argv[1]) == "--bugs";
         exercise.pan_probe = argc > 1 && std::string(argv[1]) == "--pan-probe";
         exercise.dialog_window_review = argc > 1 && std::string(argv[1]) == "--dialog-window";
+        // Owned windows need the Application run (its window set), not the
+        // single-window fixture host the other argument modes use.
+        if (exercise.dialog_window_review) {
+            exercise.keep_open = false;
+        }
         if (exercise.pan_probe) {
             exercise.keep_open = false;
         }

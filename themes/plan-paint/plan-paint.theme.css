@@ -99,7 +99,10 @@ ribbon::part(command-plane) {
 }
 
 /* The look integration's tab-row metrics and tab capabilities (GUI.Forms
-   claude/look-integration): Plan Paint's 27-unit rail and 116-unit plane.
+   claude/look-integration): Plan Paint's 27-unit rail, and a plane exactly
+   as tall as the ribbon's three command rows and the group captions
+   (3 + 3 x 22 + 17 + 2 = 88 units), so no empty band lies between the
+   commands and the captions (owner, 2026-11-10; it was 116).
    The tabs are stacked folders (owner, 2026-11-09): each overlaps the next
    by its four-unit taper (a negative gap), its tapered right edge lying
    over the next tab, and a visible soft shadow falls from that edge onto
@@ -111,7 +114,7 @@ ribbon::part(tab-rail) {
 }
 
 ribbon::part(command-plane) {
-  height: 116px;
+  height: 88px;
 }
 
 ribbon::part(tab) {

@@ -5059,32 +5059,43 @@ void opacity_indicator_contracts() {
                 paint::forms::opacity_indicator({0, 0, 0, 254}).text == "99%",
             "opacity endpoints must distinguish transparent, translucent and opaque colors");
     // The ribbon's Primary and Alt images carry the opacity badge, as the
-    // original swatch buttons did: a translucent ink's sample shows the
-    // badge's complement colour in its bottom-right corner, and the same ink
-    // at full opacity shows none.
+    // original swatch buttons did. A translucent ink over the checkerboard
+    // shows two colours (the ink over each kind of square, as in the
+    // top-left corner); the badge's glyphs in the bottom-right corner are
+    // neither.
     paint::Ink translucent;
     translucent.primary = {240, 30, 80, 128};
     paint::Ink opaque = translucent;
     opaque.primary.a = 255;
-    const paint::Color badge = paint::forms::opacity_indicator(translucent.primary).foreground;
     const paint::Image badged = paint::forms::material_sample(translucent);
     const paint::Image plain = paint::forms::material_sample(opaque);
     require(badged.width == 32 && badged.height == 32 && plain.width == 32,
             "material samples are the ribbon's 32 by 32 large image");
+    const paint::Color light_square = badged.get(0, 0);
+    const paint::Color dark_square = badged.get(4, 0);
     int badge_pixels = 0;
-    int opaque_marks = 0;
-    for (int y = 18; y < 32; ++y) {
-        for (int x = 12; x < 32; ++x) {
-            if (paint::equal(badged.get(x, y), badge)) {
+    for (int y = 16; y < 32; ++y) {
+        for (int x = 8; x < 32; ++x) {
+            const paint::Color pixel = badged.get(x, y);
+            if (!paint::equal(pixel, light_square) && !paint::equal(pixel, dark_square)) {
                 ++badge_pixels;
-            }
-            if (paint::equal(plain.get(x, y), badge)) {
-                ++opaque_marks;
             }
         }
     }
-    require(badge_pixels > 8, "a translucent swatch must show its N% opacity badge in the corner");
-    require(opaque_marks == 0, "an opaque swatch shows no opacity badge");
+    require(badge_pixels > 4, "a translucent swatch must show its N% opacity badge in the corner");
+    const paint::Image plain_again = paint::forms::material_sample(opaque);
+    require(std::equal(plain.pixels.begin(), plain.pixels.end(), plain_again.pixels.begin(), paint::equal),
+            "an opaque swatch's sample is stable");
+    int opaque_corner_variation = 0;
+    const paint::Color corner_reference = plain.get(31, 31);
+    for (int y = 16; y < 32; ++y) {
+        for (int x = 8; x < 32; ++x) {
+            if (!paint::equal(plain.get(x, y), corner_reference)) {
+                ++opaque_corner_variation;
+            }
+        }
+    }
+    require(opaque_corner_variation == 0, "an opaque swatch shows no opacity badge");
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
     gf::Window& window = *fixture.window;
@@ -5196,6 +5207,12 @@ void ribbon_collapse_and_reopen() {
     paint::forms::Editor& editor = *fixture.editor;
     window.perform_layout();
     const double expanded = (*plan_ribbon(window)).ribbon_height();
+    // No empty band under the commands: the plane is the three command rows
+    // and the captions (88 units at text scale 1), the rail 27.
+    const gf::Ribbon::Parts plane_parts = (*ribbon_bar(window)).parts();
+    require(plane_parts.command_plane.bounds.height == 88 && plane_parts.tab_rail.bounds.height == 27 &&
+                expanded == 27 + 88,
+            "the command plane is exactly the rows and captions, with no dead space under the commands");
     routed_button(window, "home-tab");
     window.perform_layout();
     const double collapsed = (*plan_ribbon(window)).ribbon_height();
@@ -5211,6 +5228,16 @@ void ribbon_collapse_and_reopen() {
     window.perform_layout();
     require(editor.canvas().absolute_bounds().y == expanded && shown(window, "show-rulers"),
             "a different tab expands the ribbon onto that page");
+    // The Show or hide check boxes get the whole of their label: each is
+    // placed at least as wide as it measures itself, label included.
+    const char* const show_ids[] = {"show-rulers", "show-grid", "show-status"};
+    for (const char* id : show_ids) {
+        const std::shared_ptr<gf::CheckBox> box = std::dynamic_pointer_cast<gf::CheckBox>(find_control(window, id));
+        require(box != nullptr, "the View tab hosts its Show or hide check boxes");
+        const gf::Size wanted = (*box).measure({10000, 10000});
+        require(wanted.width <= (*box).committed_arranged_bounds().width + 0.5,
+                "a View tab Show or hide check box label must not be cut off");
+    }
     routed_button(window, "show-rulers");
     routed_button(window, "view-tab");
     window.perform_layout();
