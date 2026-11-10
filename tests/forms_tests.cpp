@@ -6400,6 +6400,40 @@ void canvas_pan_by_wheel_and_damage() {
     require(damage > 0 && damage <= canvas.width * canvas.height + 1280.0 * 30.0,
             "a wheel pan repaints the canvas, not the ribbon or the whole window");
 }
+// A short pencil stroke repaints only its own few pixels (owner: "drawing
+// into the canvas invalidates everything"): the published damage is the
+// changed pixels' bounds, not the whole picture or canvas.
+void short_stroke_damages_a_small_rect() {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::Window& window = *fixture.window;
+    editor.document.new_image(3000, 2000);
+    editor.choose_tool(paint::Tool::Pencil);
+    editor.refresh();
+    window.perform_layout();
+    static_cast<void>(window.take_damage());
+    const gf::Point start = fixture.position(40, 40);
+    static_cast<void>(window.dispatch_pointer({gf::PointerAction::down, gf::PointerButton::primary, start}));
+    window.perform_layout();
+    static_cast<void>(window.take_damage());
+    const gf::MetricsSnapshot pressed = window.metrics_snapshot();
+    const std::uint64_t converted = editor.canvas().work_statistics().viewport_converted_pixels;
+    static_cast<void>(window.dispatch_pointer({gf::PointerAction::move, gf::PointerButton::none, fixture.position(52, 46)}));
+    window.perform_layout();
+    const gf::MetricsSnapshot drawn = window.metrics_snapshot();
+    const double damage = drawn.requested_damage_area - pressed.requested_damage_area;
+    const double zoom = editor.canvas().zoom.read();
+    // The segment's box with the pencil's width, a unit of rounding round
+    // it, at the view's zoom; the status bar's cursor readout may repaint too.
+    const double stroke_box = (12 + 8) * zoom * (6 + 8) * zoom;
+    const double status = 1280.0 * 30.0;
+    std::cout << "Short stroke damage: " << damage << " (stroke box " << stroke_box << ")\n";
+    require(damage > 0 && damage <= stroke_box + status, "a short stroke damages only a small rectangle");
+    const std::uint64_t converted_now = editor.canvas().work_statistics().viewport_converted_pixels;
+    require(converted_now - converted <= static_cast<std::uint64_t>(stroke_box * 4),
+            "the viewport conversion redoes only the stroke's pixels");
+    static_cast<void>(window.dispatch_pointer({gf::PointerAction::up, gf::PointerButton::primary, fixture.position(52, 46)}));
+}
 void zoom_anchors_the_point() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
@@ -6604,6 +6638,7 @@ int main(int argc, char** argv) {
         guide_dismissal_preserves_paint_and_curves();
         zoom_anchors_the_point();
         canvas_pan_by_wheel_and_damage();
+        short_stroke_damages_a_small_rect();
         magnifier_hover_is_display_only();
         zoom_out_clamps_each_axis();
         pencil_and_eraser_hover_are_display_only();

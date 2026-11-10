@@ -891,6 +891,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
         control_ = gf::has_modifier(event.modifiers, gf::Modifier::control);
         alt_ = gf::has_modifier(event.modifiers, gf::Modifier::alt);
         gf::Point client = (*canvas_).point_from_window(event.position);
+        const std::optional<gf::Point> previous_cursor = cursor_client_;
         if (event.action == gf::PointerAction::leave && !(*canvas_).has_pointer_capture()) {
             cursor_client_.reset();
         } else {
@@ -969,7 +970,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
         if (document.tool == Tool::Stamp || document.tool == Tool::Pencil || document.tool == Tool::Eraser ||
             document.tool == Tool::Magnifier || document.tool == Tool::Picker ||
             document.tool == Tool::Brush || document.tool == Tool::Path || document.curve.line_set) {
-            (*canvas_).invalidate(gf::Dirty::paint);
+            invalidate_tool_preview(previous_cursor);
         }
         if (document.tool == Tool::Path &&
             (event.action == gf::PointerAction::move || event.action == gf::PointerAction::leave)) {

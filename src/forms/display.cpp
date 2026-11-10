@@ -2,6 +2,7 @@
 #include "forms/display.hpp"
 #include "forms/editor.hpp"
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 namespace paint::forms {
 static void publish_pixels(const Image& source, gui_forms::RasterCanvas& canvas, Rect damage) {
@@ -75,21 +76,38 @@ void PaintCanvas::publish_pixels(const Image& source, Rect damage) {
     std::size_t translucent = replacement ? 0 : translucent_pixels_;
     const bool bgra = format == gui_forms::LiveSurfacePixelFormat::bgra32_premultiplied_srgb;
     bool changed = replacement;
+    // The bounds of the pixels that really changed (a caller may name the
+    // whole picture, as refresh does): only they are written, published and
+    // repainted, so a brush stroke damages its own few pixels.
+    int changed_left = right;
+    int changed_top = bottom;
+    int changed_right = damage.x;
+    int changed_bottom = damage.y;
     for (int y = damage.y; y < bottom; ++y) {
         for (int x = damage.x; x < right; ++x) {
             const Color color = source.get(x, y);
             if (!replacement) {
                 const std::byte* pixel = previous.pixels().data() + y * previous.row_bytes() + x * 4;
                 if (pixel[3] != std::byte{255}) { --translucent; }
-                changed = changed || pixel[0] != static_cast<std::byte>(((bgra ? color.b : color.r) * color.a + 127U) / 255U) ||
+                const bool differs = pixel[0] != static_cast<std::byte>(((bgra ? color.b : color.r) * color.a + 127U) / 255U) ||
                     pixel[1] != static_cast<std::byte>((color.g * color.a + 127U) / 255U) ||
                     pixel[2] != static_cast<std::byte>(((bgra ? color.r : color.b) * color.a + 127U) / 255U) ||
                     pixel[3] != static_cast<std::byte>(color.a);
+                if (differs) {
+                    changed = true;
+                    changed_left = std::min(changed_left, x);
+                    changed_right = std::max(changed_right, x + 1);
+                    changed_top = std::min(changed_top, y);
+                    changed_bottom = std::max(changed_bottom, y + 1);
+                }
             }
             if (color.a != 255) { ++translucent; }
         }
     }
     if (!changed) { return; }
+    if (!replacement) {
+        damage = {changed_left, changed_top, changed_right - changed_left, changed_bottom - changed_top};
+    }
     const bool opaque = translucent == 0;
     if (replacement || previous.opaque() != opaque) {
         display_surface_ = gui_forms::LiveSurface::create({static_cast<unsigned>(source.width),
@@ -119,6 +137,24 @@ void PaintCanvas::publish_pixels(const Image& source, Rect damage) {
     static_cast<void>(write.publish({static_cast<double>(damage.x), static_cast<double>(damage.y),
         static_cast<double>(damage.w), static_cast<double>(damage.h)}));
     translucent_pixels_ = translucent;
-    invalidate(gui_forms::Dirty::paint | gui_forms::Dirty::semantics);
+    // The viewport conversion redoes only what changed since it last ran.
+    if (replacement || viewport_dirty_.w <= 0 || viewport_dirty_.h <= 0) {
+        viewport_dirty_ = replacement ? Rect{0, 0, source.width, source.height} : damage;
+    } else {
+        const int dirty_right = std::max(viewport_dirty_.x + viewport_dirty_.w, damage.x + damage.w);
+        const int dirty_bottom = std::max(viewport_dirty_.y + viewport_dirty_.h, damage.y + damage.h);
+        viewport_dirty_.x = std::min(viewport_dirty_.x, damage.x);
+        viewport_dirty_.y = std::min(viewport_dirty_.y, damage.y);
+        viewport_dirty_.w = dirty_right - viewport_dirty_.x;
+        viewport_dirty_.h = dirty_bottom - viewport_dirty_.y;
+    }
+    invalidate(gui_forms::Dirty::semantics);
+    if (replacement || std::abs(view_angle) > 1e-10) {
+        invalidate(gui_forms::Dirty::paint);
+        return;
+    }
+    // The changed pixels on screen, a unit wider for the edges' rounding.
+    const gui_forms::Rect shown = RasterCanvas::bitmap_to_client({damage.x, damage.y, damage.w, damage.h});
+    invalidate(gui_forms::Rect{shown.x - 1, shown.y - 1, shown.width + 2, shown.height + 2});
 }
 } // namespace paint::forms

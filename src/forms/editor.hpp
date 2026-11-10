@@ -31,6 +31,8 @@ namespace paint::forms {
 class Editor;
 struct CanvasWorkStatistics {
     std::uint64_t view_preparations = 0, view_renders = 0, stamp_preparations = 0, stamp_renders = 0;
+    // Viewport conversions run, and the output pixels they wrote (a brush stroke converts its own few).
+    std::uint64_t viewport_conversions = 0, viewport_converted_pixels = 0;
 };
 class PaintCanvas final : public gui_forms::RasterCanvas {
   public:
@@ -93,6 +95,9 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     std::vector<std::size_t> viewport_columns_;
     std::vector<int> viewport_cells_;
     std::size_t translucent_pixels_ = 0;
+    // Source pixels published since the viewport conversion last ran (empty:
+    // none). A view change converts everything regardless.
+    Rect viewport_dirty_;
     gui_forms::Color transparency_first_ = gui_forms::Color::rgba(246, 247, 249);
     gui_forms::Color transparency_second_ = gui_forms::Color::rgba(211, 215, 220);
     void paint_display(gui_forms::Painter& painter);
@@ -403,6 +408,12 @@ class Editor final : public gui_forms::Control {
     Point text_drag_start_;
     void paint_atlas_overlay(gui_forms::Painter& painter);
     void paint_tool_preview(gui_forms::Painter& painter);
+    // How far paint_tool_preview draws from the cursor, in canvas points; 0
+    // when it may draw anywhere (path and curve rubber bands, the stamp, the
+    // healing source), so the whole canvas repaints.
+    double tool_preview_reach() const;
+    // Repaints the tool preview where it was (at `previous`) and where it is now.
+    void invalidate_tool_preview(std::optional<gui_forms::Point> previous);
     enum class SpiroDrag { None, Guide, Resize, Wheel, Lift, PegPending, Peg };
     SpiroDrag spiro_drag_ = SpiroDrag::None;
     Point spiro_grab_{}, spiro_pointer_{}, spiro_drag_center_{};
