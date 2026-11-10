@@ -19,6 +19,7 @@ void Ribbon::sticky_groups(gf::RibbonTabSpec& tab) {
     number(paper, "sticky-padding", tr("Padding"));
     paper.commands.push_back(button("sticky-color-label", tr("Paper color"), -1, gf::RibbonCommandSize::small));
     paper.commands.push_back(hosted("sticky-color", tr("Paper color"), gf::RibbonCommandKind::text_box, 96));
+    paper.commands.back().show_label = false;
     tab.groups.push_back(std::move(paper));
     gf::RibbonGroupSpec size;
     size.stable_id = "sticky-size";

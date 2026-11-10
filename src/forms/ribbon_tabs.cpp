@@ -149,6 +149,9 @@ void Ribbon::hint(gf::RibbonGroupSpec& target, const std::string& id, const std:
 void Ribbon::number(gf::RibbonGroupSpec& target, const std::string& id, const std::string& text, double width) {
     target.commands.push_back(button(id + "-label", text, -1, Size::small));
     target.commands.push_back(hosted(id, text, Kind::numeric_up_down, width > 0 ? width : number_width));
+    // The label command above names the field; the field draws no second
+    // label of its own (its text stays its accessible name).
+    target.commands.back().show_label = false;
 }
 gf::RibbonCommandSpec Ribbon::gallery_command(const std::string& id, const GalleryEntry& entry) {
     gf::RibbonCommandSpec spec;
