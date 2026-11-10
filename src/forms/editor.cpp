@@ -186,8 +186,11 @@ void Editor::initialize_control_tree() {
     initialize_canvas_controls();
     refresh();
 }
-gf::MenuItemSpec Editor::menu_item(const std::string& id, const std::string& text) {
+gf::MenuItemSpec Editor::menu_item(const std::string& id, const std::string& text, const std::string& shortcut) {
     std::shared_ptr<gf::Command> command = std::make_shared<gf::Command>(id, text);
+    // The shortcut column shows the key the editor's own key handling
+    // answers (Editor::on_key); the menu does not bind it.
+    if (!shortcut.empty()) (*command).set_shortcut(shortcut);
     menu_subscriptions_.push_back((*command).invoked().subscribe(
         *this, gf::Delegate<const gf::CommandInvocation&>::bind<Editor, &Editor::command_invoked>(*this)));
     commands_.push_back(command);
@@ -196,9 +199,14 @@ gf::MenuItemSpec Editor::menu_item(const std::string& id, const std::string& tex
 void Editor::rebuild_file_menu() {
     menu_subscriptions_.clear();
     commands_.clear();
-    std::vector<gf::MenuItemSpec> items = {menu_item("new", tr("New")), menu_item("open", tr("Open…"))};
+    // Grouped as Paint's File menu is, with separators between the groups
+    // and the editor's keys in the shortcut column; the desktop background
+    // choices are a submenu (the two-pane menu opens it beside its row).
+    std::vector<gf::MenuItemSpec> items = {menu_item("new", tr("New"), "Ctrl+N"),
+                                           menu_item("open", tr("Open…"), "Ctrl+O")};
     items.push_back(menu_item("browse-assets", tr("Browse assets…")));
     items.push_back(menu_item("icon-batch", tr("Batch production…")));
+    items.push_back(menu_separator("rule-open"));
     // Recent pictures show in the File tab's recent pane, as "recent-<n>".
     std::vector<gf::RibbonRecentItem> recent_items;
     recent_items.reserve(recent.paths.size());
@@ -207,27 +215,37 @@ void Editor::rebuild_file_menu() {
         recent_items.push_back({"recent-" + std::to_string(i), path.filename().string(), path.parent_path().string()});
     }
     items.push_back(menu_item("reload", tr("Reload from disk…")));
-    items.push_back(menu_item("save", tr("Save")));
-    items.push_back(menu_item("save-as", tr("Save as…")));
+    items.push_back(menu_item("save", tr("Save"), "Ctrl+S"));
+    items.push_back(menu_item("save-as", tr("Save as…"), "F12"));
+    items.push_back(menu_separator("rule-save"));
     items.push_back(menu_item("print-preview", tr("Print preview…")));
 #if RAINSTAR_FORMS_NATIVE_PRINT
-    items.push_back(menu_item("print", tr("Print…")));
+    items.push_back(menu_item("print", tr("Print…"), "Ctrl+P"));
     items.push_back(menu_item("page-setup", tr("Page setup…")));
+    items.push_back(menu_separator("rule-print"));
     items.push_back(menu_item("acquire", tr("From scanner or camera…")));
-    // The two-pane File menu takes commands only, so the background choices
-    // are three commands rather than a submenu.
-    items.push_back(menu_item("wallpaper-fill", tr("Set as desktop background (fill)")));
-    items.push_back(menu_item("wallpaper-tile", tr("Set as desktop background (tile)")));
-    items.push_back(menu_item("wallpaper-center", tr("Set as desktop background (center)")));
+    gf::MenuItemSpec wallpaper;
+    wallpaper.stable_id = "wallpaper";
+    wallpaper.kind = gf::MenuItemKind::submenu;
+    wallpaper.text = tr("Set as desktop background");
+    wallpaper.children = {menu_item("wallpaper-fill", tr("Fill")), menu_item("wallpaper-tile", tr("Tile")),
+                          menu_item("wallpaper-center", tr("Center"))};
+    items.push_back(std::move(wallpaper));
 #endif
-    items.push_back(menu_item("properties", tr("Properties…")));
+    items.push_back(menu_separator("rule-picture"));
+    items.push_back(menu_item("properties", tr("Properties…"), "Ctrl+E"));
     items.push_back(menu_item("recover", tr("Recover unfinished artwork…")));
     items.push_back(menu_item("settings", tr("Settings…")));
+    items.push_back(menu_separator("rule-about"));
     items.push_back(menu_item("about", tr("About Plan Paint")));
     items.push_back(menu_item("quit", tr("Exit")));
     if (ribbon_) {
         (*ribbon_).set_file_menu(std::move(items), std::move(recent_items));
     }
+}
+gf::MenuItemSpec Editor::menu_separator(const std::string& id) {
+    gf::MenuItemSpec separator{id, gf::MenuItemKind::separator};
+    return separator;
 }
 void Editor::arrange(gf::Rect bounds) {
     arrange_self(bounds);

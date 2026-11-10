@@ -366,8 +366,8 @@ double Ribbon::ribbon_height() const {
 }
 
 void Ribbon::set_file_menu(std::vector<gf::MenuItemSpec> items, std::vector<gf::RibbonRecentItem> recent) {
-    // The two-pane menu takes only commands and separators while there are
-    // recent items, so the recent items go last and leave first.
+    // The two-pane menu refuses checks and radio items beside recent items,
+    // so the recent items go last and leave first.
     (*bar_).set_recent_items({});
     (*bar_).set_application_menu(std::move(items));
     (*bar_).set_recent_items(std::move(recent));
