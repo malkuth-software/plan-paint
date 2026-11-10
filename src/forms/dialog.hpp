@@ -72,7 +72,7 @@ class ColorPlane final : public gui_forms::Control {
     ColorPlane(gui_forms::StableId id, std::weak_ptr<EditorDialog> dialog, bool hue_strip);
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
     void on_pointer(gui_forms::PointerEvent& event) override;
-    void on_detaching_from_window(gui_forms::Window& window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& window) noexcept override;
 
   private:
     std::weak_ptr<EditorDialog> dialog_;
@@ -90,7 +90,7 @@ class EditorDialog final : public gui_forms::Control {
     EditorDialog(gui_forms::StableId id, std::weak_ptr<Editor> editor, EditorDialogKind kind, bool secondary);
     ~EditorDialog() override;
     void on_attached_to_window() override;
-    void on_detaching_from_window(gui_forms::Window& window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& window) noexcept override;
     void deliver_carpet();
     void deliver_dither();
     void deliver_icon_sheet();
@@ -401,6 +401,8 @@ class EditorDialog final : public gui_forms::Control {
         okhsl_tab_;
     void put(gui_forms::Control::Ptr control, gui_forms::Rect bounds);
     void label(const std::string& id, const std::string& text, gui_forms::Rect bounds, bool heading = false);
+    void style_label(gui_forms::Label& control, bool heading);
+    void adopt_form(gui_forms::Control& form, const std::string& heading_id, bool translate);
     std::shared_ptr<gui_forms::Button> button(const std::string& id, const std::string& text,
                                               gui_forms::Rect bounds);
     std::shared_ptr<gui_forms::NumericUpDown> number(const std::string& id, gui_forms::Rect bounds,

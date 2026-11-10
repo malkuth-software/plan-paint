@@ -179,24 +179,24 @@ bool Editor::resize_pointer(const gf::PointerEvent& event, Point point) {
             }
             Point handle{bounds.x + bounds.w * handle_x[i], bounds.y + bounds.h * handle_y[i]};
             if (i >= 8) {
-                handle.x += (i == 9 ? 16 : i == 11 ? -16 : 0) / canvas().zoom();
-                handle.y += (i == 10 ? 16 : i == 8 ? -16 : 0) / canvas().zoom();
+                handle.x += (i == 9 ? 16 : i == 11 ? -16 : 0) / canvas().zoom.read();
+                handle.y += (i == 10 ? 16 : i == 8 ? -16 : 0) / canvas().zoom.read();
             }
-            if (std::abs(point.x - handle.x) * canvas().zoom() <= 6 &&
-                std::abs(point.y - handle.y) * canvas().zoom() <= 6) {
+            if (std::abs(point.x - handle.x) * canvas().zoom.read() <= 6 &&
+                std::abs(point.y - handle.y) * canvas().zoom.read() <= 6) {
                 hovered = i;
                 break;
             }
         }
         if (hovered >= 0) {
-            canvas().set_cursor(hovered == 9 || hovered == 11   ? gf::CursorKind::resize_vertical
+            canvas().cursor = hovered == 9 || hovered == 11   ? gf::CursorKind::resize_vertical
                                 : hovered == 8 || hovered == 10 ? gf::CursorKind::resize_horizontal
                                 : hovered == 1 || hovered == 5  ? gf::CursorKind::resize_vertical
                                 : hovered == 3 || hovered == 7  ? gf::CursorKind::resize_horizontal
                                 : hovered == 0 || hovered == 4  ? gf::CursorKind::resize_diagonal_down
                                 : hovered == 2 || hovered == 6  ? gf::CursorKind::resize_diagonal_up
                                 : document.tool == Tool::Text   ? gf::CursorKind::text
-                                                                : gf::CursorKind::crosshair);
+                                                                : gf::CursorKind::crosshair;
         }
         if (hovered < 0 || event.action != gf::PointerAction::down ||
             event.button != gf::PointerButton::primary) {
@@ -397,11 +397,15 @@ void Editor::update_selection_contours() {
     selection_frame();
 }
 void Editor::selection_frame() {
-    selection_frame_.disconnect();
-    if (document.selection.active && window()) {
-        canvas().invalidate(gf::Dirty::paint);
-        selection_frame_ =
-            (*window()).schedule_paint(canvas_, gf::FrameClock::now() + std::chrono::milliseconds(100));
+    if (!document.selection.active || !window()) {
+        selection_frame_.disconnect();
+        return;
+    }
+    canvas().invalidate(gf::Dirty::paint);
+    if (!selection_frame_.connected()) {
+        const gf::FrameInterval step = std::chrono::milliseconds(100);
+        selection_frame_ = (*window()).schedule_ui_timer(*this, step, gf::FrameClock::now() + step,
+                                                         FrameTick{this, &Editor::selection_frame});
     }
 }
 void Editor::paint_selection_contours(gf::Painter& painter) {

@@ -23,7 +23,6 @@
 #include <gui_forms/basic_controls.hpp>
 #include <gui_forms/canvas.hpp>
 #include <gui_forms/live_surface.hpp>
-#include <gui_forms/controls/menu_strip/menu_strip.hpp>
 #include <gui_forms/controls/panel/combo_box/combo_box.hpp>
 #include <gui_forms/controls/range_control/track_bar/track_bar.hpp>
 #include <gui_forms/delegate.hpp>
@@ -72,14 +71,13 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
 
   protected:
     void on_attached_to_window() override;
-    void on_detaching_from_window(gui_forms::Window& former_window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& former_window) noexcept override;
     void on_dispose() noexcept override;
 
   public:
     void on_paint_overlay(gui_forms::Painter& painter, gui_forms::Rect damage) override;
     void on_text_input(gui_forms::TextInputEvent& event) override;
     void on_focus_changed(bool focused) override;
-    void on_frame(gui_forms::FrameTime now) override;
     gui_forms::SemanticDescriptor semantic_descriptor() const override;
     bool on_semantic_action(gui_forms::SemanticAction action, std::string_view value) override;
 
@@ -197,6 +195,9 @@ class Editor final : public gui_forms::Control {
     std::uint64_t recovery_capture_revision = 0;
     bool recovery_failed = false, recovery_startup_pending = false;
     std::string recovery_notice;
+    // A command-line file that failed to open. Ready may run before the host
+    // can show modal UI, so the message waits for the first recovery tick.
+    std::string startup_open_error;
 
     RecentFiles recent;
     int jpeg_quality = 92;
@@ -208,6 +209,15 @@ class Editor final : public gui_forms::Control {
     void text_focus(bool focused);
     void text_frame();
     void selection_frame();
+    // The repeating UI timers of the caret blink and the selection's marching ants.
+    // The timer calls the named member of the Editor that owns its token; the token
+    // is disconnected on detach and by the Editor's destruction, so the callback
+    // never outlives its target.
+    struct FrameTick final {
+        Editor* editor;
+        void (Editor::*tick)();
+        void operator()(gui_forms::FrameTime) const { ((*editor).*tick)(); }
+    };
     bool show_help = false, eraser_soft = false;
     SampleMode picker_mode = SampleMode::Exact;
     bool picker_magnifier = false;
@@ -251,7 +261,7 @@ class Editor final : public gui_forms::Control {
     void execute(const std::string& command);
     void choose_tool(Tool tool);
     void on_attached_to_window() override;
-    void on_detaching_from_window(gui_forms::Window& former_window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& former_window) noexcept override;
     void choose_shape(Shape shape);
     void begin_path_swap(CurveKind kind);
     void begin_guide_swap(CurveKind kind);
@@ -364,11 +374,10 @@ class Editor final : public gui_forms::Control {
     std::shared_ptr<gui_forms::TrackBar> zoom_slider_;
     std::optional<gui_forms::Point> cursor_client_;
     bool synchronizing_zoom_ = false;
-    std::shared_ptr<gui_forms::MenuStrip> menu_;
     std::shared_ptr<Ribbon> ribbon_;
     std::shared_ptr<HelpBook> help_;
     std::shared_ptr<EditorDialog> editor_dialog_;
-    gui_forms::PopupToken editor_dialog_popup_;
+    gui_forms::OverlayToken editor_dialog_popup_;
     gui_forms::FocusScopeId editor_dialog_focus_;
     std::vector<std::shared_ptr<gui_forms::Command>> commands_;
     std::vector<gui_forms::SubscriptionToken> subscriptions_, menu_subscriptions_;

@@ -12,8 +12,8 @@ class GradientStrip final : public gf::Control {
 
   public:
     GradientStrip(gf::StableId id, std::weak_ptr<Editor> editor) : Control(std::move(id)), editor_(editor) {
-        set_accessible_name(
-            tr("Gradient stops: click to add, drag to move; use Stop and Position for keyboard editing"));
+        accessible_name = 
+            tr("Gradient stops: click to add, drag to move; use Stop and Position for keyboard editing");
     }
     void on_paint(gf::Painter& painter, gf::Rect) override {
         const std::shared_ptr<Editor> editor = editor_.lock();
@@ -102,82 +102,60 @@ class GradientStrip final : public gf::Control {
     }
 };
 } // namespace
-void Ribbon::initialize_gradient() {
-    building_page_ = 256;
-    button("gradient-presets-menu", tr("Presets"), -1, {12, 35, 130, 79}, true, true);
-    gradient_strip_ = gf::make_control<GradientStrip>(gf::StableId("gradient-strip"), editor_);
-    option(gradient_strip_, {160, 34, 450, 84});
-    button("gradient-linear", tr("Linear"), -1, {630, 35, 82, 28});
-    button("gradient-radial", tr("Circular"), -1, {716, 35, 86, 28});
-    gradient_angle_ = number("gradient-angle", tr("Angle (°)"), {824, 35, 225, 28}, 0, 360, 0, 1);
-    (*gradient_angle_).set_increment(1);
-    button("gradient-reverse", tr("Reverse"), -1, {1065, 35, 98, 28});
-    gradient_stops_ = gf::make_control<gf::ComboBox>(gf::StableId("gradient-stop"));
-    (*gradient_stops_).set_accessible_name(tr("Selected gradient stop"));
-    option(gradient_stops_, {630, 80, 94, 28});
-    subscriptions_.push_back(
-        (*gradient_stops_)
-            .selected_index_changed()
-            .subscribe(*this,
-                       gf::Delegate<std::optional<std::size_t>>::bind<Ribbon, &Ribbon::gradient_stop_changed>(
-                           *this)));
-    gradient_position_ = number("gradient-position", tr("Position (%)"), {738, 80, 215, 28}, 0, 100, 0, 1);
-    (*gradient_position_).set_increment(1);
-    gradient_color_ = gf::make_control<SwatchButton>(gf::StableId("gradient-color"), "", Color{0, 0, 0, 255});
-    (*gradient_color_).set_requested_bounds({969, 80, 28, 28});
-    (*gradient_color_).set_accessible_name(tr("Edit selected gradient stop color"));
-    subscriptions_.push_back(
-        (*gradient_color_)
-            .clicked()
-            .subscribe(*this, gf::Delegate<gf::ButtonBase&>::bind<Ribbon, &Ribbon::clicked>(*this)));
-    buttons_.push_back(gradient_color_);
-    button_pages_.push_back(256);
-    add_child(gradient_color_);
-    button("gradient-edit-color", tr("Color…"), -1, {1001, 80, 73, 28});
-    button("gradient-add", tr("Add"), -1, {1090, 80, 70, 28});
-    button("gradient-remove", tr("Remove"), -1, {1170, 80, 92, 28});
+// The stop strip, in Plan Paint's own overlay below "Edit stops".
+gf::Size Ribbon::gradient_stop_panel(gf::Panel& panel) {
+    const std::shared_ptr<gf::Control> strip = gf::make_control<GradientStrip>(gf::StableId("gradient-strip"), editor_);
+    (*strip).set_requested_bounds({6, 4, 458, 84});
+    panel.add_child(strip);
+    return {470, 92};
 }
 void Ribbon::synchronize_gradient() {
     const std::shared_ptr<Editor> editor = editor_.lock();
-    if (!editor || !gradient_stops_ || page_ != 256 || collapsed_) {
+    if (!editor || (*editor).fill_gradient.stops.empty()) {
         return;
     }
     gradient_synchronizing_ = true;
     const Gradient& gradient = (*editor).fill_gradient;
     (*editor).gradient_stop = std::min((*editor).gradient_stop, gradient.stops.size() - 1);
-    if ((*gradient_stops_).items().size() != gradient.stops.size()) {
-        std::vector<std::string> names;
-        for (std::size_t i = 0; i < gradient.stops.size(); ++i) {
-            names.push_back(tr("Stop ") + std::to_string(i + 1));
-        }
-        (*gradient_stops_).set_items(std::move(names));
+    if (gradient_stops_ && (*editor).gradient_stop < (*gradient_stops_).items.read().size()) {
+        (*gradient_stops_).selected_index = std::optional<std::size_t>{(*editor).gradient_stop};
     }
-    (*gradient_stops_).set_selected_index((*editor).gradient_stop);
-    (*gradient_angle_).set_value(gradient.angle);
-    (*gradient_angle_).set_enabled(gradient.kind == GradientKind::Linear);
-    (*gradient_position_).set_value(gradient.stops[(*editor).gradient_stop].position * 100);
-    (*gradient_color_).set_color(gradient.stops[(*editor).gradient_stop].color);
-    (*gradient_strip_).invalidate(gf::Dirty::paint);
+    if (gradient_angle_) {
+        (*gradient_angle_).value = gradient.angle;
+        (*gradient_angle_).enabled = gradient.kind == GradientKind::Linear;
+    }
+    if (gradient_position_) {
+        (*gradient_position_).value = gradient.stops[(*editor).gradient_stop].position * 100;
+    }
+    if (popup_layer_ && popup_command_ == "gradient-stops-menu") {
+        (*popup_layer_).invalidate(gf::Dirty::paint);
+    }
     gradient_synchronizing_ = false;
 }
 void Ribbon::gradient_stop_changed(std::optional<std::size_t> index) {
     const std::shared_ptr<Editor> editor = editor_.lock();
-    if (editor && !gradient_synchronizing_ && index && *index < (*editor).fill_gradient.stops.size()) {
+    if (editor && !gradient_synchronizing_ && !synchronizing_ && index &&
+        *index < (*editor).fill_gradient.stops.size()) {
         (*editor).gradient_stop = *index;
         (*editor).refresh();
     }
 }
 void Ribbon::gradient_number_changed(double) {
     const std::shared_ptr<Editor> editor = editor_.lock();
-    if (!editor || gradient_synchronizing_) {
+    if (!editor || gradient_synchronizing_ || synchronizing_) {
         return;
     }
     Gradient& gradient = (*editor).fill_gradient;
-    gradient.angle = (*gradient_angle_).value();
-    (*editor).gradient_stop =
-        move_gradient_stop(gradient, (*editor).gradient_stop, (*gradient_position_).value() / 100);
+    if (gradient_angle_) {
+        gradient.angle = (*gradient_angle_).value.read();
+    }
+    if (gradient_position_) {
+        (*editor).gradient_stop =
+            move_gradient_stop(gradient, (*editor).gradient_stop, (*gradient_position_).value.read() / 100);
+    }
     (*editor).refresh();
 }
+// The gradient commands and menu choices; false for another ID.
 bool Ribbon::gradient_clicked(const std::string& id) {
     const std::shared_ptr<Editor> editor = editor_.lock();
     if (!editor) {
@@ -186,16 +164,14 @@ bool Ribbon::gradient_clicked(const std::string& id) {
     if (id == "bucket-solid" || id == "bucket-gradient") {
         (*editor).gradient_fill = id == "bucket-gradient";
         (*editor).choose_tool(Tool::Fill);
-        page_ = (*editor).gradient_fill ? 256 : 8;
-        collapsed_ = false;
-        synchronize();
+        show_tool_context();
         return true;
     }
-    if (!id.starts_with("gradient-") || id == "gradient-tab" || id == "gradient-presets-menu") {
+    if (!id.starts_with("gradient-") || id == "gradient-stops-menu") {
         return false;
     }
     Gradient& gradient = (*editor).fill_gradient;
-    if (id == "gradient-color" || id == "gradient-edit-color") {
+    if (id == "gradient-edit-color") {
         (*editor).open_editor_dialog(EditorDialogKind::gradient_color);
         return true;
     }
@@ -211,17 +187,17 @@ bool Ribbon::gradient_clicked(const std::string& id) {
         (*editor).gradient_stop = gradient.stops.size() - 1 - (*editor).gradient_stop;
     } else if (id == "gradient-add" && gradient.stops.size() < 32) {
         const double start = gradient.stops[(*editor).gradient_stop].position;
-        double position = (*editor).gradient_stop + 1 < gradient.stops.size()
-                              ? (start + gradient.stops[(*editor).gradient_stop + 1].position) * .5
-                              : start * .5;
-        Color color = GradientSampler(gradient, {0, 0, 1, 1}).at(position);
+        const double position = (*editor).gradient_stop + 1 < gradient.stops.size()
+                                    ? (start + gradient.stops[(*editor).gradient_stop + 1].position) * .5
+                                    : start * .5;
+        const Color color = GradientSampler(gradient, {0, 0, 1, 1}).at(position);
         gradient.stops.push_back({position, color});
         (*editor).gradient_stop = move_gradient_stop(gradient, gradient.stops.size() - 1, position);
     } else if (id == "gradient-remove" && gradient.stops.size() > 2) {
-        gradient.stops.erase(gradient.stops.begin() + (*editor).gradient_stop);
+        gradient.stops.erase(gradient.stops.begin() + static_cast<std::ptrdiff_t>((*editor).gradient_stop));
         (*editor).gradient_stop = std::min((*editor).gradient_stop, gradient.stops.size() - 1);
     } else if (id.starts_with("gradient-preset-")) {
-        std::size_t index = static_cast<std::size_t>(std::stoi(id.substr(16)));
+        const std::size_t index = static_cast<std::size_t>(std::stoi(id.substr(16)));
         if (index < gradient_presets().size()) {
             gradient = gradient_presets()[index].gradient;
             (*editor).gradient_stop = 0;
@@ -229,30 +205,5 @@ bool Ribbon::gradient_clicked(const std::string& id) {
     }
     (*editor).refresh();
     return true;
-}
-gf::Size Ribbon::gradient_gallery(gf::Panel& panel) {
-    gradient_previews_ = std::make_shared<gf::ImageList>(*attached_window(), gf::Size{120, 30});
-    const std::span<const GradientPreset> presets = gradient_presets();
-    for (std::size_t i = 0; i < presets.size(); ++i) {
-        Image sample;
-        sample.reset(240, 60);
-        const GradientSampler sampler(presets[i].gradient, {0, 0, 240, 60});
-        for (int y = 0; y < 60; ++y) {
-            for (int x = 0; x < 240; ++x) {
-                sample.set(x, y, sampler.at(x / 239.0));
-            }
-        }
-        std::vector<std::uint8_t> png = encode_png(sample);
-        static_cast<void>((*gradient_previews_).add_png(std::to_string(i), std::as_bytes(std::span(png)), 2));
-        const std::shared_ptr<gf::Button> item =
-            add_popup_button(panel, "gradient-preset-" + std::to_string(i), presets[i].name, -1,
-                             {5.0 + (i % 3) * 148, 4.0 + (i / 3) * 65, 144, 62});
-        (*item).set_image_list(gradient_previews_);
-        (*item).set_image_key(std::to_string(i));
-        (*item).set_text_image_relation(gf::TextImageRelation::image_above_text);
-        (*item).set_text_alignment(gf::ContentAlignment::middle_center);
-        (*item).set_font({gf::FontRole::control, 12, 400, false});
-    }
-    return {454, 8 + 65.0 * ((presets.size() + 2) / 3)};
 }
 } // namespace paint::forms

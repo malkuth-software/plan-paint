@@ -82,8 +82,8 @@ void EditorDialog::initialize_toolbar_strip() {
     }
     label("strip-order-label", tr("Image order (comma-separated numbers)"), {20, 46, 740, 24});
     strip_order_ = gf::make_control<gf::TextBox>(gf::StableId("strip-order"));
-    (*strip_order_).set_accessible_name(tr("Image order (comma-separated numbers)"));
-    (*strip_order_).set_text(ordinals);
+    (*strip_order_).accessible_name = tr("Image order (comma-separated numbers)");
+    (*strip_order_).text = ordinals;
     put(strip_order_, {20, 73, 740, 28});
     const char* labels[] = {"Cell width", "Cell height", "Columns", "Horizontal gap", "Vertical gap"};
     const double maximum[] = {4096, 4096, 256, 256, 256};
@@ -93,43 +93,43 @@ void EditorDialog::initialize_toolbar_strip() {
         const std::shared_ptr<gf::NumericUpDown> value =
             number("strip-value-" + std::to_string(index), {20 + index * 148.0, 136, 140, 28},
                    index < 3 ? 1 : 0, maximum[index], values[index]);
-        (*value).set_accessible_name(tr(labels[index]));
+        (*value).accessible_name = tr(labels[index]);
         strip_values_.push_back(value);
         subscriptions_.push_back((*value).value_changed().subscribe(
             *this, gf::Delegate<double>::bind<EditorDialog, &EditorDialog::strip_number>(*this)));
     }
     strip_format_ = gf::make_control<gf::ComboBox>(gf::StableId("strip-format"));
-    (*strip_format_).set_items({"PNG", "BMP"});
-    (*strip_format_).set_selected_index(0);
-    (*strip_format_).set_accessible_name(tr("Output format"));
+    (*strip_format_).items = {"PNG", "BMP"};
+    (*strip_format_).selected_index = 0;
+    (*strip_format_).accessible_name = tr("Output format");
     put(strip_format_, {20, 184, 140, 28});
     strip_background_ = gf::make_control<gf::ComboBox>(gf::StableId("strip-background"));
-    (*strip_background_).set_items({tr("Transparent"), tr("Matte RGB")});
-    (*strip_background_).set_selected_index(0);
-    (*strip_background_).set_accessible_name(tr("Background"));
+    (*strip_background_).items = {tr("Transparent"), tr("Matte RGB")};
+    (*strip_background_).selected_index = 0;
+    (*strip_background_).accessible_name = tr("Background");
     put(strip_background_, {176, 184, 200, 28});
     strip_matte_ = gf::make_control<gf::TextBox>(gf::StableId("strip-matte"));
-    (*strip_matte_).set_text(to_hex(document.ink.secondary));
-    (*strip_matte_).set_accessible_name(tr("Matte RGB"));
+    (*strip_matte_).text = to_hex(document.ink.secondary);
+    (*strip_matte_).accessible_name = tr("Matte RGB");
     put(strip_matte_, {392, 184, 148, 28});
     strip_fit_ = gf::make_control<gf::CheckBox>(gf::StableId("strip-fit"), tr("Fit image"));
     put(strip_fit_, {556, 184, 204, 28});
     strip_canvas_ = gf::make_control<gf::RasterCanvas>(gf::StableId("strip-canvas"));
-    (*strip_canvas_).set_accessible_name(tr("Preview"));
+    (*strip_canvas_).accessible_name = tr("Preview");
     put(strip_canvas_, {20, 228, 740, 120});
     strip_report_ = gf::make_control<gf::TextBox>(gf::StableId("strip-report"));
-    (*strip_report_).set_font({gf::FontRole::control, 11, 400, false});
-    (*strip_report_).set_read_only(true);
-    (*strip_report_).set_multiline(true);
-    (*strip_report_).set_word_wrap(true);
-    (*strip_report_).set_accessible_name(tr("Output manifest"));
+    (*strip_report_).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
+    (*strip_report_).read_only = true;
+    (*strip_report_).multiline = true;
+    (*strip_report_).word_wrap = true;
+    (*strip_report_).accessible_name = tr("Output manifest");
     put(strip_report_, {20, 358, 740, 80});
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));
-    (*error_).set_text_wrapping(gf::TextWrapping::word);
+    (*error_).text_wrapping = gf::TextWrapping::word;
     put(error_, {20, 441, 740, 28});
     strip_preview_ = button("strip-preview", tr("Preview"), {20, 474, 150, 28});
     strip_export_ = button("strip-export", tr("Export…"), {550, 474, 100, 28});
-    (*strip_export_).set_enabled(false);
+    (*strip_export_).enabled = false;
     button("dialog-cancel", tr("Close"), {660, 474, 100, 28});
     for (const std::shared_ptr<gf::ButtonBase>& control :
          {std::static_pointer_cast<gf::ButtonBase>(strip_preview_),
@@ -159,17 +159,17 @@ void EditorDialog::stop_toolbar_strip() {
 }
 void EditorDialog::invalidate_toolbar_strip() {
     stop_toolbar_strip();
-    (*strip_export_).set_enabled(false);
-    (*strip_preview_).set_enabled(true);
+    (*strip_export_).enabled = false;
+    (*strip_preview_).enabled = true;
     (*strip_canvas_).clear_bitmap();
-    (*strip_report_).set_text("");
-    (*error_).set_text("");
-    const bool bmp = (*strip_format_).selected_index().value_or(0) == 1;
+    (*strip_report_).text = "";
+    (*error_).text = "";
+    const bool bmp = (*strip_format_).selected_index.read().value_or(0) == 1;
     if (bmp) {
-        (*strip_background_).set_selected_index(1);
+        (*strip_background_).selected_index = 1;
     }
-    (*strip_background_).set_enabled(!bmp);
-    (*strip_matte_).set_enabled(bmp || (*strip_background_).selected_index().value_or(0) == 1);
+    (*strip_background_).enabled = !bmp;
+    (*strip_matte_).enabled = bmp || (*strip_background_).selected_index.read().value_or(0) == 1;
 }
 void EditorDialog::strip_number(double) {
     invalidate_toolbar_strip();
@@ -187,25 +187,25 @@ void EditorDialog::start_toolbar_strip() {
         ToolbarStripJob& job = *strip_job_;
         job.source = strip_source_;
         job.order =
-            parse_strip_order(std::string((*strip_order_).text()), int((*strip_source_).frames.size()));
-        job.options.width = int((*strip_values_[0]).value());
-        job.options.height = int((*strip_values_[1]).value());
-        job.options.columns = int((*strip_values_[2]).value());
-        job.options.gap_x = int((*strip_values_[3]).value());
-        job.options.gap_y = int((*strip_values_[4]).value());
-        job.options.fit = (*strip_fit_).checked();
-        job.bmp = (*strip_format_).selected_index().value_or(0) == 1;
-        job.options.opaque = job.bmp || (*strip_background_).selected_index().value_or(0) == 1;
-        if (job.options.opaque && !from_hex(std::string((*strip_matte_).text()), job.options.matte)) {
+            parse_strip_order(std::string((*strip_order_).text.read()), int((*strip_source_).frames.size()));
+        job.options.width = int((*strip_values_[0]).value.read());
+        job.options.height = int((*strip_values_[1]).value.read());
+        job.options.columns = int((*strip_values_[2]).value.read());
+        job.options.gap_x = int((*strip_values_[3]).value.read());
+        job.options.gap_y = int((*strip_values_[4]).value.read());
+        job.options.fit = (*strip_fit_).checked.read();
+        job.bmp = (*strip_format_).selected_index.read().value_or(0) == 1;
+        job.options.opaque = job.bmp || (*strip_background_).selected_index.read().value_or(0) == 1;
+        if (job.options.opaque && !from_hex(std::string((*strip_matte_).text.read()), job.options.matte)) {
             throw std::runtime_error(tr("Invalid color"));
         }
-        (*strip_preview_).set_enabled(false);
-        (*strip_report_).set_text(tr("Preparing preview…"));
+        (*strip_preview_).enabled = false;
+        (*strip_report_).text = tr("Preparing preview…");
         strip_worker_ = std::thread(
             StripWork{this, std::static_pointer_cast<EditorDialog>(shared_from_this()), strip_job_});
     } catch (const std::exception& error) {
-        (*error_).set_text(error.what());
-        (*strip_preview_).set_enabled(true);
+        (*error_).text = error.what();
+        (*strip_preview_).enabled = true;
     }
 }
 void EditorDialog::deliver_toolbar_strip(const std::shared_ptr<ToolbarStripJob>& job) {
@@ -215,9 +215,9 @@ void EditorDialog::deliver_toolbar_strip(const std::shared_ptr<ToolbarStripJob>&
     if (strip_worker_.joinable()) {
         strip_worker_.join();
     }
-    (*strip_preview_).set_enabled(true);
-    (*error_).set_text((*job).error);
-    (*strip_report_).set_text("");
+    (*strip_preview_).enabled = true;
+    (*error_).text = (*job).error;
+    (*strip_report_).text = "";
     if (!(*job).error.empty()) {
         return;
     }
@@ -230,9 +230,9 @@ void EditorDialog::deliver_toolbar_strip(const std::shared_ptr<ToolbarStripJob>&
                << cell.image.w << " × " << cell.image.h << (cell.upscaled ? " · " + tr("Upscaling") : "")
                << '\n';
     }
-    (*strip_report_).set_text(report.str());
+    (*strip_report_).text = report.str();
     (*strip_report_).select(gf::Utf8Offset{0}, gf::Utf8Offset{0});
-    (*strip_export_).set_enabled(true);
+    (*strip_export_).enabled = true;
 }
 void EditorDialog::strip_clicked(gf::ButtonBase& control) {
     const std::string id(control.stable_id().value());
@@ -245,15 +245,15 @@ void EditorDialog::strip_clicked(gf::ButtonBase& control) {
         return;
     }
     const std::shared_ptr<Editor> editor = editor_.lock();
-    if (!editor || !strip_job_ || !(*strip_export_).enabled()) {
+    if (!editor || !strip_job_ || !(*strip_export_).enabled.read()) {
         return;
     }
     try {
         if ((*editor).export_toolbar_strip((*strip_job_).image, (*strip_job_).bmp, strip_source_path_)) {
-            (*error_).set_text(tr("Completed"));
+            (*error_).text = tr("Completed");
         }
     } catch (const std::exception& error) {
-        (*error_).set_text(error.what());
+        (*error_).text = error.what();
     }
 }
 } // namespace paint::forms

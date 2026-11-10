@@ -1,10 +1,40 @@
 #include "forms/editor.hpp"
+#include "command_line.hpp"
 #include "paths.hpp"
 #include "localization.hpp"
+#include "plan_paint_theme.hpp"
+#include <gui_forms/application.hpp>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <iostream>
+#include <memory>
+namespace {
+void report_theme_findings(const std::vector<gui_forms::ThemeCompileDiagnostic>& findings) {
+    for (const gui_forms::ThemeCompileDiagnostic& finding : findings) {
+        std::cerr << "Plan Paint theme: " << finding.code << ' ' << finding.file << ':' << finding.line << ':'
+                  << finding.column << ' ' << finding.rule << ' ' << finding.property << ' ' << finding.detail
+                  << '\n';
+    }
+}
+// The application comes first (GUI.Forms' Application-first lifecycle): it
+// compiles the GUI.Forms base and Plan Paint's package once, and the window
+// made after it joins it. A refused package must not stop the program: its
+// findings go to standard error and the base theme alone is used.
+gui_forms::ApplicationCreateResult create_application() {
+    gui_forms::ApplicationConfig config{};
+    config.theme.base = gui_forms::ThemeBase::gui_forms;
+    config.theme.packages.push_back(paint::plan_paint_theme());
+    gui_forms::ApplicationCreateResult created = gui_forms::Application::create(std::move(config));
+    report_theme_findings(created.findings);
+    if (created || created.error != gui_forms::ApplicationCreateError::theme_refused) {
+        return created;
+    }
+    gui_forms::ApplicationConfig fallback{};
+    fallback.theme.base = gui_forms::ThemeBase::gui_forms;
+    return gui_forms::Application::create(std::move(fallback));
+}
+} // namespace
 int main(int argc, char** argv) {
     try {
         paint::EditorSettings startup_settings;
@@ -15,16 +45,22 @@ int main(int argc, char** argv) {
             // Preference storage failure must not prevent starting in English.
             startup_settings.language = "en-us";
         }
-        std::string initial_path;
-        std::string session_language = startup_settings.language;
-        bool session_canvas_controls = false;
-        for (int i = 1; i < argc; ++i) {
-            const std::string argument(argv[i]);
-            if (argument.starts_with("--language=")) { session_language = argument.substr(11); }
-            else if (argument == "--canvas-controls") { session_canvas_controls = true; }
-            else if (initial_path.empty()) { initial_path = argument; }
+        const std::vector<std::string> arguments = paint::utf8_arguments(argc, argv);
+        const paint::CommandLine command_line = paint::parse_command_line(arguments);
+        for (const std::string& ignored : command_line.ignored_options) {
+            std::cerr << "Plan Paint: ignoring unknown option " << ignored << '\n';
         }
+        const std::string initial_path = command_line.initial_path;
+        const std::string session_language =
+            command_line.language.empty() ? startup_settings.language : command_line.language;
+        const bool session_canvas_controls = command_line.canvas_controls;
         paint::initialize_language(paint::application_language_directory(), session_language);
+        gui_forms::ApplicationCreateResult created = create_application();
+        if (!created) {
+            std::cerr << "Plan Paint: the GUI.Forms application could not be created.\n";
+            return 1;
+        }
+        gui_forms::Application& application = *created.application;
         const std::shared_ptr<paint::forms::Editor> editor =
             gui_forms::make_control<paint::forms::Editor>(gui_forms::StableId("paint.editor"));
         try {
@@ -50,8 +86,7 @@ int main(int argc, char** argv) {
         options.ready = std::bind(&paint::forms::Editor::ready, editor, std::placeholders::_1,
                                   std::placeholders::_2, initial_path);
         options.closing = std::bind(&paint::forms::Editor::closing, editor, std::placeholders::_1);
-        gui_forms::ApplicationResult result =
-            gui_forms::Application::run(std::move(window), std::move(options));
+        gui_forms::ApplicationResult result = application.run(std::move(window), std::move(options));
         if (result.callback_exception) {
             std::rethrow_exception(result.callback_exception);
         }

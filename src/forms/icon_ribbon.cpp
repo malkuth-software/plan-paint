@@ -21,8 +21,8 @@ void IconPanel::initialize_control_tree() {
         const std::shared_ptr<gf::Button> command =
             gf::make_control<gf::Button>(gf::StableId(std::string("icon-") + ids[index]), labels[index]);
         (*command).set_theme_override(ribbon_theme());
-        (*command).set_font({gf::FontRole::control, 11, 400, false});
-        (*command).set_accessible_name(labels[index]);
+        (*command).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
+        (*command).accessible_name = labels[index];
         subscriptions_.push_back((*command).clicked().subscribe(
             *this, gf::Delegate<gf::ButtonBase&>::bind<IconPanel, &IconPanel::clicked>(*this)));
         commands_.push_back(command);
@@ -32,51 +32,57 @@ void IconPanel::initialize_control_tree() {
     for (std::size_t index = 0; index < std::size(group_names); ++index) {
         const std::shared_ptr<gf::Label> group = gf::make_control<gf::Label>(
             gf::StableId("icon-group-" + std::to_string(index)), group_names[index]);
-        (*group).set_font({gf::FontRole::control, 11, 400, false});
-        (*group).set_alignment(gf::HorizontalAlignment::center);
-        (*group).set_use_mnemonic(false);
+        (*group).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
+        (*group).alignment = gf::HorizontalAlignment::center;
+        (*group).use_mnemonic = false;
         groups_.push_back(group);
         add_child(group);
     }
     strip_ = gf::make_control<gf::FlowLayoutPanelCompat>(gf::StableId("icon-frames"));
-    (*strip_).set_auto_scroll(true);
-    (*strip_).set_padding({0, 0, 0, 0});
-    (*strip_).set_wrap_contents(false);
-    (*strip_).set_item_spacing({4, 0});
+    (*strip_).auto_scroll = true;
+    (*strip_).padding = {0, 0, 0, 0};
+    (*strip_).wrap_contents = false;
+    (*strip_).item_spacing = {4, 0};
     add_child(strip_);
     status_ = gf::make_control<gf::Label>(gf::StableId("icon-status"));
-    (*status_).set_font({gf::FontRole::control, 11, 400, false});
+    (*status_).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
     add_child(status_);
 }
 void IconPanel::arrange(gf::Rect bounds) {
     arrange_self(bounds);
-    // Production spans two columns; the remaining width belongs to image selection.
-    const gf::Rect placements[] = {{6, 4, 102, 24},   {6, 30, 102, 24},   {6, 56, 102, 24},
-                                   {120, 4, 102, 24}, {120, 30, 102, 24}, {234, 4, 102, 24},
-                                   {348, 4, 102, 24}, {234, 30, 102, 24}};
+    // The panel covers the ribbon's command plane (88 pixels tall at cp22):
+    // three rows of commands over the group captions on the left, and the
+    // representation strip over a line of validate, status and stepping on
+    // the right. Production spans two columns.
+    const double row = 22;
+    const gf::Rect placements[] = {{6, 3, 102, 20},           {6, 3 + row, 102, 20},       {6, 3 + 2 * row, 102, 20},
+                                   {120, 3, 102, 20},         {120, 3 + row, 102, 20},     {234, 3, 102, 20},
+                                   {348, 3, 102, 20},         {234, 3 + row, 102, 20}};
     for (std::size_t index = 0; index < std::size(placements); ++index) {
         set_child_layout(commands_[index], placements[index]);
     }
-    set_child_layout(commands_[8], {bounds.width - 162, 96, 76, 20});
-    set_child_layout(commands_[9], {bounds.width - 82, 96, 76, 20});
-    set_child_layout(commands_[10], {348, 30, 102, 24});
-    set_child_layout(commands_[11], {120, 56, 102, 24});
-    set_child_layout(commands_[12], {234, 56, 102, 24});
-    set_child_layout(commands_[13], {348, 56, 102, 24});
-    set_child_layout(commands_[14], {6,96,102,20});
+    const double line = std::max(0.0, bounds.height - 22);
+    const double strip_left = command_plane_width + 6;
+    set_child_layout(commands_[8], {bounds.width - 162, line, 76, 20});
+    set_child_layout(commands_[9], {bounds.width - 82, line, 76, 20});
+    set_child_layout(commands_[10], {348, 3 + row, 102, 20});
+    set_child_layout(commands_[11], {120, 3 + 2 * row, 102, 20});
+    set_child_layout(commands_[12], {234, 3 + 2 * row, 102, 20});
+    set_child_layout(commands_[13], {348, 3 + 2 * row, 102, 20});
+    set_child_layout(commands_[14], {strip_left, line, 76, 20});
     for (std::size_t index = 0; index < 3; ++index) {
-        set_child_layout(groups_[index],
-                         {index * command_width, 80, index == 2 ? command_width * 2 : command_width, 15});
+        set_child_layout(groups_[index], {index * command_width, 3 + 3 * row,
+                                          index == 2 ? command_width * 2 : command_width, 15});
     }
     const double strip_width = std::max(1.0, bounds.width - command_plane_width - 12);
-    set_child_layout(strip_, {command_plane_width + 6, 4, strip_width, 90});
-    set_child_layout(status_, {114, 96, std::max(1.0, bounds.width - 282), 20});
+    set_child_layout(strip_, {strip_left, 3, strip_width, std::max(1.0, line - 5)});
+    set_child_layout(status_, {strip_left + 80, line, std::max(1.0, bounds.width - strip_left - 250), 20});
 }
 void IconPanel::on_paint(gf::Painter& painter, gf::Rect) {
     for (const int index : {1, 2, 4}) {
         const double x = index * command_width;
-        painter.draw_line({x, 5}, {x, 92}, interface_color(*this, gf::Color::rgba(109, 141, 183)), 1);
-        painter.draw_line({x + 1, 5}, {x + 1, 92}, interface_color(*this, gf::Color::rgba(245, 250, 255)), 1);
+        painter.draw_line({x, 5}, {x, 84}, interface_color(*this, gf::Color::rgba(109, 141, 183)), 1);
+        painter.draw_line({x + 1, 5}, {x + 1, 84}, interface_color(*this, gf::Color::rgba(245, 250, 255)), 1);
     }
 }
 void IconPanel::clicked(gf::ButtonBase& control) {
@@ -132,22 +138,22 @@ void IconPanel::synchronize() {
         (*thumbnail).synchronize();
     }
     for (const std::shared_ptr<gf::Button>& command : commands_) {
-        (*command).set_enabled(icon && count > 0);
+        (*command).enabled = icon && count > 0;
     }
     const std::string sizes = cursor ? tr("Cursor sizes…") : tr("Icon sizes…");
-    (*commands_[0]).set_text(sizes);
-    (*commands_[0]).set_accessible_name(sizes);
-    (*commands_[2]).set_enabled(cursor && count > 0);
+    (*commands_[0]).text = sizes;
+    (*commands_[0]).accessible_name = sizes;
+    (*commands_[2]).enabled = cursor && count > 0;
     const bool indexed = (*editor).icon_palette_available();
-    (*commands_[11]).set_enabled(indexed || (*editor).icon_index_paint);
-    (*commands_[11]).set_selected((*editor).icon_index_paint);
+    (*commands_[11]).enabled = indexed || (*editor).icon_index_paint;
+    (*commands_[11]).selected = (*editor).icon_index_paint;
     if (indexed) {
         const unsigned capacity = static_cast<unsigned>((*atlas.icons[atlas.active].source).palette.size());
         (*editor).icon_primary_index = std::min((*editor).icon_primary_index, capacity - 1);
         (*editor).icon_alt_index = std::min((*editor).icon_alt_index, capacity - 1);
     }
-    (*status_).set_text("");
-    (*status_).set_accessible_name("");
+    (*status_).text = "";
+    (*status_).accessible_name = "";
     if (icon && atlas.active >= 0 && atlas.active < count) {
         const IconFrame& frame = atlas.icons[atlas.active];
         const ContainerKind kind = cursor ? ContainerKind::Cursor : ContainerKind::Icon;
@@ -161,8 +167,8 @@ void IconPanel::synchronize() {
                      std::to_string((*editor).icon_primary_index) + " · " + tr("Alt") + " #" +
                      std::to_string((*editor).icon_alt_index) + " · " + status;
         }
-        (*status_).set_text(status);
-        (*status_).set_accessible_name(status);
+        (*status_).text = status;
+        (*status_).accessible_name = status;
         if (active_ != atlas.active) {
             active_ = atlas.active;
             if (window()) {

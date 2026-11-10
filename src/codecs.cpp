@@ -1,4 +1,5 @@
 #include "codecs.hpp"
+#include "file_type.hpp"
 #include "import_codecs.hpp"
 #include "safe_file.hpp"
 #define STBI_WINDOWS_UTF8
@@ -205,84 +206,110 @@ Image decode_image(const void* data, std::size_t size) {
     std::memcpy(result.pixels.data(), pixels.get(), result.pixels.size() * sizeof(Color));
     return result;
 }
-Image load_image(const std::string& path) {
-    std::string ext = image_extension(path);
-    if (ext == ".tif" || ext == ".tiff") {
-        std::vector<std::uint8_t> bytes = read_image_bytes(path);
-        TiffMemory memory{&bytes, 0, false};
-        TIFF* file = open_tiff_memory(memory, "rm");
-        if (!file) {
-            throw std::runtime_error("Could not open TIFF.");
-        }
-        std::unique_ptr<TIFF, decltype(&TIFFClose)> close_file(file, &TIFFClose);
-        std::uint32_t width = 0, height = 0;
-        std::uint16_t bits = 0, samples = 0, photometric = 0, planar = 0, compression = 0, orientation = 0;
-        if (!TIFFGetField(file, TIFFTAG_IMAGEWIDTH, &width) ||
-            !TIFFGetField(file, TIFFTAG_IMAGELENGTH, &height)) {
-            throw std::runtime_error("TIFF is missing its image dimensions.");
-        }
-        validate_decoded_size(static_cast<int>(width), static_cast<int>(height));
-        TIFFGetFieldDefaulted(file, TIFFTAG_BITSPERSAMPLE, &bits);
-        TIFFGetFieldDefaulted(file, TIFFTAG_SAMPLESPERPIXEL, &samples);
-        TIFFGetFieldDefaulted(file, TIFFTAG_PHOTOMETRIC, &photometric);
-        TIFFGetFieldDefaulted(file, TIFFTAG_PLANARCONFIG, &planar);
-        TIFFGetFieldDefaulted(file, TIFFTAG_COMPRESSION, &compression);
-        TIFFGetFieldDefaulted(file, TIFFTAG_ORIENTATION, &orientation);
-        if (bits != 8 || (samples != 3 && samples != 4) || photometric != PHOTOMETRIC_RGB ||
-            planar != PLANARCONFIG_CONTIG || compression != COMPRESSION_NONE || TIFFIsTiled(file) ||
-            (orientation != ORIENTATION_TOPLEFT && orientation != ORIENTATION_BOTLEFT) ||
-            !TIFFLastDirectory(file)) {
-            throw std::runtime_error(
-                "For safe import, TIFF must be one uncompressed 8-bit RGB or RGBA image. Convert other "
-                "TIFF variants to PNG first.");
-        }
-        std::uint16_t extra_count = 0;
-        std::uint16_t* extra_types = nullptr;
-        if (samples == 4 &&
-            (!TIFFGetField(file, TIFFTAG_EXTRASAMPLES, &extra_count, &extra_types) || extra_count != 1 ||
-             (extra_types[0] != EXTRASAMPLE_UNASSALPHA && extra_types[0] != EXTRASAMPLE_ASSOCALPHA))) {
-            throw std::runtime_error("TIFF RGBA input must identify its alpha channel.");
-        }
-        const tmsize_t scanline_size = TIFFScanlineSize(file);
-        const std::size_t expected_scanline = static_cast<std::size_t>(width) * samples;
-        if (scanline_size < 0 || static_cast<std::size_t>(scanline_size) != expected_scanline) {
-            throw std::runtime_error("TIFF scanline geometry is inconsistent.");
-        }
-        Image result;
-        result.reset(static_cast<int>(width), static_cast<int>(height));
-        std::vector<std::uint8_t> scanline(expected_scanline);
-        for (std::uint32_t source_y = 0; source_y < height; ++source_y) {
-            if (TIFFReadScanline(file, scanline.data(), source_y, 0) < 0) {
-                throw std::runtime_error("TIFF decoding failed.");
-            }
-            const std::uint32_t target_y =
-                orientation == ORIENTATION_TOPLEFT ? source_y : height - source_y - 1;
-            for (std::uint32_t x = 0; x < width; ++x) {
-                const std::size_t source = static_cast<std::size_t>(x) * samples;
-                unsigned red = scanline[source], green = scanline[source + 1], blue = scanline[source + 2];
-                const unsigned alpha = samples == 4 ? scanline[source + 3] : 255;
-                if (samples == 4 && extra_types[0] == EXTRASAMPLE_ASSOCALPHA && alpha > 0 && alpha < 255) {
-                    red = std::min(255U, (red * 255 + alpha / 2) / alpha);
-                    green = std::min(255U, (green * 255 + alpha / 2) / alpha);
-                    blue = std::min(255U, (blue * 255 + alpha / 2) / alpha);
-                } else if (alpha == 0) {
-                    red = green = blue = 0;
-                }
-                result.set(static_cast<int>(x), static_cast<int>(target_y),
-                           {static_cast<std::uint8_t>(red), static_cast<std::uint8_t>(green),
-                            static_cast<std::uint8_t>(blue), static_cast<std::uint8_t>(alpha)});
-            }
-        }
-        return result;
+namespace {
+// Plan Paint's safe TIFF subset: one uncompressed 8-bit RGB or RGBA image.
+// TiffMemory reads through a mutable pointer; the bytes are not changed.
+Image decode_tiff(std::vector<std::uint8_t>& bytes) {
+    TiffMemory memory{&bytes, 0, false};
+    TIFF* file = open_tiff_memory(memory, "rm");
+    if (!file) {
+        throw std::runtime_error("Could not open TIFF.");
     }
-    if (ext == ".svg" || ext == ".svgz") {
+    std::unique_ptr<TIFF, decltype(&TIFFClose)> close_file(file, &TIFFClose);
+    std::uint32_t width = 0, height = 0;
+    std::uint16_t bits = 0, samples = 0, photometric = 0, planar = 0, compression = 0, orientation = 0;
+    if (!TIFFGetField(file, TIFFTAG_IMAGEWIDTH, &width) ||
+        !TIFFGetField(file, TIFFTAG_IMAGELENGTH, &height)) {
+        throw std::runtime_error("TIFF is missing its image dimensions.");
+    }
+    validate_decoded_size(static_cast<int>(width), static_cast<int>(height));
+    TIFFGetFieldDefaulted(file, TIFFTAG_BITSPERSAMPLE, &bits);
+    TIFFGetFieldDefaulted(file, TIFFTAG_SAMPLESPERPIXEL, &samples);
+    TIFFGetFieldDefaulted(file, TIFFTAG_PHOTOMETRIC, &photometric);
+    TIFFGetFieldDefaulted(file, TIFFTAG_PLANARCONFIG, &planar);
+    TIFFGetFieldDefaulted(file, TIFFTAG_COMPRESSION, &compression);
+    TIFFGetFieldDefaulted(file, TIFFTAG_ORIENTATION, &orientation);
+    if (bits != 8 || (samples != 3 && samples != 4) || photometric != PHOTOMETRIC_RGB ||
+        planar != PLANARCONFIG_CONTIG || compression != COMPRESSION_NONE || TIFFIsTiled(file) ||
+        (orientation != ORIENTATION_TOPLEFT && orientation != ORIENTATION_BOTLEFT) ||
+        !TIFFLastDirectory(file)) {
+        throw std::runtime_error(
+            "For safe import, TIFF must be one uncompressed 8-bit RGB or RGBA image. Convert other "
+            "TIFF variants to PNG first.");
+    }
+    std::uint16_t extra_count = 0;
+    std::uint16_t* extra_types = nullptr;
+    if (samples == 4 &&
+        (!TIFFGetField(file, TIFFTAG_EXTRASAMPLES, &extra_count, &extra_types) || extra_count != 1 ||
+         (extra_types[0] != EXTRASAMPLE_UNASSALPHA && extra_types[0] != EXTRASAMPLE_ASSOCALPHA))) {
+        throw std::runtime_error("TIFF RGBA input must identify its alpha channel.");
+    }
+    const tmsize_t scanline_size = TIFFScanlineSize(file);
+    const std::size_t expected_scanline = static_cast<std::size_t>(width) * samples;
+    if (scanline_size < 0 || static_cast<std::size_t>(scanline_size) != expected_scanline) {
+        throw std::runtime_error("TIFF scanline geometry is inconsistent.");
+    }
+    Image result;
+    result.reset(static_cast<int>(width), static_cast<int>(height));
+    std::vector<std::uint8_t> scanline(expected_scanline);
+    for (std::uint32_t source_y = 0; source_y < height; ++source_y) {
+        if (TIFFReadScanline(file, scanline.data(), source_y, 0) < 0) {
+            throw std::runtime_error("TIFF decoding failed.");
+        }
+        const std::uint32_t target_y =
+            orientation == ORIENTATION_TOPLEFT ? source_y : height - source_y - 1;
+        for (std::uint32_t x = 0; x < width; ++x) {
+            const std::size_t source = static_cast<std::size_t>(x) * samples;
+            unsigned red = scanline[source], green = scanline[source + 1], blue = scanline[source + 2];
+            const unsigned alpha = samples == 4 ? scanline[source + 3] : 255;
+            if (samples == 4 && extra_types[0] == EXTRASAMPLE_ASSOCALPHA && alpha > 0 && alpha < 255) {
+                red = std::min(255U, (red * 255 + alpha / 2) / alpha);
+                green = std::min(255U, (green * 255 + alpha / 2) / alpha);
+                blue = std::min(255U, (blue * 255 + alpha / 2) / alpha);
+            } else if (alpha == 0) {
+                red = green = blue = 0;
+            }
+            result.set(static_cast<int>(x), static_cast<int>(target_y),
+                       {static_cast<std::uint8_t>(red), static_cast<std::uint8_t>(green),
+                        static_cast<std::uint8_t>(blue), static_cast<std::uint8_t>(alpha)});
+        }
+    }
+    return result;
+}
+const char* svgz_message =
+    "Compressed SVG (SVGZ) is not supported. Save the drawing as plain SVG, or export it as PNG.";
+// Decodes one picture whose type resolve_image_type chose. SVG is rasterized
+// from the path (its loader validates and rewrites the XML itself).
+Image decode_resolved(ImageFileType type, const std::string& path, std::vector<std::uint8_t>& bytes) {
+    switch (type) {
+    case ImageFileType::unknown:
+        throw std::runtime_error(unsupported_image_message(path));
+    case ImageFileType::svgz:
+        throw std::runtime_error(svgz_message);
+    case ImageFileType::svg:
         return rasterize_svg(path);
-    }
-    std::vector<std::uint8_t> bytes = read_image_bytes(path);
-    if (ext == ".heic" || ext == ".heif" || ext == ".hif") {
+    case ImageFileType::tiff:
+        return decode_tiff(bytes);
+    case ImageFileType::heif:
         return decode_native_heif(bytes.data(), bytes.size());
+    case ImageFileType::png:
+    case ImageFileType::jpeg:
+    case ImageFileType::bmp:
+    case ImageFileType::gif:
+    case ImageFileType::webp:
+    case ImageFileType::avif:
+    case ImageFileType::tga:
+    case ImageFileType::ico:
+    case ImageFileType::cur:
+        break;
     }
     return decode_image(bytes.data(), bytes.size());
+}
+} // namespace
+Image load_image(const std::string& path) {
+    std::vector<std::uint8_t> bytes = read_image_bytes(path);
+    const ImageFileType type = resolve_image_type(path, bytes.data(), bytes.size());
+    return decode_resolved(type, path, bytes);
 }
 std::vector<std::uint8_t> read_image_bytes(const std::string& path, std::size_t maximum) {
     return read_regular_file_bounded(
@@ -290,25 +317,23 @@ std::vector<std::uint8_t> read_image_bytes(const std::string& path, std::size_t 
         "Could not read this image as a bounded regular file, or it exceeds its import size limit.");
 }
 bool writable_image_path(const std::string& path) {
-    std::string ext = image_extension(path);
-    return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".tif" ||
-           ext == ".tiff" || ext == ".tga" || ext == ".ico" || ext == ".cur";
+    return writable_image_type(image_type_from_extension(path));
 }
 ImageContainer load_container(const std::string& path) {
-    std::string ext = image_extension(path);
-    if (ext == ".ico" || ext == ".cur") {
-        std::vector<std::uint8_t> bytes = read_image_bytes(path);
+    std::vector<std::uint8_t> bytes = read_image_bytes(path);
+    const ImageFileType type = resolve_image_type(path, bytes.data(), bytes.size());
+    if (type == ImageFileType::ico || type == ImageFileType::cur) {
         return decode_icon_container(bytes.data(), bytes.size());
     }
     ImageContainer result;
-    if (ext == ".svg" || ext == ".svgz") {
+    if (type == ImageFileType::svg) {
         const std::shared_ptr<const SvgSource> source = load_svg_source(path);
         IconFrame frame;
         frame.image = (*source).original;
         frame.svg_source = source;
         result.frames.push_back(std::move(frame));
     } else {
-        result.frames.push_back({load_image(path), 0, 0, {}});
+        result.frames.push_back({decode_resolved(type, path, bytes), 0, 0, {}});
     }
     return result;
 }

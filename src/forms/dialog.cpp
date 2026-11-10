@@ -1,4 +1,7 @@
 #include "forms/dialog.hpp"
+#include "about_form.hpp"
+#include "english_help_form.hpp"
+#include "tool_size_form.hpp"
 #include "localization.hpp"
 #include "forms/interface_theme.hpp"
 #include "forms/atlas.hpp"
@@ -20,8 +23,8 @@ gf::Color ui_color(Color color) {
 } // namespace
 ColorPlane::ColorPlane(gf::StableId id, std::weak_ptr<EditorDialog> dialog, bool hue_strip)
     : Control(std::move(id)), dialog_(std::move(dialog)), hue_strip_(hue_strip) {
-    set_cursor(gf::CursorKind::crosshair);
-    set_accessible_name(hue_strip ? tr("Hue") : tr("Saturation and value"));
+    cursor = gf::CursorKind::crosshair;
+    accessible_name = hue_strip ? tr("Hue") : tr("Saturation and value");
 }
 void ColorPlane::on_paint(gf::Painter& painter, gf::Rect) {
     std::shared_ptr<EditorDialog> dialog = dialog_.lock();
@@ -59,7 +62,7 @@ void ColorPlane::on_paint(gf::Painter& painter, gf::Rect) {
     }
     painter.stroke_rect({0.5, 0.5, bounds.width - 1, bounds.height - 1}, gf::Color::rgba(132, 153, 176), 1);
 }
-void ColorPlane::on_detaching_from_window(gf::Window& owner) noexcept {
+void ColorPlane::on_detaching_from_window(gf::SurfaceRoot& owner) noexcept {
     if (mosaic_image_.value) {
         static_cast<void>(owner.remove_image(mosaic_image_));
     }
@@ -177,27 +180,51 @@ void EditorDialog::put(gf::Control::Ptr control, gf::Rect bounds) {
             if (!label) { continue; }
             const gf::Rect box = (*label).requested_bounds();
             const double distance = std::abs(box.y - bounds.y) + std::abs(box.x + box.width - bounds.x) * .1;
-            if (box.x <= bounds.x && distance < nearest) { nearest = distance; accessible = (*label).text(); }
+            if (box.x <= bounds.x && distance < nearest) { nearest = distance; accessible = (*label).text.read(); }
         }
-        if (!accessible.empty()) { (*control).set_accessible_name(accessible); }
+        if (!accessible.empty()) { (*control).accessible_name = accessible; }
     }
     (*control).set_requested_bounds(bounds);
     controls_.push_back(control);
     add_child(control);
 }
+void EditorDialog::style_label(gf::Label& control, bool heading) {
+    control.font = gf::FontSpec{gf::FontRole::control, heading ? 14.0 : 13.0, static_cast<std::uint16_t>(heading ? 600 : 400),
+                    false, 0.05};
+    control.fore_color = gf::Color::rgba(45, 66, 88);
+    if (current_language().right_to_left && kind_ != EditorDialogKind::english_help) {
+        control.alignment = gf::HorizontalAlignment::far;
+    }
+}
 void EditorDialog::label(const std::string& id, const std::string& text, gf::Rect bounds, bool heading) {
     std::shared_ptr<gf::Label> control = gf::make_control<gf::Label>(gf::StableId(id), text);
-    (*control).set_font({gf::FontRole::control, heading ? 14.0 : 13.0,
-                         static_cast<std::uint16_t>(heading ? 600 : 400), false, 0.05});
-    (*control).set_foreground(gf::Color::rgba(45, 66, 88));
-    if (current_language().right_to_left && kind_ != EditorDialogKind::english_help) { (*control).set_alignment(gf::HorizontalAlignment::far); }
+    style_label(*control, heading);
     put(control, bounds);
+}
+// Moves a form document's controls out of its root into the dialog, in
+// document order, at their bounds in the dialog panel. A label is styled as
+// label() styles one (the heading is `heading_id`), and with `translate` its
+// text, the catalogue's English key, is translated. The form's root is left
+// empty; the caller keeps its typed members.
+void EditorDialog::adopt_form(gf::Control& form, const std::string& heading_id, bool translate) {
+    const std::vector<gf::Control::Ptr> children(form.children().begin(), form.children().end());
+    for (const gf::Control::Ptr& child : children) {
+        static_cast<void>(form.remove_child((*child).runtime_id()));
+        const std::shared_ptr<gf::Label> text = std::dynamic_pointer_cast<gf::Label>(child);
+        if (text) {
+            style_label(*text, (*text).stable_id().value() == heading_id);
+            if (translate) {
+                (*text).text = tr((*text).text.read());
+            }
+        }
+        put(child, (*child).requested_bounds());
+    }
 }
 std::shared_ptr<gf::Button> EditorDialog::button(const std::string& id, const std::string& text,
                                                  gf::Rect bounds) {
     std::shared_ptr<gf::Button> control = gf::make_control<gf::Button>(gf::StableId(id), text);
-    (*control).set_font({gf::FontRole::control, 13, 400, false, 0.05});
-    (*control).set_use_mnemonic(false);
+    (*control).font = gf::FontSpec{gf::FontRole::control, 13, 400, false, 0.05};
+    (*control).use_mnemonic = false;
     subscriptions_.push_back((*control).clicked().subscribe(
         *this, gf::Delegate<gf::ButtonBase&>::bind<EditorDialog, &EditorDialog::clicked>(*this)));
     put(control, bounds);
@@ -208,9 +235,9 @@ std::shared_ptr<gf::NumericUpDown> EditorDialog::number(const std::string& id, g
                                                         int decimals) {
     std::shared_ptr<gf::NumericUpDown> control = gf::make_control<gf::NumericUpDown>(gf::StableId(id));
     (*control).set_range(minimum, maximum);
-    (*control).set_decimal_places(static_cast<std::uint8_t>(decimals));
-    (*control).set_increment(decimals ? 0.01 : 1);
-    (*control).set_value(value);
+    (*control).decimal_places = static_cast<std::uint8_t>(decimals);
+    (*control).increment = decimals ? 0.01 : 1;
+    (*control).value = value;
     std::string accessible = id;
     if (id == "color-lightness") { accessible = "OKLab lightness"; }
     else if (id == "color-a") { accessible = "OKLab a"; }
@@ -222,10 +249,10 @@ std::shared_ptr<gf::NumericUpDown> EditorDialog::number(const std::string& id, g
             if (!label) { continue; }
             const gf::Rect box = (*label).requested_bounds();
             const double distance = std::abs(box.y - bounds.y) + std::abs(box.x + box.width - bounds.x) * .1;
-            if (box.x <= bounds.x && distance < nearest) { nearest = distance; accessible = (*label).text(); }
+            if (box.x <= bounds.x && distance < nearest) { nearest = distance; accessible = (*label).text.read(); }
         }
     }
-    (*control).set_accessible_name(accessible);
+    (*control).accessible_name = accessible;
     put(control, bounds);
     return control;
 }
@@ -274,49 +301,37 @@ void EditorDialog::initialize_control_tree() {
     }
     if (kind_ == EditorDialogKind::about) {
         panel_ = {0, 0, 590, 565};
-        label("about-version", "Plan Paint " RAINSTAR_VERSION, {24, 54, 542, 28}, true);
-        label("about-dedication",
-              tr("To the Holy One, blessed be He, from whom all good things come.\n"
-              "This work is dedicated in gratitude for the nourishment that sustains human life, "
-              "the energy that powers our tools, and the opportunity to weave information into "
-              "works of use and beauty."),
-              {24, 98, 542, 88});
-        label("about-verse",
-              tr("For I know the plans I have for you, declares the LORD, plans to prosper you and not to "
-              "harm you, plans to give you hope and a future.\nJeremiah 29:11"), {24, 200, 542, 88});
-        label("about-credits", tr("Author: Astra\nSponsor: Rainstar"), {24, 300, 542, 42});
-        label("about-license",
-              tr("Copyright (c) 2026 joshuah.rainstar@gmail.com\n"
-                 "Licensed under the PolyForm Noncommercial License 1.0.0.\n"
-                 "Free for non-commercial use; see LICENSE for the terms."),
-              {24, 358, 542, 72});
-        label("about-trademarks",
-              tr("An independent implementation inspired by Windows 7/10 Paint.\n"
-              "Microsoft and Windows are trademarks of Microsoft Corporation."),
-              {24, 450, 542, 52});
+        const std::shared_ptr<AboutForm> form = AboutForm::make();
+        adopt_form(*form, "about-version", true);
+        (*(*form).about_version).text = "Plan Paint " RAINSTAR_VERSION;
         for (const gf::Control::Ptr& control : controls_) {
             const std::shared_ptr<gf::Label> text = std::dynamic_pointer_cast<gf::Label>(control);
             if (text) {
-                (*text).set_text_wrapping(gf::TextWrapping::word);
+                (*text).text_wrapping = gf::TextWrapping::word;
             }
         }
         std::shared_ptr<gf::Button> close = button("dialog-ok", tr("Close"), {480, panel_.height - 41, 90, 28});
-        (*close).set_default_button(true);
+        (*close).default_button = true;
         return;
     }
     if (kind_ == EditorDialogKind::english_help) {
         panel_ = {0, 0, 470, 245};
-        label("english-help-question", "Is English your language?", {24, 56, 422, 30}, true);
-        label("english-help-instructions",
-              "Click OK to use English, then restart Plan Paint.\nYour picture stays open so you can save it first.",
-              {24, 96, 422, 62});
-        (*std::static_pointer_cast<gf::Label>(controls_.back())).set_text_wrapping(gf::TextWrapping::word);
+        // Never translated: this dialog is the way back to English.
+        const std::shared_ptr<EnglishHelpForm> form = EnglishHelpForm::make();
+        adopt_form(*form, "english-help-question", false);
+        (*(*form).english_help_instructions).text_wrapping = gf::TextWrapping::word;
     } else if (kind_ == EditorDialogKind::dither) {
         initialize_dither();
     } else if (kind_ == EditorDialogKind::tool_size) {
         panel_ = {0, 0, 360, 210};
-        label("custom-tool-size-label", tr("Size in pixels"), {24, 54, 160, 28});
-        width_ = number("custom-tool-size", {196, 54, 136, 30}, 1, 1024, (*editor).document.ink.size);
+        const std::shared_ptr<ToolSizeForm> form = ToolSizeForm::make();
+        adopt_form(*form, "", true);
+        width_ = (*form).custom_tool_size;
+        (*width_).set_range(1, 1024);
+        (*width_).decimal_places = 0;
+        (*width_).increment = 1;
+        (*width_).value = (*editor).document.ink.size;
+        (*width_).accessible_name = (*(*form).custom_tool_size_label).text.read();
     } else if (kind_ == EditorDialogKind::carpet) {
         initialize_carpet();
     } else if (kind_ == EditorDialogKind::color || kind_ == EditorDialogKind::gradient_color) {
@@ -330,9 +345,9 @@ void EditorDialog::initialize_control_tree() {
         (*primary_tab_).set_theme_override(ribbon_theme());
         (*secondary_tab_).set_theme_override(ribbon_theme());
         if (kind_ == EditorDialogKind::gradient_color) {
-            (*primary_tab_).set_text(tr("Stop color"));
-            (*primary_tab_).set_enabled(false);
-            (*secondary_tab_).set_visible(false);
+            (*primary_tab_).text = tr("Stop color");
+            (*primary_tab_).enabled = false;
+            (*secondary_tab_).visible = false;
         }
         label("custom-colors-label", tr("Custom colors"), {20, 91, 245, 22}, true);
         for (int i = 0; i < 30; ++i) {
@@ -341,7 +356,7 @@ void EditorDialog::initialize_control_tree() {
                 i == 29 ? Color{255, 255, 255, 0}
                         : (*editor).custom_colors.colors[static_cast<std::size_t>(i)]);
             (*swatch).set_theme_override(gallery_theme());
-            (*swatch).set_accessible_name(i == 29 ? tr("Transparency") : tr("Custom color ") + std::to_string(i + 1));
+            (*swatch).accessible_name = i == 29 ? tr("Transparency") : tr("Custom color ") + std::to_string(i + 1);
             subscriptions_.push_back((*swatch).clicked().subscribe(
                 *this, gf::Delegate<gf::ButtonBase&>::bind<EditorDialog, &EditorDialog::clicked>(*this)));
             put(swatch, {18 + (i % 10) * 25.0, 120 + (i / 10) * 31.0, 24, 29});
@@ -358,7 +373,7 @@ void EditorDialog::initialize_control_tree() {
             *this, gf::Delegate<gf::ButtonBase&>::bind<EditorDialog, &EditorDialog::clicked>(*this)));
         rgb_tab_ = button("color-space-rgb", "RGB", {296, 48, 84, 28});
         okhsl_tab_ = button("color-space-okhsl", "OKHSL", {382, 48, 84, 28});
-        (*rgb_tab_).set_selected(true);
+        (*rgb_tab_).selected = true;
         mosaic_ = gf::make_control<gf::CheckBox>(gf::StableId("color-mosaic"), tr("Mosaic (96 colors per hue)"));
         put(mosaic_, {296, 457, 300, 26});
         subscriptions_.push_back((*mosaic_).clicked().subscribe(
@@ -370,11 +385,12 @@ void EditorDialog::initialize_control_tree() {
         put(plane_, {296, 91, 290, 224});
         put(hue_strip_, {602, 91, 24, 224});
         const char* names[] = {"Red", "Green", "Blue", "Alpha"};
+        const char* field_ids[] = {"color-red", "color-green", "color-blue", "color-alpha"};
         std::shared_ptr<gf::NumericUpDown>* fields[] = {&red_, &green_, &blue_, &alpha_};
         for (int i = 0; i < 4; ++i) {
             label("channel-label-" + std::to_string(i), tr(names[i]), {296 + i * 84.0, 325, 78, 20});
-            *fields[i] = number("color-" + std::string(names[i]), {296 + i * 84.0, 348, 77, 28}, 0, 255, 0);
-            (**fields[i]).set_accessible_name(tr(names[i]));
+            *fields[i] = number(std::string(field_ids[i]), {296 + i * 84.0, 348, 77, 28}, 0, 255, 0);
+            (**fields[i]).accessible_name = tr(names[i]);
             subscriptions_.push_back(
                 (**fields[i])
                     .value_changed()
@@ -383,7 +399,7 @@ void EditorDialog::initialize_control_tree() {
         }
         label("hex-label", tr("Hex"), {296, 387, 42, 25});
         hex_ = gf::make_control<gf::TextBox>(gf::StableId("color-hex"));
-        (*hex_).set_accessible_name(tr("Hex"));
+        (*hex_).accessible_name = tr("Hex");
         put(hex_, {340, 386, 122, 28});
         subscriptions_.push_back((*hex_).text_changed().subscribe(
             *this, gf::Delegate<const std::string&>::bind<EditorDialog, &EditorDialog::hex_changed>(*this)));
@@ -400,69 +416,69 @@ void EditorDialog::initialize_control_tree() {
         panel_ = {0, 0, 770, 510};
         label("settings-language-label", tr("Language"), {530, 58, 216, 28}, true);
         language_ = gf::make_control<gf::ComboBox>(gf::StableId("settings-language"));
-        (*language_).set_accessible_name(tr("Language"));
-        (*language_).set_maximum_drop_down_items(64);
-        (*language_).set_drop_down_width(300);
-        (*language_).add_item(tr("Use system language"));
+        (*language_).accessible_name = tr("Language");
+        (*language_).maximum_drop_down_items = 64;
+        (*language_).drop_down_width = 300;
+        (*language_).items.append(tr("Use system language"));
         std::size_t language_index = 0;
         const std::vector<LanguageInfo>& choices = available_languages();
         for (std::size_t index = 0; index < choices.size(); ++index) {
-            (*language_).add_item(choices[index].name);
+            (*language_).items.append(choices[index].name);
             if (choices[index].tag == (*editor).settings.language) { language_index = index + 1; }
         }
-        (*language_).set_selected_index(language_index);
+        (*language_).selected_index = language_index;
         put(language_, {530, 96, 216, 32});
         label("settings-language-hint", tr("Language changes take effect after restarting Plan Paint."), {530, 143, 216, 88});
-        (*std::static_pointer_cast<gf::Label>(controls_.back())).set_text_wrapping(gf::TextWrapping::word);
+        (*std::static_pointer_cast<gf::Label>(controls_.back())).text_wrapping = gf::TextWrapping::word;
         label("settings-accessibility-label", tr("Accessibility"), {530, 248, 216, 28}, true);
         canvas_controls_ = gf::make_control<gf::CheckBox>(gf::StableId("settings-canvas-controls"), tr("Canvas controls"));
-        (*canvas_controls_).set_checked((*editor).settings.canvas_controls);
+        (*canvas_controls_).checked = (*editor).settings.canvas_controls;
         put(canvas_controls_, {530, 286, 216, 32});
         label("settings-accessibility-hint", tr("Use canvas controls to position the drawing cursor and draw without dragging."), {530, 334, 216, 105});
-        (*std::static_pointer_cast<gf::Label>(controls_.back())).set_text_wrapping(gf::TextWrapping::word);
+        (*std::static_pointer_cast<gf::Label>(controls_.back())).text_wrapping = gf::TextWrapping::word;
         label("settings-scroll-label", tr("Scroll distance"), {24, 58, 220, 28});
         atlas_numbers_.push_back(
             number("settings-scroll", {280, 57, 180, 30}, 0.1, 100, (*editor).settings.scroll_distance, 1));
         label("settings-background-label", tr("Canvas surround"), {24, 96, 220, 28});
         background_ = gf::make_control<gf::ComboBox>(gf::StableId("settings-background"));
         for (int index = 0; index < canvas_backing_count; ++index) {
-            (*background_).add_item(tr(canvas_backing_name(static_cast<CanvasBacking>(index))));
+            (*background_).items.append(tr(canvas_backing_name(static_cast<CanvasBacking>(index))));
         }
-        (*background_).set_selected_index(static_cast<std::size_t>((*editor).settings.canvas_backing));
+        (*background_).selected_index = static_cast<std::size_t>((*editor).settings.canvas_backing);
         put(background_, {230, 96, 230, 30});
         label("settings-alpha-label", tr("Transparency display"), {24, 134, 200, 28});
         alpha_background_ = gf::make_control<gf::ComboBox>(gf::StableId("settings-alpha-background"));
-        (*alpha_background_).add_item(tr("Checkerboard"));
-        (*alpha_background_).add_item(tr("Solid color"));
-        (*alpha_background_).set_selected_index((*editor).settings.solid_transparency ? 1 : 0);
+        (*alpha_background_).items.append(tr("Checkerboard"));
+        (*alpha_background_).items.append(tr("Solid color"));
+        (*alpha_background_).selected_index = (*editor).settings.solid_transparency ? 1 : 0;
         put(alpha_background_, {230, 134, 230, 30});
         label("settings-alpha-color-label", tr("Solid color (hex)"), {24, 172, 200, 28});
         alpha_background_color_ = gf::make_control<gf::TextBox>(gf::StableId("settings-alpha-color"));
-        (*alpha_background_color_).set_text(to_hex((*editor).settings.transparency_color));
-        (*alpha_background_color_).set_accessible_name(tr("Transparency background color, hex RGB"));
+        (*alpha_background_color_).text = to_hex((*editor).settings.transparency_color);
+        (*alpha_background_color_).accessible_name = tr("Transparency background color, hex RGB");
         put(alpha_background_color_, {230, 172, 230, 30});
         label("settings-shape-label", tr("Lines and shapes"), {24, 210, 200, 28});
         shape_gesture_ = gf::make_control<gf::ComboBox>(gf::StableId("settings-shape-gesture"));
-        (*shape_gesture_).add_item(tr("Click, move, click"));
-        (*shape_gesture_).add_item(tr("Click, hold, release"));
-        (*shape_gesture_).set_selected_index((*editor).settings.drag_shapes ? 1 : 0);
+        (*shape_gesture_).items.append(tr("Click, move, click"));
+        (*shape_gesture_).items.append(tr("Click, hold, release"));
+        (*shape_gesture_).selected_index = (*editor).settings.drag_shapes ? 1 : 0;
         put(shape_gesture_, {230, 210, 230, 30});
         rotate_view_ = gf::make_control<gf::CheckBox>(gf::StableId("settings-rotate-view"),
                                                       tr("Enable canvas rotation handle"));
-        (*rotate_view_).set_checked((*editor).settings.rotate_view);
+        (*rotate_view_).checked = (*editor).settings.rotate_view;
         put(rotate_view_, {24, 248, 430, 30});
         label("settings-theme-label", tr("Interface color"), {24, 288, 180, 28});
         theme_hue_ = gf::make_control<gf::TrackBar>(gf::StableId("settings-theme-hue"));
         (*theme_hue_).set_range(0, 359);
-        (*theme_hue_).set_small_change(1);
-        (*theme_hue_).set_large_change(30);
-        (*theme_hue_).set_value((*editor).settings.interface_hue);
-        (*theme_hue_).set_accessible_name(tr("Interface hue, 0 to 359 degrees; royal blue is 220"));
+        (*theme_hue_).small_change = 1;
+        (*theme_hue_).large_change = 30;
+        (*theme_hue_).value = (*editor).settings.interface_hue;
+        (*theme_hue_).accessible_name = tr("Interface hue, 0 to 359 degrees; royal blue is 220");
         put(theme_hue_, {230, 288, 270, 28});
         subscriptions_.push_back((*theme_hue_).value_changed().subscribe(
             *this, gf::Delegate<double>::bind<EditorDialog, &EditorDialog::theme_changed>(*this)));
         recovery_enabled_ = gf::make_control<gf::CheckBox>(gf::StableId("settings-recovery"), tr("Keep crash recovery snapshots"));
-        (*recovery_enabled_).set_checked((*editor).settings.recovery_enabled);
+        (*recovery_enabled_).checked = (*editor).settings.recovery_enabled;
         put(recovery_enabled_, {24, 334, 450, 28});
         label("settings-recovery-time-label", tr("Save a snapshot every (seconds)"), {24, 372, 290, 28});
         recovery_seconds_ = number("settings-recovery-seconds", {350, 372, 150, 30}, 15, 600,
@@ -518,8 +534,8 @@ void EditorDialog::initialize_control_tree() {
                     selected = i;
                 }
             }
-            (*printer_).set_items(std::move(names));
-            (*printer_).set_selected_index(selected);
+            (*printer_).items = std::move(names);
+            (*printer_).selected_index = selected;
             put(printer_, {170, 214, 370, 30});
             label("copies-label", tr("Copies"), {20, 258, 140, 28});
             atlas_numbers_.push_back(number("print-copies", {170, 258, 140, 30}, 1, 999, settings.copies));
@@ -534,8 +550,8 @@ void EditorDialog::initialize_control_tree() {
         button("preview-page-setup", tr("Page setup…"), {156, 87, 144, 30});
         std::shared_ptr<gf::RasterCanvas> preview =
             gf::make_control<gf::RasterCanvas>(gf::StableId("print-preview-image"));
-        (*preview).set_canvas_background(gf::Color::rgba(255, 255, 255));
-        (*preview).set_transparency_grid(false);
+        (*preview).canvas_background = gf::Color::rgba(255, 255, 255);
+        (*preview).transparency_grid = false;
         Image image = (*editor).document.output_image();
         publish_image(image, *preview);
         double zoom = std::min(776.0 / image.width, 392.0 / image.height);
@@ -561,7 +577,7 @@ void EditorDialog::initialize_control_tree() {
             std::shared_ptr<gf::NumericUpDown> field =
                 number("atlas-" + std::to_string(i), {252, 88 + i * 34.0, 206, 28}, i < 2 ? 1 : 0,
                        i < 2 ? 4096 : 32768, values[i]);
-            (*field).set_accessible_name(ids[i]);
+            (*field).accessible_name = ids[i];
             atlas_numbers_.push_back(field);
             subscriptions_.push_back((*field).value_changed().subscribe(
                 *this, gf::Delegate<double>::bind<EditorDialog, &EditorDialog::atlas_changed>(*this)));
@@ -577,7 +593,7 @@ void EditorDialog::initialize_control_tree() {
             std::shared_ptr<gf::CheckBox> field =
                 gf::make_control<gf::CheckBox>(gf::StableId("icon-size-" + std::to_string(sizes[i])),
                                                std::to_string(sizes[i]) + " × " + std::to_string(sizes[i]));
-            (*field).set_checked(sizes[i] == 16 || sizes[i] == 32 || sizes[i] == 48 || sizes[i] == 256);
+            (*field).checked = sizes[i] == 16 || sizes[i] == 32 || sizes[i] == 48 || sizes[i] == 256;
             put(field, {20 + (i % 4) * 95.0, 76 + (i / 4) * 28.0, 90, 26});
             icon_sizes_.push_back(field);
             subscriptions_.push_back((*field).clicked().subscribe(
@@ -586,11 +602,11 @@ void EditorDialog::initialize_control_tree() {
         }
         label("icon-policy-label", tr("Existing images"), {20, 140, 112, 28});
         icon_policy_ = gf::make_control<gf::ComboBox>(gf::StableId("icon-size-policy"));
-        (*icon_policy_).set_accessible_name(tr("Existing images"));
-        (*icon_policy_).add_item(tr("Add missing sizes; keep existing images"));
-        (*icon_policy_).add_item(tr("Choose replacements individually"));
-        (*icon_policy_).add_item(tr("Exact profile; remove unchecked sizes"));
-        (*icon_policy_).set_selected_index(0);
+        (*icon_policy_).accessible_name = tr("Existing images");
+        (*icon_policy_).items.append(tr("Add missing sizes; keep existing images"));
+        (*icon_policy_).items.append(tr("Choose replacements individually"));
+        (*icon_policy_).items.append(tr("Exact profile; remove unchecked sizes"));
+        (*icon_policy_).selected_index = 0;
         put(icon_policy_, {136, 138, 264, 28});
         subscriptions_.push_back(
             (*icon_policy_)
@@ -600,15 +616,15 @@ void EditorDialog::initialize_control_tree() {
         label("icon-policy-hint",
               tr("Choose a target to set its source and depth. Check each replacement explicitly."),
               {20, 176, 380, 38});
-        (*std::static_pointer_cast<gf::Label>(controls_.back())).set_text_wrapping(gf::TextWrapping::word);
+        (*std::static_pointer_cast<gf::Label>(controls_.back())).text_wrapping = gf::TextWrapping::word;
         icon_plan_ = gf::make_control<gf::Label>(gf::StableId("icon-size-plan"));
-        (*icon_plan_).set_text_wrapping(gf::TextWrapping::word);
+        (*icon_plan_).text_wrapping = gf::TextWrapping::word;
         put(icon_plan_, {20, 216, 380, 26});
         icon_manifest_ = gf::make_control<gf::TextBox>(gf::StableId("icon-size-manifest"));
-        (*icon_manifest_).set_multiline(true);
-        (*icon_manifest_).set_auto_scroll(true);
-        (*icon_manifest_).set_read_only(true);
-        (*icon_manifest_).set_accessible_name(tr("Changes to icon images"));
+        (*icon_manifest_).multiline = true;
+        (*icon_manifest_).auto_scroll = true;
+        (*icon_manifest_).read_only = true;
+        (*icon_manifest_).accessible_name = tr("Changes to icon images");
         put(icon_manifest_, {20, 246, 380, 78});
         initialize_icon_targets();
     } else if (kind_ == EditorDialogKind::hotspot) {
@@ -636,7 +652,7 @@ void EditorDialog::initialize_control_tree() {
         pixel_tab_ = button("resize-pixels", tr("Pixels"), {146, 91, 86, 28});
         (*percent_tab_).set_theme_override(ribbon_theme());
         (*pixel_tab_).set_theme_override(ribbon_theme());
-        (*pixel_tab_).set_selected(true);
+        (*pixel_tab_).selected = true;
         label("width-label", tr("Horizontal"), {24, 136, 104, 28});
         label("height-label", tr("Vertical"), {24, 174, 104, 28});
         width_ = number("resize-width", {148, 135, 176, 30}, 1, 32768, original_width_);
@@ -646,10 +662,10 @@ void EditorDialog::initialize_control_tree() {
         subscriptions_.push_back((*height_).value_changed().subscribe(
             *this, gf::Delegate<double>::bind<EditorDialog, &EditorDialog::height_changed>(*this)));
         lock_ = gf::make_control<gf::CheckBox>(gf::StableId("resize-lock"), tr("Maintain aspect ratio"));
-        (*lock_).set_checked(true);
+        (*lock_).checked = true;
         put(lock_, {24, 214, 360, 25});
         scale_ = gf::make_control<gf::CheckBox>(gf::StableId("resize-scale"), tr("Scale artwork (CONV*)"));
-        (*scale_).set_checked(true);
+        (*scale_).checked = true;
         put(scale_, {24, 242, 360, 25});
         label("resize-hint", tr("Turn scaling off to change the canvas boundary."), {24, 269, 394, 22});
         label("skew-label", tr("Skew (degrees)"), {24, 308, 390, 24}, true);
@@ -659,9 +675,9 @@ void EditorDialog::initialize_control_tree() {
         skew_vertical_ = number("skew-vertical", {148, 376, 176, 30}, -80, 80, 0, 1);
     }
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));
-    (*error_).set_font({gf::FontRole::control, 12, 400, false});
-    (*error_).set_foreground(gf::Color::rgba(161, 49, 39));
-    (*error_).set_text_wrapping(gf::TextWrapping::word);
+    (*error_).font = gf::FontSpec{gf::FontRole::control, 12, 400, false};
+    (*error_).fore_color = gf::Color::rgba(161, 49, 39);
+    (*error_).text_wrapping = gf::TextWrapping::word;
     put(error_,
         {20,
          panel_.height -
@@ -676,7 +692,7 @@ void EditorDialog::initialize_control_tree() {
         : kind_ == EditorDialogKind::icon_sizes || kind_ == EditorDialogKind::cursor_sizes ? tr("Generate")
                                                                                            : tr("OK"),
         {panel_.width - 212, panel_.height - 41, 90, 28});
-    (*ok).set_default_button(true);
+    (*ok).default_button = true;
     if (kind_ == EditorDialogKind::atlas_grid) {
         atlas_changed(0);
     }
@@ -841,7 +857,7 @@ std::vector<int> EditorDialog::chosen_icon_sizes() const {
     const int values[] = {16, 24, 32, 48, 64, 96, 128, 256};
     std::vector<int> sizes;
     for (std::size_t index = 0; index < icon_sizes_.size(); ++index) {
-        if ((*icon_sizes_[index]).checked()) {
+        if ((*icon_sizes_[index]).checked.read()) {
             sizes.push_back(values[index]);
         }
     }
@@ -863,12 +879,12 @@ void EditorDialog::atlas_changed(double) {
     }
     try {
         AtlasGrid grid;
-        grid.columns = static_cast<int>((*atlas_numbers_[0]).value());
-        grid.rows = static_cast<int>((*atlas_numbers_[1]).value());
-        grid.margin_x = static_cast<int>((*atlas_numbers_[2]).value());
-        grid.margin_y = static_cast<int>((*atlas_numbers_[3]).value());
-        grid.spacing_x = static_cast<int>((*atlas_numbers_[4]).value());
-        grid.spacing_y = static_cast<int>((*atlas_numbers_[5]).value());
+        grid.columns = static_cast<int>((*atlas_numbers_[0]).value.read());
+        grid.rows = static_cast<int>((*atlas_numbers_[1]).value.read());
+        grid.margin_x = static_cast<int>((*atlas_numbers_[2]).value.read());
+        grid.margin_y = static_cast<int>((*atlas_numbers_[3]).value.read());
+        grid.spacing_x = static_cast<int>((*atlas_numbers_[4]).value.read());
+        grid.spacing_y = static_cast<int>((*atlas_numbers_[5]).value.read());
         const Document& document = (*editor).document;
         const Image& sheet = document.atlas.kind == AtlasKind::Sheet ? document.atlas.sheet : document.image;
         Rect frame = grid.frame(sheet, 0);
@@ -876,13 +892,13 @@ void EditorDialog::atlas_changed(double) {
             sheet.width - 2 * grid.margin_x - (grid.columns - 1) * grid.spacing_x - grid.columns * frame.w;
         int unused_y =
             sheet.height - 2 * grid.margin_y - (grid.rows - 1) * grid.spacing_y - grid.rows * frame.h;
-        (*error_).set_text(std::to_string(grid.columns * grid.rows) + tr(" frames · ") + std::to_string(frame.w) +
+        (*error_).text = std::to_string(grid.columns * grid.rows) + tr(" frames · ") + std::to_string(frame.w) +
                            " × " + std::to_string(frame.h) + tr(" pixels · unused right/bottom: ") +
-                           std::to_string(unused_x) + "/" + std::to_string(unused_y) + tr(" px"));
-        (*error_).set_foreground(gf::Color::rgba(45, 66, 88));
+                           std::to_string(unused_x) + "/" + std::to_string(unused_y) + tr(" px");
+        (*error_).fore_color = gf::Color::rgba(45, 66, 88);
     } catch (const std::exception& exception) {
-        (*error_).set_text(exception.what());
-        (*error_).set_foreground(gf::Color::rgba(161, 49, 39));
+        (*error_).text = exception.what();
+        (*error_).fore_color = gf::Color::rgba(161, 49, 39);
     }
 }
 const ColorMosaic& EditorDialog::color_mosaic(double hue) const {
@@ -906,8 +922,8 @@ Color EditorDialog::plane_color(double h, double s, double level) const {
 }
 void EditorDialog::color_space_changed(PickerSpace space) {
     picker_space = space;
-    (*rgb_tab_).set_selected(space == PickerSpace::RGB);
-    (*okhsl_tab_).set_selected(space == PickerSpace::OKHSL);
+    (*rgb_tab_).selected = space == PickerSpace::RGB;
+    (*okhsl_tab_).selected = space == PickerSpace::OKHSL;
     set_color(color_);
 }
 void EditorDialog::choose_hsv(double h, double s, double v) {
@@ -934,35 +950,35 @@ void EditorDialog::set_color(Color color, bool update_hsv) {
         saturation = coordinates.saturation;
         value = coordinates.level;
     }
-    (*red_).set_value(color.r);
-    (*green_).set_value(color.g);
-    (*blue_).set_value(color.b);
-    (*alpha_).set_value(color.a);
-    (*hex_).set_text(to_hex(color));
+    (*red_).value = color.r;
+    (*green_).value = color.g;
+    (*blue_).value = color.b;
+    (*alpha_).value = color.a;
+    (*hex_).text = to_hex(color);
     Lab lab = to_oklab(color);
-    (*light_).set_value(lab.l);
-    (*a_).set_value(lab.a);
-    (*b_).set_value(lab.b);
+    (*light_).value = lab.l;
+    (*a_).value = lab.a;
+    (*b_).value = lab.b;
     (*preview_).set_color(color);
     (*old_).set_color(original_);
     (*plane_).invalidate(gf::Dirty::paint);
     (*hue_strip_).invalidate(gf::Dirty::paint);
-    (*primary_tab_).set_selected(!secondary_);
-    (*secondary_tab_).set_selected(secondary_);
+    (*primary_tab_).selected = !secondary_;
+    (*secondary_tab_).selected = secondary_;
     synchronizing_ = false;
 }
 void EditorDialog::rgb_changed(double) {
     if (synchronizing_) {
         return;
     }
-    set_color({static_cast<std::uint8_t>((*red_).value()), static_cast<std::uint8_t>((*green_).value()),
-               static_cast<std::uint8_t>((*blue_).value()), static_cast<std::uint8_t>((*alpha_).value())});
+    set_color({static_cast<std::uint8_t>((*red_).value.read()), static_cast<std::uint8_t>((*green_).value.read()),
+               static_cast<std::uint8_t>((*blue_).value.read()), static_cast<std::uint8_t>((*alpha_).value.read())});
 }
 void EditorDialog::lab_changed(double) {
     if (synchronizing_) {
         return;
     }
-    Color color = from_oklab({(*light_).value(), (*a_).value(), (*b_).value()});
+    Color color = from_oklab({(*light_).value.read(), (*a_).value.read(), (*b_).value.read()});
     color.a = color_.a;
     set_color(color);
 }
@@ -977,28 +993,28 @@ void EditorDialog::hex_changed(const std::string& text) {
     }
 }
 void EditorDialog::width_changed(double value) {
-    if (synchronizing_ || !(*lock_).checked()) {
+    if (synchronizing_ || !(*lock_).checked.read()) {
         return;
     }
     synchronizing_ = true;
     double intended = percent_ ? value : std::round(value * original_height_ / original_width_);
     double bounded = std::clamp(intended, 1.0, 32768.0);
-    (*height_).set_value(bounded);
+    (*height_).value = bounded;
     if (bounded != intended) {
-        (*width_).set_value(percent_ ? bounded : std::round(bounded * original_width_ / original_height_));
+        (*width_).value = percent_ ? bounded : std::round(bounded * original_width_ / original_height_);
     }
     synchronizing_ = false;
 }
 void EditorDialog::height_changed(double value) {
-    if (synchronizing_ || !(*lock_).checked()) {
+    if (synchronizing_ || !(*lock_).checked.read()) {
         return;
     }
     synchronizing_ = true;
     double intended = percent_ ? value : std::round(value * original_width_ / original_height_);
     double bounded = std::clamp(intended, 1.0, 32768.0);
-    (*width_).set_value(bounded);
+    (*width_).value = bounded;
     if (bounded != intended) {
-        (*height_).set_value(percent_ ? bounded : std::round(bounded * original_height_ / original_width_));
+        (*height_).value = percent_ ? bounded : std::round(bounded * original_height_ / original_width_);
     }
     synchronizing_ = false;
 }
@@ -1012,10 +1028,10 @@ void EditorDialog::clicked(gf::ButtonBase& control) {
         return;
     }
     if (id == "paper-a4" || id == "paper-letter" || id == "paper-rotate") {
-        const double width = (*atlas_numbers_[0]).value();
-        const double height = (*atlas_numbers_[1]).value();
-        (*atlas_numbers_[0]).set_value(id == "paper-a4" ? 210 : id == "paper-letter" ? 215.9 : height);
-        (*atlas_numbers_[1]).set_value(id == "paper-a4" ? 297 : id == "paper-letter" ? 279.4 : width);
+        const double width = (*atlas_numbers_[0]).value.read();
+        const double height = (*atlas_numbers_[1]).value.read();
+        (*atlas_numbers_[0]).value = id == "paper-a4" ? 210 : id == "paper-letter" ? 215.9 : height;
+        (*atlas_numbers_[1]).value = id == "paper-a4" ? 297 : id == "paper-letter" ? 279.4 : width;
         return;
     }
     if (id == "preview-print" || id == "preview-page-setup") {
@@ -1043,7 +1059,7 @@ void EditorDialog::clicked(gf::ButtonBase& control) {
             return;
         }
         if (id == "color-mosaic") {
-            mosaic = (*mosaic_).checked();
+            mosaic = (*mosaic_).checked.read();
             choose_hsv(hue, saturation, value);
             return;
         }
@@ -1083,14 +1099,14 @@ void EditorDialog::clicked(gf::ButtonBase& control) {
         if (id == "resize-percent" || id == "resize-pixels") {
             percent_ = id == "resize-percent";
             synchronizing_ = true;
-            (*width_).set_value(percent_ ? 100 : original_width_);
-            (*height_).set_value(percent_ ? 100 : original_height_);
-            (*percent_tab_).set_selected(percent_);
-            (*pixel_tab_).set_selected(!percent_);
+            (*width_).value = percent_ ? 100 : original_width_;
+            (*height_).value = percent_ ? 100 : original_height_;
+            (*percent_tab_).selected = percent_;
+            (*pixel_tab_).selected = !percent_;
             synchronizing_ = false;
         }
     } catch (const std::exception& exception) {
-        (*error_).set_text(exception.what());
+        (*error_).text = exception.what();
     }
 }
 void EditorDialog::accept() {
@@ -1108,7 +1124,7 @@ void EditorDialog::accept() {
             return;
         }
         if (kind_ == EditorDialogKind::carpet) {
-            if (carpet_image_.pixels.empty() || !(*(*attached_window()).find("dialog-ok")).enabled()) {
+            if (carpet_image_.pixels.empty() || !(*(*attached_window()).find("dialog-ok")).enabled.read()) {
                 return;
             }
             (*editor).carpet_parameters = carpet_;
@@ -1122,8 +1138,8 @@ void EditorDialog::accept() {
 
         if (kind_ == EditorDialogKind::color || kind_ == EditorDialogKind::gradient_color) {
             Color parsed;
-            if (!from_hex(std::string((*hex_).text()), parsed)) {
-                (*error_).set_text(tr("Enter a six-digit hex color, such as #4F81BD."));
+            if (!from_hex(std::string((*hex_).text.read()), parsed)) {
+                (*error_).text = tr("Enter a six-digit hex color, such as #4F81BD.");
                 return;
             }
             if (kind_ == EditorDialogKind::gradient_color) {
@@ -1141,7 +1157,7 @@ void EditorDialog::accept() {
             (*editor).document.sync_curve();
             (*editor).document.sync_path();
         } else if (kind_ == EditorDialogKind::tool_size) {
-            (*editor).document.ink.size = static_cast<int>((*width_).value());
+            (*editor).document.ink.size = static_cast<int>((*width_).value.read());
         } else if (kind_ == EditorDialogKind::english_help) {
             EditorSettings settings = (*editor).settings;
             settings.language = "en-us";
@@ -1150,20 +1166,20 @@ void EditorDialog::accept() {
             (*editor).close_editor_dialog();
         } else if (kind_ == EditorDialogKind::settings) {
             EditorSettings settings = (*editor).settings;
-            settings.scroll_distance = (*atlas_numbers_[0]).value();
-            const std::size_t language_index = (*language_).selected_index().value_or(0);
+            settings.scroll_distance = (*atlas_numbers_[0]).value.read();
+            const std::size_t language_index = (*language_).selected_index.read().value_or(0);
             settings.language = language_index > 0 && language_index <= available_languages().size()
                 ? available_languages()[language_index - 1].tag : "system";
-            settings.canvas_controls = (*canvas_controls_).checked();
-            settings.interface_hue = static_cast<int>(std::round((*theme_hue_).value()));
-            settings.recovery_enabled = (*recovery_enabled_).checked();
-            settings.recovery_seconds = static_cast<int>((*recovery_seconds_).value());
+            settings.canvas_controls = (*canvas_controls_).checked.read();
+            settings.interface_hue = static_cast<int>(std::round((*theme_hue_).value.read()));
+            settings.recovery_enabled = (*recovery_enabled_).checked.read();
+            settings.recovery_seconds = static_cast<int>((*recovery_seconds_).value.read());
             (*editor).recovery_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(settings.recovery_seconds);
-            settings.drag_shapes = (*shape_gesture_).selected_index().value_or(0) == 1;
-            settings.rotate_view = (*rotate_view_).checked();
-            settings.canvas_backing = static_cast<CanvasBacking>((*background_).selected_index().value_or(0));
-            settings.solid_transparency = (*alpha_background_).selected_index().value_or(0) == 1;
-            if (!from_hex(std::string((*alpha_background_color_).text()), settings.transparency_color)) {
+            settings.drag_shapes = (*shape_gesture_).selected_index.read().value_or(0) == 1;
+            settings.rotate_view = (*rotate_view_).checked.read();
+            settings.canvas_backing = static_cast<CanvasBacking>((*background_).selected_index.read().value_or(0));
+            settings.solid_transparency = (*alpha_background_).selected_index.read().value_or(0) == 1;
+            if (!from_hex(std::string((*alpha_background_color_).text.read()), settings.transparency_color)) {
                 throw std::runtime_error(tr("Enter the transparency color as hex, such as #FF80C0."));
             }
             settings.transparency_color.a = 255;
@@ -1176,14 +1192,14 @@ void EditorDialog::accept() {
             (*editor).close_editor_dialog();
         } else if (kind_ == EditorDialogKind::properties) {
             Document& document = (*editor).document;
-            int width = static_cast<int>((*atlas_numbers_[0]).value());
-            int height = static_cast<int>((*atlas_numbers_[1]).value());
+            int width = static_cast<int>((*atlas_numbers_[0]).value.read());
+            int height = static_cast<int>((*atlas_numbers_[1]).value.read());
             if (width != document.image.width || height != document.image.height) {
                 document.resize(width, height, false);
-            } else if ((*scale_).checked()) {
+            } else if ((*scale_).checked.read()) {
                 document.checkpoint();
             }
-            if ((*scale_).checked()) {
+            if ((*scale_).checked.read()) {
                 for (std::size_t i = 0; i < document.image.pixels.size(); ++i) {
                     Color& pixel = document.image.pixels[i];
                     unsigned brightness = 54U * pixel.r + 183U * pixel.g + 19U * pixel.b;
@@ -1191,21 +1207,21 @@ void EditorDialog::accept() {
                     pixel.r = pixel.g = pixel.b = value;
                 }
             }
-            (*editor).jpeg_quality = static_cast<int>((*atlas_numbers_[2]).value());
+            (*editor).jpeg_quality = static_cast<int>((*atlas_numbers_[2]).value.read());
 #if defined(__linux__)
         } else if (kind_ == EditorDialogKind::linux_print || kind_ == EditorDialogKind::linux_page_setup) {
             LinuxPrintSettings settings = linux_print_settings();
-            settings.width_mm = (*atlas_numbers_[0]).value();
-            settings.height_mm = (*atlas_numbers_[1]).value();
-            settings.margin_mm = (*atlas_numbers_[2]).value();
+            settings.width_mm = (*atlas_numbers_[0]).value.read();
+            settings.height_mm = (*atlas_numbers_[1]).value.read();
+            settings.margin_mm = (*atlas_numbers_[2]).value.read();
             if (2 * settings.margin_mm >= std::min(settings.width_mm, settings.height_mm)) {
                 throw std::runtime_error(tr("The margins must leave room for the picture."));
             }
             if (kind_ == EditorDialogKind::linux_print) {
-                settings.printer = (*printer_).selected_index().value_or(0) == 0
+                settings.printer = (*printer_).selected_index.read().value_or(0) == 0
                                        ? ""
                                        : std::string((*printer_).selected_text());
-                settings.copies = static_cast<int>((*atlas_numbers_[3]).value());
+                settings.copies = static_cast<int>((*atlas_numbers_[3]).value.read());
                 linux_print_image((*editor).document.output_image(), settings);
             }
             linux_print_settings() = settings;
@@ -1216,32 +1232,32 @@ void EditorDialog::accept() {
             // Frame selection is immediate; closing the gallery changes no pixels.
         } else if (kind_ == EditorDialogKind::atlas_grid) {
             AtlasGrid grid;
-            grid.columns = static_cast<int>((*atlas_numbers_[0]).value());
-            grid.rows = static_cast<int>((*atlas_numbers_[1]).value());
-            grid.margin_x = static_cast<int>((*atlas_numbers_[2]).value());
-            grid.margin_y = static_cast<int>((*atlas_numbers_[3]).value());
-            grid.spacing_x = static_cast<int>((*atlas_numbers_[4]).value());
-            grid.spacing_y = static_cast<int>((*atlas_numbers_[5]).value());
+            grid.columns = static_cast<int>((*atlas_numbers_[0]).value.read());
+            grid.rows = static_cast<int>((*atlas_numbers_[1]).value.read());
+            grid.margin_x = static_cast<int>((*atlas_numbers_[2]).value.read());
+            grid.margin_y = static_cast<int>((*atlas_numbers_[3]).value.read());
+            grid.spacing_x = static_cast<int>((*atlas_numbers_[4]).value.read());
+            grid.spacing_y = static_cast<int>((*atlas_numbers_[5]).value.read());
             (*editor).document.configure_atlas(grid);
         } else if (kind_ == EditorDialogKind::icon_sizes || kind_ == EditorDialogKind::cursor_sizes) {
             apply_icon_targets();
         } else if (kind_ == EditorDialogKind::hotspot) {
-            (*editor).document.set_hotspot(static_cast<int>((*atlas_numbers_[0]).value()),
-                                           static_cast<int>((*atlas_numbers_[1]).value()));
+            (*editor).document.set_hotspot(static_cast<int>((*atlas_numbers_[0]).value.read()),
+                                           static_cast<int>((*atlas_numbers_[1]).value.read()));
         } else {
-            double width = (*width_).value() * (percent_ ? original_width_ / 100.0 : 1);
-            double height = (*height_).value() * (percent_ ? original_height_ / 100.0 : 1);
+            double width = (*width_).value.read() * (percent_ ? original_width_ / 100.0 : 1);
+            double height = (*height_).value.read() * (percent_ ? original_height_ / 100.0 : 1);
             if (width < 1 || height < 1 || width > 32768 || height > 32768) {
-                (*error_).set_text(tr("Choose dimensions between 1 and 32768 pixels."));
+                (*error_).text = tr("Choose dimensions between 1 and 32768 pixels.");
                 return;
             }
-            if ((*skew_horizontal_).value() != 0 || (*skew_vertical_).value() != 0) {
+            if ((*skew_horizontal_).value.read() != 0 || (*skew_vertical_).value.read() != 0) {
                 (*editor).request_skew(static_cast<int>(std::round(width)),
-                                       static_cast<int>(std::round(height)), (*scale_).checked(),
-                                       (*skew_horizontal_).value(), (*skew_vertical_).value());
+                                       static_cast<int>(std::round(height)), (*scale_).checked.read(),
+                                       (*skew_horizontal_).value.read(), (*skew_vertical_).value.read());
             } else {
                 (*editor).document.resize(static_cast<int>(std::round(width)),
-                                          static_cast<int>(std::round(height)), (*scale_).checked());
+                                          static_cast<int>(std::round(height)), (*scale_).checked.read());
             }
         }
         if (!(*editor).pending_save_path.empty()) {
@@ -1250,7 +1266,7 @@ void EditorDialog::accept() {
         (*editor).refresh();
         (*editor).complete_deferred_save();
     } catch (const std::exception& exception) {
-        (*error_).set_text(exception.what());
+        (*error_).text = exception.what();
     }
 }
 } // namespace paint::forms

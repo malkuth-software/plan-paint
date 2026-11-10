@@ -12,12 +12,12 @@ Point PaintCanvas::visible_paste_origin(int width, int height) {
     }
     const double margin = std::min({12.0, viewport.width / 4, viewport.height / 4});
     std::vector<gf::Point> polygon;
-    const gui_drawing::PointF origin = view_origin();
+    const gui_drawing::PointF origin = view_origin.read();
     for (const Point corner : {Point{0, 0}, Point{static_cast<double>(width), 0},
                                Point{static_cast<double>(width), static_cast<double>(height)},
                                Point{0, static_cast<double>(height)}}) {
         const gui_drawing::PointF point = view_point({corner.x, corner.y});
-        polygon.push_back({(point.x - origin.x) * zoom(), (point.y - origin.y) * zoom()});
+        polygon.push_back({(point.x - origin.x) * zoom.read(), (point.y - origin.y) * zoom.read()});
     }
     // Clip the rotated document to the viewport, including room for its handles.
     // Clamping an inverse-transformed corner alone can put it off screen again.
@@ -53,7 +53,7 @@ Point PaintCanvas::visible_paste_origin(int width, int height) {
     if (polygon.empty()) {
         const gui_drawing::PointF center = view_point({width * 0.5, height * 0.5});
         set_view_origin(
-            {center.x - viewport.width / (2 * zoom()), center.y - viewport.height / (2 * zoom())});
+            {center.x - viewport.width / (2 * zoom.read()), center.y - viewport.height / (2 * zoom.read())});
         return visible_paste_origin(width, height);
     }
     gf::Point corner = polygon.front();
@@ -66,12 +66,12 @@ Point PaintCanvas::visible_paste_origin(int width, int height) {
     const Point result{std::clamp(std::round(point.x), 0.0, static_cast<double>(width - 1)),
                        std::clamp(std::round(point.y), 0.0, static_cast<double>(height - 1))};
     const gui_drawing::PointF projected = view_point({result.x, result.y});
-    const double screen_x = (projected.x - origin.x) * zoom();
-    const double screen_y = (projected.y - origin.y) * zoom();
+    const double screen_x = (projected.x - origin.x) * zoom.read();
+    const double screen_y = (projected.y - origin.y) * zoom.read();
     if (screen_x < 0 || screen_x >= viewport.width || screen_y < 0 || screen_y >= viewport.height) {
         set_view_origin(
-            {origin.x + (screen_x - std::clamp(screen_x, margin, viewport.width - margin)) / zoom(),
-             origin.y + (screen_y - std::clamp(screen_y, margin, viewport.height - margin)) / zoom()});
+            {origin.x + (screen_x - std::clamp(screen_x, margin, viewport.width - margin)) / zoom.read(),
+             origin.y + (screen_y - std::clamp(screen_y, margin, viewport.height - margin)) / zoom.read()});
     }
     return result;
 }
@@ -87,7 +87,7 @@ gui_drawing::PointF PaintCanvas::client_to_bitmap(gf::Point client) const noexce
     return document_point(RasterCanvas::client_to_bitmap(client));
 }
 gf::Rect PaintCanvas::bitmap_to_client(gui_drawing::RectI pixels) const noexcept {
-    const gui_drawing::PointF origin = view_origin();
+    const gui_drawing::PointF origin = view_origin.read();
     double left = 1e30, top = 1e30, right = -1e30, bottom = -1e30;
     for (int i = 0; i < 4; ++i) {
         const gui_drawing::PointF point =
@@ -98,8 +98,8 @@ gf::Rect PaintCanvas::bitmap_to_client(gui_drawing::RectI pixels) const noexcept
         top = std::min(top, point.y);
         bottom = std::max(bottom, point.y);
     }
-    return {(left - origin.x) * zoom(), (top - origin.y) * zoom(), (right - left) * zoom(),
-            (bottom - top) * zoom()};
+    return {(left - origin.x) * zoom.read(), (top - origin.y) * zoom.read(), (right - left) * zoom.read(),
+            (bottom - top) * zoom.read()};
 }
 gf::Rect PaintCanvas::view_bounds() const noexcept {
     const gf::LiveSurfaceFrame image = display_surface_ ? (*display_surface_).acquire_latest() : gf::LiveSurfaceFrame{};
@@ -108,8 +108,8 @@ gf::Rect PaintCanvas::view_bounds() const noexcept {
     }
     const gf::Rect bounds =
         bitmap_to_client({0, 0, static_cast<int>(image.width()), static_cast<int>(image.height())});
-    return {bounds.x / zoom() + view_origin().x, bounds.y / zoom() + view_origin().y, bounds.width / zoom(),
-            bounds.height / zoom()};
+    return {bounds.x / zoom.read() + view_origin.read().x, bounds.y / zoom.read() + view_origin.read().y, bounds.width / zoom.read(),
+            bounds.height / zoom.read()};
 }
 gf::Point PaintCanvas::rotation_handle() const noexcept {
     const gf::LiveSurfaceFrame image = display_surface_ ? (*display_surface_).acquire_latest() : gf::LiveSurfaceFrame{};
@@ -124,14 +124,14 @@ gf::Point PaintCanvas::rotation_handle() const noexcept {
         const bool right = corner == 0 || corner == 3, bottom = corner >= 2;
         const gui_drawing::PointF point = view_point({right ? width : 0, bottom ? height : 0});
         const gui_drawing::PointF offset = view_point({right ? 20.0 : -20.0, bottom ? 20.0 : -20.0});
-        const gf::Point candidate{std::clamp((point.x - view_origin().x) * zoom() + offset.x, 14.0,
+        const gf::Point candidate{std::clamp((point.x - view_origin.read().x) * zoom.read() + offset.x, 14.0,
                                              std::max(14.0, viewport.width - 14)),
-                                  std::clamp((point.y - view_origin().y) * zoom() + offset.y, 14.0,
+                                  std::clamp((point.y - view_origin.read().y) * zoom.read() + offset.y, 14.0,
                                              std::max(14.0, viewport.height - 14))};
         const gui_drawing::PointF document = client_to_bitmap(candidate);
         const double dx = std::max({-document.x, document.x - width, 0.0});
         const double dy = std::max({-document.y, document.y - height, 0.0});
-        if (std::hypot(dx, dy) * zoom() >= 14) {
+        if (std::hypot(dx, dy) * zoom.read() >= 14) {
             return candidate;
         }
     }
@@ -149,7 +149,7 @@ void PaintCanvas::stroke_outline(gf::Painter& painter, gui_drawing::RectI pixels
         const gui_drawing::PointF point =
             view_point({static_cast<double>(pixels.x + (i == 1 || i == 2 ? pixels.width : 0)),
                         static_cast<double>(pixels.y + (i >= 2 ? pixels.height : 0))});
-        points[i] = {(point.x - view_origin().x) * zoom(), (point.y - view_origin().y) * zoom()};
+        points[i] = {(point.x - view_origin.read().x) * zoom.read(), (point.y - view_origin.read().y) * zoom.read()};
     }
     for (int i = 0; i < 4; ++i) {
         painter.draw_line(points[i], points[(i + 1) % 4], color, width);
@@ -186,7 +186,7 @@ void PaintCanvas::update_backing() {
         loaded_backing_ = choice;
     }
 }
-void PaintCanvas::on_detaching_from_window(gf::Window& former_window) noexcept {
+void PaintCanvas::on_detaching_from_window(gf::SurfaceRoot& former_window) noexcept {
     if (backing_.value) {
         static_cast<void>(former_window.remove_image(backing_));
     }
@@ -332,7 +332,7 @@ void PaintCanvas::paint_atlas_context(gf::Painter& painter, const Editor& editor
 void Editor::paint_tool_preview(gf::Painter& painter) {
     if (cursor_client_ && document.tool == Tool::Brush && brush_family == BrushFamily::Heal) {
         const gf::Point center = *cursor_client_;
-        const double radius = std::max(2.0, document.ink.size * canvas().zoom() * 0.5);
+        const double radius = std::max(2.0, document.ink.size * canvas().zoom.read() * 0.5);
         const gf::Color white = gf::Color::rgba(255, 255, 255), blue = gf::Color::rgba(25, 98, 162);
         painter.stroke_rounded_rect({center.x - radius, center.y - radius, radius * 2, radius * 2}, radius,
                                     white, 3);
@@ -411,7 +411,7 @@ void Editor::paint_tool_preview(gf::Painter& painter) {
                                gf::Color::rgba(35, 60, 90));
         return;
     }
-    double scale = (*canvas_).zoom();
+    double scale = (*canvas_).zoom.read();
     painter.save();
     painter.clip_rect((*canvas_).bitmap_to_client({0, 0, document.image.width, document.image.height}));
     if (document.tool == Tool::Pencil && !dragging_) {
@@ -575,11 +575,11 @@ void PaintCanvas::poll_view() {
     invalidate(gf::Dirty::paint);
 }
 void PaintCanvas::set_zoom(double scale) {
-    RasterCanvas::set_zoom(scale);
+    zoom = scale;
     prepare_display();
 }
 void PaintCanvas::set_view_origin(gui_drawing::PointF origin) {
-    RasterCanvas::set_view_origin(origin);
+    view_origin = origin;
     prepare_display();
 }
 void PaintCanvas::set_view(double scale, gui_drawing::PointF origin) {
@@ -630,18 +630,18 @@ void PaintCanvas::render_display() {
     }
     const Editor& editor = *owner;
     const gf::Rect viewport = client_rectangle();
-    const gui_drawing::PointF origin = view_origin();
+    const gui_drawing::PointF origin = view_origin.read();
     const int width = std::max(1, static_cast<int>(std::ceil(viewport.width)));
     const int height = std::max(1, static_cast<int>(std::ceil(viewport.height)));
     const std::uint64_t generation =
         source_generation_ * 2 + (prepared_generation_ == source_generation_ ? 1 : 0);
     if (!rotated_.value || rendered_generation_ != generation ||
         rendered_revision_ != editor.canvas_revision || rendered_angle_ != view_angle ||
-        rendered_zoom_ != zoom() || rendered_origin_.x != origin.x || rendered_origin_.y != origin.y ||
+        rendered_zoom_ != zoom.read() || rendered_origin_.x != origin.x || rendered_origin_.y != origin.y ||
         rendered_size_.width != width || rendered_size_.height != height) {
         ++work_statistics_.view_renders;
         Image result;
-        const double c = std::cos(view_angle), s = std::sin(view_angle), scale = zoom();
+        const double c = std::cos(view_angle), s = std::sin(view_angle), scale = zoom.read();
         const bool prepared = view_field_ && prepared_generation_ == source_generation_;
         if (prepared) {
             // Image-field coordinates address pixel centres; canvas coordinates address pixel edges.
@@ -735,7 +735,7 @@ void PaintCanvas::render_display() {
         rendered_generation_ = generation;
         rendered_revision_ = editor.canvas_revision;
         rendered_angle_ = view_angle;
-        rendered_zoom_ = zoom();
+        rendered_zoom_ = zoom.read();
         rendered_origin_ = origin;
         rendered_size_ = {static_cast<double>(width), static_cast<double>(height)};
     }
@@ -775,7 +775,7 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
     const gf::Point window_origin = point_to_window({0, 0});
     const double sheet_x = (window_origin.x + sheet.x) * device_scale;
     const double sheet_y = (window_origin.y + sheet.y) * device_scale;
-    if (frame.opaque() && std::abs(zoom() * device_scale - 1.0) < 1e-10 &&
+    if (frame.opaque() && std::abs(zoom.read() * device_scale - 1.0) < 1e-10 &&
         std::abs(sheet_x - std::round(sheet_x)) < 1e-10 &&
         std::abs(sheet_y - std::round(sheet_y)) < 1e-10) {
         // Native-order, pixel-aligned opaque artwork needs no viewport conversion.
@@ -794,8 +794,8 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
         width / device_scale, height / device_scale};
     const gf::LiveSurfacePixelFormat format = gf::native_live_surface_pixel_format();
     if (!viewport_surface_ || viewport_generation_ != frame.generation() || viewport_source_ != display_surface_ ||
-        viewport_bounds_ != destination || viewport_zoom_ != zoom() || viewport_origin_.x != view_origin().x ||
-        viewport_origin_.y != view_origin().y || viewport_scale_ != device_scale) {
+        viewport_bounds_ != destination || viewport_zoom_ != zoom.read() || viewport_origin_.x != view_origin.read().x ||
+        viewport_origin_.y != view_origin.read().y || viewport_scale_ != device_scale) {
         if (!viewport_surface_ || (*viewport_surface_).snapshot().description.width != static_cast<unsigned>(width) ||
             (*viewport_surface_).snapshot().description.height != static_cast<unsigned>(height)) {
             viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width), static_cast<unsigned>(height),
@@ -808,15 +808,15 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
             write = (*viewport_surface_).try_acquire_write();
         }
         const bool bgra = format == gf::LiveSurfacePixelFormat::bgra32_premultiplied_srgb;
-        const double tile = transparency_cell_size() > 0 ? transparency_cell_size() : 12.0;
+        const double tile = transparency_cell_size.read() > 0 ? transparency_cell_size.read() : 12.0;
         for (int y = 0; y < height; ++y) {
             const double cy = destination.y + (y + 0.5) / device_scale;
-            const int sy = std::clamp(static_cast<int>(std::floor(cy / zoom() + view_origin().y)),
+            const int sy = std::clamp(static_cast<int>(std::floor(cy / zoom.read() + view_origin.read().y)),
                 0, static_cast<int>(frame.height()) - 1);
             std::byte* row = write.pixels().data() + y * write.row_bytes();
             for (int x = 0; x < width; ++x) {
                 const double cx = destination.x + (x + 0.5) / device_scale;
-                const int sx = std::clamp(static_cast<int>(std::floor(cx / zoom() + view_origin().x)),
+                const int sx = std::clamp(static_cast<int>(std::floor(cx / zoom.read() + view_origin.read().x)),
                     0, static_cast<int>(frame.width()) - 1);
                 const std::byte* pixel = frame.pixels().data() + sy * frame.row_bytes() + sx * 4;
                 const bool second = ((static_cast<int>((cx - visible.x) / tile) +
@@ -836,8 +836,8 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
         viewport_generation_ = frame.generation();
         viewport_source_ = display_surface_;
         viewport_bounds_ = destination;
-        viewport_zoom_ = zoom();
-        viewport_origin_ = view_origin();
+        viewport_zoom_ = zoom.read();
+        viewport_origin_ = view_origin.read();
         viewport_scale_ = device_scale;
     }
     painter.draw_live_surface(viewport_surface_, destination);

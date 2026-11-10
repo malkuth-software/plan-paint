@@ -1,0 +1,10 @@
+/* The "Help! English!" recovery dialog's content. Its text is never
+   translated: it is the way back to English from any language. EditorDialog
+   adds OK and Cancel. */
+panel english-help-form {
+  label english-help-question { text: "Is English your language?"; bounds: 24 56 422 30; }
+  label english-help-instructions {
+    text: "Click OK to use English, then restart Plan Paint.\nYour picture stays open so you can save it first.";
+    bounds: 24 96 422 62;
+  }
+}

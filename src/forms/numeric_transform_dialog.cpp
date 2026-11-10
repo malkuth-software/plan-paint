@@ -72,8 +72,8 @@ void EditorDialog::initialize_numeric_transform() {
     label("transform-after-label", tr("Preview"), {405, 84, 355, 24});
     numeric_before_ = gf::make_control<gf::RasterCanvas>(gf::StableId("transform-before"));
     numeric_after_ = gf::make_control<gf::RasterCanvas>(gf::StableId("transform-after"));
-    (*numeric_before_).set_accessible_name(tr("Original"));
-    (*numeric_after_).set_accessible_name(tr("Preview"));
+    (*numeric_before_).accessible_name = tr("Original");
+    (*numeric_after_).accessible_name = tr("Preview");
     put(numeric_before_, {20, 112, 355, 192});
     put(numeric_after_, {405, 112, 355, 192});
     const char* names[] = {"Offset X", "Offset Y", "Scale X %", "Scale Y %", "Angle (°)"};
@@ -85,16 +85,16 @@ void EditorDialog::initialize_numeric_transform() {
         const std::shared_ptr<gf::NumericUpDown> value =
             number("transform-value-" + std::to_string(index), {20 + index * 148.0, 340, 140, 28},
                    lows[index], highs[index], defaults[index], 2);
-        (*value).set_accessible_name(tr(names[index]));
+        (*value).accessible_name = tr(names[index]);
         numeric_values_.push_back(value);
         subscriptions_.push_back((*value).value_changed().subscribe(
             *this, gf::Delegate<double>::bind<EditorDialog, &EditorDialog::numeric_transform_number>(*this)));
     }
     label("transform-sampling-label", tr("Sampling"), {20, 382, 150, 28});
     numeric_sampling_ = gf::make_control<gf::ComboBox>(gf::StableId("transform-sampling"));
-    (*numeric_sampling_).set_accessible_name(tr("Sampling"));
-    (*numeric_sampling_).set_items({tr("CONV* point"), tr("CONV* minification"), tr("CONV* area")});
-    (*numeric_sampling_).set_selected_index(1);
+    (*numeric_sampling_).accessible_name = tr("Sampling");
+    (*numeric_sampling_).items = {tr("CONV* point"), tr("CONV* minification"), tr("CONV* area")};
+    (*numeric_sampling_).selected_index = 1;
     put(numeric_sampling_, {175, 382, 380, 28});
     subscriptions_.push_back(
         (*numeric_sampling_)
@@ -104,7 +104,7 @@ void EditorDialog::initialize_numeric_transform() {
     numeric_status_ = gf::make_control<gf::Label>(gf::StableId("transform-status"));
     put(numeric_status_, {20, 416, 740, 24});
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));
-    (*error_).set_text_wrapping(gf::TextWrapping::word);
+    (*error_).text_wrapping = gf::TextWrapping::word;
     put(error_, {20, 442, 740, 28});
     numeric_preview_ = button("transform-preview", tr("Preview"), {20, 474, 150, 28});
     numeric_apply_ = button("transform-apply", tr("Apply"), {550, 474, 100, 28});
@@ -115,7 +115,7 @@ void EditorDialog::initialize_numeric_transform() {
             gf::Delegate<gf::ButtonBase&>::bind<EditorDialog, &EditorDialog::numeric_transform_clicked>(
                 *this)));
     }
-    (*numeric_apply_).set_enabled(false);
+    (*numeric_apply_).enabled = false;
 }
 void EditorDialog::stop_numeric_transform() {
     if (numeric_job_) {
@@ -128,10 +128,10 @@ void EditorDialog::stop_numeric_transform() {
 }
 void EditorDialog::invalidate_numeric_transform() {
     stop_numeric_transform();
-    (*numeric_apply_).set_enabled(false);
-    (*numeric_preview_).set_enabled(true);
-    (*numeric_status_).set_text(tr("Preview"));
-    (*error_).set_text("");
+    (*numeric_apply_).enabled = false;
+    (*numeric_preview_).enabled = true;
+    (*numeric_status_).text = tr("Preview");
+    (*error_).text = "";
     (*numeric_after_).clear_bitmap();
 }
 void EditorDialog::numeric_transform_number(double) {
@@ -142,20 +142,20 @@ void EditorDialog::numeric_transform_choice(std::optional<std::size_t>) {
 }
 void EditorDialog::start_numeric_transform() {
     stop_numeric_transform();
-    (*numeric_apply_).set_enabled(false);
-    (*numeric_preview_).set_enabled(false);
-    (*error_).set_text("");
-    (*numeric_status_).set_text(tr("Preparing preview…"));
+    (*numeric_apply_).enabled = false;
+    (*numeric_preview_).enabled = false;
+    (*error_).text = "";
+    (*numeric_status_).text = tr("Preparing preview…");
     publish_image(transform_proof((*numeric_source_).canvas, (*numeric_source_).selection), *numeric_before_);
     numeric_job_ = std::make_shared<NumericTransformJob>();
     NumericTransformJob& job = *numeric_job_;
     job.source = numeric_source_;
-    job.settings.offset_x = (*numeric_values_[0]).value();
-    job.settings.offset_y = (*numeric_values_[1]).value();
-    job.settings.scale_x = (*numeric_values_[2]).value();
-    job.settings.scale_y = (*numeric_values_[3]).value();
-    job.settings.angle = (*numeric_values_[4]).value();
-    job.settings.sampling = static_cast<WarpSampling>((*numeric_sampling_).selected_index().value_or(1));
+    job.settings.offset_x = (*numeric_values_[0]).value.read();
+    job.settings.offset_y = (*numeric_values_[1]).value.read();
+    job.settings.scale_x = (*numeric_values_[2]).value.read();
+    job.settings.scale_y = (*numeric_values_[3]).value.read();
+    job.settings.angle = (*numeric_values_[4]).value.read();
+    job.settings.sampling = static_cast<WarpSampling>((*numeric_sampling_).selected_index.read().value_or(1));
     numeric_worker_ = std::thread(
         TransformWork{this, std::static_pointer_cast<EditorDialog>(shared_from_this()), numeric_job_});
 }
@@ -166,14 +166,14 @@ void EditorDialog::deliver_numeric_transform(const std::shared_ptr<NumericTransf
     if (numeric_worker_.joinable()) {
         numeric_worker_.join();
     }
-    (*numeric_preview_).set_enabled(true);
+    (*numeric_preview_).enabled = true;
     (*numeric_status_)
-        .set_text(tr("Current image") + " · " + std::to_string((*numeric_source_).canvas.width) + " × " +
-                  std::to_string((*numeric_source_).canvas.height));
-    (*error_).set_text((*job).error);
+        .text = tr("Current image") + " · " + std::to_string((*numeric_source_).canvas.width) + " × " +
+                  std::to_string((*numeric_source_).canvas.height);
+    (*error_).text = (*job).error;
     if ((*job).error.empty()) {
         publish_image(transform_proof((*job).result.canvas, (*job).result.selection), *numeric_after_);
-        (*numeric_apply_).set_enabled((*job).result.changed);
+        (*numeric_apply_).enabled = (*job).result.changed;
     }
 }
 void EditorDialog::numeric_transform_clicked(gf::ButtonBase& control) {
@@ -186,15 +186,15 @@ void EditorDialog::numeric_transform_clicked(gf::ButtonBase& control) {
     try {
         if (control.stable_id().value() == "transform-preview") {
             start_numeric_transform();
-        } else if ((*numeric_apply_).enabled() && numeric_job_) {
-            (*numeric_apply_).set_enabled(false);
+        } else if ((*numeric_apply_).enabled.read() && numeric_job_) {
+            (*numeric_apply_).enabled = false;
             apply_numeric_transform((*editor).document, *numeric_source_, std::move((*numeric_job_).result));
             (*editor).close_editor_dialog();
             (*editor).refresh();
         }
     } catch (const std::exception& exception) {
-        (*numeric_preview_).set_enabled(true);
-        (*error_).set_text(exception.what());
+        (*numeric_preview_).enabled = true;
+        (*error_).text = exception.what();
     }
 }
 } // namespace paint::forms

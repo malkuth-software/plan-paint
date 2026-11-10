@@ -224,29 +224,8 @@ jobs:
         with:
           path: .build/codecs-macos14
           key: ${{ steps.codecs-cache.outputs.cache-primary-key }}
-      - uses: actions/cache/restore@v4
-        id: renderer-cache
-        if: runner.os != 'Windows'
-        with:
-          path: gui_forms/third_party/skia
-          key: plan-paint-skia-llvm22-v1-${{ matrix.platform }}-${{ env.PAINT_RENDERER_ENV }}-${{ hashFiles('gui_forms/third_party/*skia*') }}
-      - name: Build CPU renderer
-        if: runner.os != 'Windows'
-        run: |
-          if [ ! -f gui_forms/third_party/skia/out/paint/libskia.a ]; then
-            if [ "${{ runner.os }}" = macOS ]; then
-              sh gui_forms/third_party/fetch_skia_cpu.sh
-              sh gui_forms/third_party/build_skia_cpu.sh "$PWD/gui_forms/third_party/skia/out/paint"
-            else
-              GUI_FORMS_SYSTEM_BUILD_TOOLS=1 sh gui_forms/third_party/fetch_skia_cpu.sh
-              sh gui_forms/third_party/build_skia_cpu_linux.sh "$PWD/gui_forms/third_party/skia/out/paint"
-            fi
-          fi
-      - uses: actions/cache/save@v4
-        if: runner.os != 'Windows' && steps.renderer-cache.outputs.cache-hit != 'true'
-        with:
-          path: gui_forms/third_party/skia
-          key: ${{ steps.renderer-cache.outputs.cache-primary-key }}
+      # Since GUI.Forms cp22 the toolkit builds Skia (stx_skia) from its pinned stx
+      # source during configure; the object cache below carries it between runs.
       - name: Configure application
         run: sh scripts/native-build.sh configure '${{ matrix.platform }}'
       - name: Build application and tests

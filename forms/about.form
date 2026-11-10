@@ -1,0 +1,25 @@
+/* The About dialog's content: EditorDialog moves these controls into its
+   panel at their bounds, translates their text through the catalogue (the
+   texts here are its English keys), sets the version line, and adds the
+   Close button. Fonts and colours stay with the dialog until the colour move
+   (track step 2.3). */
+panel about-form {
+  label about-version { text: "Plan Paint"; bounds: 24 54 542 28; }
+  label about-dedication {
+    text: "To the Holy One, blessed be He, from whom all good things come.\nThis work is dedicated in gratitude for the nourishment that sustains human life, the energy that powers our tools, and the opportunity to weave information into works of use and beauty.";
+    bounds: 24 98 542 88;
+  }
+  label about-verse {
+    text: "For I know the plans I have for you, declares the LORD, plans to prosper you and not to harm you, plans to give you hope and a future.\nJeremiah 29:11";
+    bounds: 24 200 542 88;
+  }
+  label about-credits { text: "Author: Astra\nSponsor: Rainstar"; bounds: 24 300 542 42; }
+  label about-license {
+    text: "Copyright (c) 2026 joshuah.rainstar@gmail.com\nLicensed under the PolyForm Noncommercial License 1.0.0.\nFree for non-commercial use; see LICENSE for the terms.";
+    bounds: 24 358 542 72;
+  }
+  label about-trademarks {
+    text: "An independent implementation inspired by Windows 7/10 Paint.\nMicrosoft and Windows are trademarks of Microsoft Corporation.";
+    bounds: 24 450 542 52;
+  }
+}

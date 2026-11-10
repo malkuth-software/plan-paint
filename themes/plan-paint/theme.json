@@ -1,0 +1,10 @@
+{
+  "format": "gui-forms-theme/1",
+  "name": "plan-paint",
+  "version": "1.0.0",
+  "engine": ">=0.3",
+  "sheet": {
+    "path": "plan-paint.theme.css",
+    "sha256": "ad58ede543174d86089c3c4309d1248b259240a9135765ed3d7e257686d01d52"
+  }
+}

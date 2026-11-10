@@ -31,8 +31,8 @@ case "$action" in
       compiler_cxx=$(cygpath -m "$compiler_cxx.exe")
     fi
     python3 scripts/fetch-gui-forms.py
-    sh gui_forms/third_party/fetch_text_stack.sh
-    sh gui_forms/third_party/fetch_linebreak.sh
+    # Since cp22 the toolkit takes FreeType, HarfBuzz, libunibreak and Skia
+    # from its pinned stx source (cmake/Stx.cmake); nothing else is fetched.
     set -- -DRAINSTAR_TOOLKIT_SOURCE_DIR="$PWD/gui_forms"
     set -- "$@" -DPAINT_RELEASE_VERSION="${PAINT_RELEASE_VERSION:-$(python3 scripts/release_version.py)}"
     if [ "$platform" = macos-arm64 ]; then
@@ -41,11 +41,7 @@ case "$action" in
       set -- "$@" -DCMAKE_PREFIX_PATH="$PWD/.build/codecs-macos14${CMAKE_PREFIX_PATH:+;$CMAKE_PREFIX_PATH}"
     fi
     case "$platform" in
-      windows-x64) ;;
-      macos-arm64|linux-x64|linux-arm64)
-        set -- "$@" -DGUI_FORMS_SKIA_PREBUILT=ON \
-          -DGUI_FORMS_SKIA_OUT="$PWD/gui_forms/third_party/skia/out/paint"
-        ;;
+      windows-x64|macos-arm64|linux-x64|linux-arm64) ;;
       *) echo "Unsupported native platform: $platform" >&2; exit 1 ;;
     esac
     cmake -S . -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \

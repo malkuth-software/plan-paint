@@ -43,17 +43,17 @@ void EditorDialog::initialize_icon_effects() {
                     *this)));
     effect_choice_ = gf::make_control<gf::ComboBox>(gf::StableId("effect-choice"));
     (*effect_choice_)
-        .set_items({tr("Brightness / contrast"), tr("Hue / saturation"), tr("Grayscale"), tr("Opacity %"),
-                    tr("Blur"), tr("Sharpen"), tr("Shadow"), tr("Fit artwork within image")});
-    (*effect_choice_).set_selected_index(0);
-    (*effect_choice_).set_accessible_name(tr("Effects"));
+        .items = std::vector<std::string>{tr("Brightness / contrast"), tr("Hue / saturation"), tr("Grayscale"), tr("Opacity %"),
+                    tr("Blur"), tr("Sharpen"), tr("Shadow"), tr("Fit artwork within image")};
+    (*effect_choice_).selected_index = 0;
+    (*effect_choice_).accessible_name = tr("Effects");
     put(effect_choice_, {350, 48, 410, 28});
     label("effect-before-label", tr("Original"), {20, 84, 355, 24});
     label("effect-after-label", tr("Preview"), {405, 84, 355, 24});
     effect_before_ = gf::make_control<gf::RasterCanvas>(gf::StableId("effect-before"));
     effect_after_ = gf::make_control<gf::RasterCanvas>(gf::StableId("effect-after"));
-    (*effect_before_).set_accessible_name(tr("Original"));
-    (*effect_after_).set_accessible_name(tr("Preview"));
+    (*effect_before_).accessible_name = tr("Original");
+    (*effect_after_).accessible_name = tr("Preview");
     put(effect_before_, {20, 112, 355, 192});
     put(effect_after_, {405, 112, 355, 192});
     for (int index = 0; index < 5; ++index) {
@@ -70,22 +70,22 @@ void EditorDialog::initialize_icon_effects() {
     }
     label("effect-color-label", tr("Color"), {20, 378, 80, 28});
     effect_color_ = gf::make_control<gf::TextBox>(gf::StableId("effect-color"));
-    (*effect_color_).set_text("#000000");
-    (*effect_color_).set_accessible_name(tr("Color"));
+    (*effect_color_).text = "#000000";
+    (*effect_color_).accessible_name = tr("Color");
     put(effect_color_, {110, 378, 140, 28});
     effect_status_ = gf::make_control<gf::TextBox>(gf::StableId("effect-status"));
-    (*effect_status_).set_read_only(true);
-    (*effect_status_).set_multiline(true);
-    (*effect_status_).set_word_wrap(true);
-    (*effect_status_).set_accessible_name(tr("Preview"));
+    (*effect_status_).read_only = true;
+    (*effect_status_).multiline = true;
+    (*effect_status_).word_wrap = true;
+    (*effect_status_).accessible_name = tr("Preview");
     put(effect_status_, {270, 378, 490, 64});
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));
-    (*error_).set_text_wrapping(gf::TextWrapping::word);
+    (*error_).text_wrapping = gf::TextWrapping::word;
     put(error_, {20, 444, 740, 26});
     const std::shared_ptr<gf::Button> reset = button("effect-reset", tr("Reset"), {20, 474, 125, 28});
     const std::shared_ptr<gf::Button> repeat =
         button("effect-repeat", tr("Repeat effect…"), {155, 474, 180, 28});
-    (*repeat).set_enabled((*editor).last_icon_effect.has_value());
+    (*repeat).enabled = (*editor).last_icon_effect.has_value();
     effect_apply_ = button("effect-apply", tr("Apply"), {550, 474, 100, 28});
     button("dialog-cancel", tr("Close"), {660, 474, 100, 28});
     for (const std::shared_ptr<gf::Button>& control : {reset, repeat, effect_apply_}) {
@@ -111,7 +111,7 @@ void EditorDialog::effect_choice_changed(std::optional<std::size_t>) {
         return;
     }
     synchronizing_ = true;
-    const std::size_t choice = (*effect_choice_).selected_index().value_or(0);
+    const std::size_t choice = (*effect_choice_).selected_index.read().value_or(0);
     const char* names[15][5] = {{"Brightness %", "Contrast %", "", "", ""},
                                 {"Hue", "Saturation %", "", "", ""},
                                 {"", "", "", "", ""},
@@ -149,23 +149,23 @@ void EditorDialog::effect_choice_changed(std::optional<std::size_t>) {
                                     {},       {100},         {100}, {100}, {100}};
     for (int index = 0; index < 5; ++index) {
         const bool visible = names[choice][index][0] != 0;
-        (*effect_labels_[index]).set_text(tr(names[choice][index]));
-        (*effect_labels_[index]).set_visible(visible);
-        (*effect_values_[index]).set_visible(visible);
-        (*effect_values_[index]).set_accessible_name(tr(names[choice][index]));
+        (*effect_labels_[index]).text = tr(names[choice][index]);
+        (*effect_labels_[index]).visible = visible;
+        (*effect_values_[index]).visible = visible;
+        (*effect_values_[index]).accessible_name = tr(names[choice][index]);
         const bool fractional = (choice == 8 && index == 0) || (choice == 9 && index == 2);
-        (*effect_values_[index]).set_decimal_places(fractional ? 2 : 0);
-        (*effect_values_[index]).set_increment(fractional ? 0.01 : 1);
+        (*effect_values_[index]).decimal_places = fractional ? 2 : 0;
+        (*effect_values_[index]).increment = fractional ? 0.01 : 1;
         (*effect_values_[index]).set_range(minimum[choice][index], maximum[choice][index]);
-        (*effect_values_[index]).set_value(defaults[choice][index]);
+        (*effect_values_[index]).value = defaults[choice][index];
     }
-    (*effect_color_).set_enabled(choice == 6);
-    (*effect_color_).set_text("#000000");
+    (*effect_color_).enabled = choice == 6;
+    (*effect_color_).text = "#000000";
     synchronizing_ = false;
     render_icon_effects();
 }
 void EditorDialog::effect_advanced_changed(gf::ButtonBase&) {
-    const std::size_t previous = (*effect_choice_).selected_index().value_or(0);
+    const std::size_t previous = (*effect_choice_).selected_index.read().value_or(0);
     std::vector<std::string> choices = {tr("Brightness / contrast"),
                                         tr("Hue / saturation"),
                                         tr("Grayscale"),
@@ -174,7 +174,7 @@ void EditorDialog::effect_advanced_changed(gf::ButtonBase&) {
                                         tr("Sharpen"),
                                         tr("Shadow"),
                                         tr("Fit artwork within image")};
-    if ((*effect_advanced_).checked()) {
+    if ((*effect_advanced_).checked.read()) {
         const std::vector<std::string> advanced = {tr("Gamma"),      tr("Levels"),        tr("Invert"),
                                                    tr("Find edges"), tr("Enhance edges"), tr("Contour"),
                                                    tr("Emboss")};
@@ -182,17 +182,17 @@ void EditorDialog::effect_advanced_changed(gf::ButtonBase&) {
     }
     const std::size_t selected = previous < choices.size() ? previous : 0;
     synchronizing_ = true;
-    (*effect_choice_).set_items(std::move(choices));
-    (*effect_choice_).set_selected_index(selected);
+    (*effect_choice_).items = std::move(choices);
+    (*effect_choice_).selected_index = selected;
     synchronizing_ = false;
     if (selected != previous) {
         effect_choice_changed(selected);
     }
 }
 void EditorDialog::restore_icon_effect(const IconEffectSettings& settings) {
-    (*effect_advanced_).set_checked(settings.effect >= IconEffect::Gamma);
+    (*effect_advanced_).checked = settings.effect >= IconEffect::Gamma;
     effect_advanced_changed(*effect_advanced_);
-    (*effect_choice_).set_selected_index(static_cast<std::size_t>(settings.effect));
+    (*effect_choice_).selected_index = static_cast<std::size_t>(settings.effect);
     effect_choice_changed({});
     std::array<double, 5> values{};
     switch (settings.effect) {
@@ -237,9 +237,9 @@ void EditorDialog::restore_icon_effect(const IconEffectSettings& settings) {
     }
     synchronizing_ = true;
     for (std::size_t index = 0; index < values.size(); ++index) {
-        (*effect_values_[index]).set_value(values[index]);
+        (*effect_values_[index]).value = values[index];
     }
-    (*effect_color_).set_text(to_hex(settings.shadow));
+    (*effect_color_).text = to_hex(settings.shadow);
     synchronizing_ = false;
     render_icon_effects();
 }
@@ -257,13 +257,13 @@ void EditorDialog::render_icon_effects() {
     if (!attached_window()) {
         return;
     }
-    (*effect_apply_).set_enabled(false);
-    (*error_).set_text("");
+    (*effect_apply_).enabled = false;
+    (*error_).text = "";
     effect_result_ = {};
     try {
         IconEffectSettings settings;
-        settings.effect = static_cast<IconEffect>((*effect_choice_).selected_index().value_or(0));
-        const double first = (*effect_values_[0]).value(), second = (*effect_values_[1]).value();
+        settings.effect = static_cast<IconEffect>((*effect_choice_).selected_index.read().value_or(0));
+        const double first = (*effect_values_[0]).value.read(), second = (*effect_values_[1]).value.read();
         switch (settings.effect) {
         case IconEffect::BrightnessContrast:
             settings.brightness = first;
@@ -286,9 +286,9 @@ void EditorDialog::render_icon_effects() {
         case IconEffect::Shadow:
             settings.radius = static_cast<int>(first);
             settings.offset_x = static_cast<int>(second);
-            settings.offset_y = static_cast<int>((*effect_values_[2]).value());
-            settings.opacity = (*effect_values_[3]).value();
-            if (!from_hex(std::string((*effect_color_).text()), settings.shadow)) {
+            settings.offset_y = static_cast<int>((*effect_values_[2]).value.read());
+            settings.opacity = (*effect_values_[3]).value.read();
+            if (!from_hex(std::string((*effect_color_).text.read()), settings.shadow)) {
                 throw std::runtime_error(tr("Invalid color"));
             }
             break;
@@ -301,9 +301,9 @@ void EditorDialog::render_icon_effects() {
         case IconEffect::Levels:
             settings.input_black = static_cast<int>(first);
             settings.input_white = static_cast<int>(second);
-            settings.gamma = (*effect_values_[2]).value();
-            settings.output_black = static_cast<int>((*effect_values_[3]).value());
-            settings.output_white = static_cast<int>((*effect_values_[4]).value());
+            settings.gamma = (*effect_values_[2]).value.read();
+            settings.output_black = static_cast<int>((*effect_values_[3]).value.read());
+            settings.output_white = static_cast<int>((*effect_values_[4]).value.read());
             break;
         case IconEffect::EdgeFind:
         case IconEffect::EdgeEnhance:
@@ -318,10 +318,10 @@ void EditorDialog::render_icon_effects() {
         effect_result_ = render_icon_effect(effect_source_, settings);
         effect_settings_ = settings;
         (*effect_apply_)
-            .set_enabled(!std::equal(effect_result_.image.pixels.begin(), effect_result_.image.pixels.end(),
-                                     effect_source_.pixels.begin(), equal));
+            .enabled = !std::equal(effect_result_.image.pixels.begin(), effect_result_.image.pixels.end(),
+                                     effect_source_.pixels.begin(), equal);
     } catch (const std::exception& exception) {
-        (*error_).set_text(exception.what());
+        (*error_).text = exception.what();
     }
     IconFrame before, after;
     before.image = effect_source_;
@@ -343,11 +343,11 @@ void EditorDialog::render_icon_effects() {
     publish_image(effect_preview(before, zoom), *effect_before_);
     publish_image(effect_preview(after, zoom), *effect_after_);
     (*effect_status_)
-        .set_text(effect_result_.overflow.pixels.empty()
+        .text = effect_result_.overflow.pixels.empty()
                       ? tr("Current image") + " · " + std::to_string(effect_source_.width) + " × " +
                             std::to_string(effect_source_.height)
                       : tr("Pink border: image bounds. Pixels outside are clipped.") + " " +
-                            std::to_string(effect_result_.clipped_pixels));
+                            std::to_string(effect_result_.clipped_pixels);
 }
 void EditorDialog::effect_clicked(gf::ButtonBase& control) {
     const std::shared_ptr<EditorDialog> keep_alive =
@@ -366,7 +366,7 @@ void EditorDialog::effect_clicked(gf::ButtonBase& control) {
         effect_choice_changed({});
         return;
     }
-    if (!(*effect_apply_).enabled()) {
+    if (!(*effect_apply_).enabled.read()) {
         return;
     }
     try {
@@ -385,7 +385,7 @@ void EditorDialog::effect_clicked(gf::ButtonBase& control) {
         (*editor).close_editor_dialog();
         (*editor).refresh();
     } catch (const std::exception& exception) {
-        (*error_).set_text(exception.what());
+        (*error_).text = exception.what();
     }
 }
 } // namespace paint::forms

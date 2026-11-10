@@ -47,28 +47,28 @@ void EditorDialog::initialize_icon_validation() {
     panel_ = {0, 0, 780, 510};
     label("validation-sizes-label", tr("Required sizes"), {20, 48, 500, 24});
     validation_sizes_ = gf::make_control<gf::TextBox>(gf::StableId("validation-sizes"));
-    (*validation_sizes_).set_accessible_name(tr("Required sizes"));
-    (*validation_sizes_).set_text("16,24,32,48,64,128,256");
+    (*validation_sizes_).accessible_name = tr("Required sizes");
+    (*validation_sizes_).text = "16,24,32,48,64,128,256";
     put(validation_sizes_, {20, 78, 500, 28});
     label("validation-depth-label", tr("Color depth"), {540, 48, 220, 24});
     validation_depth_ = gf::make_control<gf::ComboBox>(gf::StableId("validation-depth"));
-    (*validation_depth_).set_accessible_name(tr("Color depth"));
-    (*validation_depth_).set_items({"32 bpp", "8 bpp", "4 bpp", tr("Any depth")});
-    (*validation_depth_).set_selected_index(0);
+    (*validation_depth_).accessible_name = tr("Color depth");
+    (*validation_depth_).items = {"32 bpp", "8 bpp", "4 bpp", tr("Any depth")};
+    (*validation_depth_).selected_index = 0;
     put(validation_depth_, {540, 78, 220, 28});
     validation_report_ = gf::make_control<gf::TextBox>(gf::StableId("validation-report"));
-    (*validation_report_).set_read_only(true);
-    (*validation_report_).set_multiline(true);
-    (*validation_report_).set_word_wrap(true);
-    (*validation_report_).set_font({gf::FontRole::control, 11, 400, false});
-    (*validation_report_).set_accessible_name(tr("Icon validation"));
+    (*validation_report_).read_only = true;
+    (*validation_report_).multiline = true;
+    (*validation_report_).word_wrap = true;
+    (*validation_report_).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
+    (*validation_report_).accessible_name = tr("Icon validation");
     put(validation_report_, {20, 122, 740, 314});
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));
-    (*error_).set_text_wrapping(gf::TextWrapping::word);
+    (*error_).text_wrapping = gf::TextWrapping::word;
     put(error_, {20, 442, 740, 28});
     validation_check_ = button("validation-check", tr("Validate"), {20, 474, 150, 28});
     validation_save_ = button("validation-save", tr("Save report…"), {490, 474, 160, 28});
-    (*validation_save_).set_enabled(false);
+    (*validation_save_).enabled = false;
     button("dialog-cancel", tr("Close"), {660, 474, 100, 28});
     for (const std::shared_ptr<gf::Button>& control : {validation_check_, validation_save_}) {
         subscriptions_.push_back((*control).clicked().subscribe(
@@ -98,10 +98,10 @@ void EditorDialog::stop_icon_validation() {
 }
 void EditorDialog::invalidate_icon_validation() {
     stop_icon_validation();
-    (*validation_save_).set_enabled(false);
-    (*validation_check_).set_enabled(true);
-    (*validation_report_).set_text("");
-    (*error_).set_text("");
+    (*validation_save_).enabled = false;
+    (*validation_check_).enabled = true;
+    (*validation_report_).text = "";
+    (*error_).text = "";
 }
 void EditorDialog::validation_text(const std::string&) {
     invalidate_icon_validation();
@@ -119,16 +119,16 @@ void EditorDialog::start_icon_validation() {
         validation_job_ = std::make_shared<IconValidationJob>();
         IconValidationJob& job = *validation_job_;
         job.source = (*editor).document.output_container((*editor).document.atlas.kind == AtlasKind::Cursor);
-        job.profile.sizes = parse_validation_sizes(std::string((*validation_sizes_).text()));
+        job.profile.sizes = parse_validation_sizes(std::string((*validation_sizes_).text.read()));
         const unsigned depths[] = {32, 8, 4, 0};
-        job.profile.depth = depths[(*validation_depth_).selected_index().value_or(0)];
-        (*validation_report_).set_text(tr("Preparing preview…"));
-        (*validation_check_).set_enabled(false);
+        job.profile.depth = depths[(*validation_depth_).selected_index.read().value_or(0)];
+        (*validation_report_).text = tr("Preparing preview…");
+        (*validation_check_).enabled = false;
         validation_worker_ = std::thread(ValidationWork{
             this, std::static_pointer_cast<EditorDialog>(shared_from_this()), validation_job_});
     } catch (const std::exception& error) {
-        (*error_).set_text(error.what());
-        (*validation_check_).set_enabled(true);
+        (*error_).text = error.what();
+        (*validation_check_).enabled = true;
     }
 }
 void EditorDialog::deliver_icon_validation(const std::shared_ptr<IconValidationJob>& job) {
@@ -138,10 +138,10 @@ void EditorDialog::deliver_icon_validation(const std::shared_ptr<IconValidationJ
     if (validation_worker_.joinable()) {
         validation_worker_.join();
     }
-    (*validation_check_).set_enabled(true);
-    (*error_).set_text((*job).error);
+    (*validation_check_).enabled = true;
+    (*error_).text = (*job).error;
     if (!(*job).error.empty()) {
-        (*validation_report_).set_text("");
+        (*validation_report_).text = "";
         return;
     }
     const IconValidation& result = (*job).result;
@@ -186,9 +186,9 @@ void EditorDialog::deliver_icon_validation(const std::shared_ptr<IconValidationJ
          << tr("Test custom dimensions and cursor hotspots in the target application.") << '\n'
          << tr("Generation, effects and strip previews report upscaling and clipping; saved pixels do not "
                "retain that history.");
-    (*validation_report_).set_text(text.str());
+    (*validation_report_).text = text.str();
     (*validation_report_).select(gf::Utf8Offset{0}, gf::Utf8Offset{0});
-    (*validation_save_).set_enabled(true);
+    (*validation_save_).enabled = true;
 }
 void EditorDialog::validation_clicked(gf::ButtonBase& control) {
     if (control.stable_id().value() == "validation-check") {
@@ -196,14 +196,14 @@ void EditorDialog::validation_clicked(gf::ButtonBase& control) {
         return;
     }
     const std::shared_ptr<Editor> editor = editor_.lock();
-    if (!editor || !validation_job_ || !(*validation_save_).enabled()) {
+    if (!editor || !validation_job_ || !(*validation_save_).enabled.read()) {
         return;
     }
     try {
         static_cast<void>((*editor).save_export_report(icon_validation_json((*validation_job_).result),
                                                        "icon-validation.json"));
     } catch (const std::exception& error) {
-        (*error_).set_text(error.what());
+        (*error_).text = error.what();
     }
 }
 } // namespace paint::forms

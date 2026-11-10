@@ -650,7 +650,7 @@ bool Editor::warp_pointer(const gf::PointerEvent& event, Point point) {
             Point local{point.x - warp_original_.x, point.y - warp_original_.y};
             for (std::size_t i = 0; i < reshape_mesh_.nodes.size(); ++i) {
                 Point target = reshape_mesh_.nodes[i].target;
-                if (std::hypot(local.x - target.x, local.y - target.y) * (*canvas_).zoom() < 10) {
+                if (std::hypot(local.x - target.x, local.y - target.y) * (*canvas_).zoom.read() < 10) {
                     mesh_node_ = static_cast<int>(i);
                     (*canvas_).set_pointer_capture(true);
                     break;
@@ -728,13 +728,13 @@ void Editor::render_stamp_view() {
         begin_transform_preview(true);
         stamp_view_generation_ = stamp_pixels_revision_;
     }
-    const gui_drawing::PointF view_origin = canvas().view_origin();
+    const gui_drawing::PointF view_origin = canvas().view_origin.read();
     const gf::Rect viewport = canvas().client_rectangle();
     const bool prepared = static_cast<bool>(transform_preview_field_);
     if (stamp_rendered_revision_ == stamp_pixels_revision_ && stamp_rendered_prepared_ == prepared &&
         stamp_rendered_origin_.x == origin.x && stamp_rendered_origin_.y == origin.y &&
         stamp_rendered_view_origin_.x == view_origin.x && stamp_rendered_view_origin_.y == view_origin.y &&
-        stamp_rendered_angle_ == canvas().view_angle && stamp_rendered_zoom_ == canvas().zoom() &&
+        stamp_rendered_angle_ == canvas().view_angle && stamp_rendered_zoom_ == canvas().zoom.read() &&
         stamp_rendered_viewport_.width == viewport.width &&
         stamp_rendered_viewport_.height == viewport.height) {
         return;
@@ -753,8 +753,8 @@ void Editor::render_stamp_view() {
               height = static_cast<int>(std::ceil(destination.height));
     Image image;
     if (transform_preview_field_) {
-        const double c = std::cos(canvas().view_angle) * canvas().zoom(),
-                     s = std::sin(canvas().view_angle) * canvas().zoom();
+        const double c = std::cos(canvas().view_angle) * canvas().zoom.read(),
+                     s = std::sin(canvas().view_angle) * canvas().zoom.read();
         const gf::Point first = screen({origin.x + 0.5, origin.y + 0.5});
         const AffineMap map{c, -s, first.x - destination.x - 0.5, s, c, first.y - destination.y - 0.5};
         render_affine(*transform_preview_field_, map, width, height, image, WarpSampling::Point);
@@ -789,7 +789,7 @@ void Editor::render_stamp_view() {
         stamp_rendered_origin_ = origin;
         stamp_rendered_view_origin_ = view_origin;
         stamp_rendered_angle_ = canvas().view_angle;
-        stamp_rendered_zoom_ = canvas().zoom();
+        stamp_rendered_zoom_ = canvas().zoom.read();
         stamp_rendered_viewport_ = viewport;
         stamp_view_destination_ = {destination.x, destination.y, static_cast<double>(width),
                                    static_cast<double>(height)};
@@ -804,16 +804,16 @@ void Editor::paint_warp_overlay(gf::Painter& painter) {
                                                              ? stamp_width
                                                              : stamp_height)
                                                       : stamp_preview_.height;
-        width *= (*canvas_).zoom();
-        height *= (*canvas_).zoom();
+        width *= (*canvas_).zoom.read();
+        height *= (*canvas_).zoom.read();
         const gf::Point client = stamp_placement_ ? screen(stamp_placement_center_) : *cursor_client_;
         gf::Rect bounds{client.x - width / 2, client.y - height / 2, width, height};
         const gui_drawing::PointF center = canvas().client_to_bitmap(client);
         const Point image_origin{
             stamp_placement_ ? std::trunc(stamp_placement_center_.x - stamp_preview_.width * 0.5)
-                             : std::round(center.x - width / (2 * canvas().zoom())),
+                             : std::round(center.x - width / (2 * canvas().zoom.read())),
             stamp_placement_ ? std::trunc(stamp_placement_center_.y - stamp_preview_.height * 0.5)
-                             : std::round(center.y - height / (2 * canvas().zoom()))};
+                             : std::round(center.y - height / (2 * canvas().zoom.read()))};
         if (!stamp_placement_ && stamp_image_.value != 0) {
             if (std::abs(canvas().view_angle) > 1e-10) {
                 if (stamp_view_image_.value && !stamp_view_destination_.empty()) {
@@ -824,7 +824,7 @@ void Editor::paint_warp_overlay(gf::Painter& painter) {
                 painter.draw_image(stamp_image_, bounds, adding_stamp_material_ ? 0.5 : 0.65);
             }
         }
-        double scale = (*canvas_).zoom();
+        double scale = (*canvas_).zoom.read();
         if (stamp_preview_.pixels.empty()) {
             std::vector<Point> outline = stamp_outline(document.stamp_shape, static_cast<int>(width / scale),
                                                        static_cast<int>(height / scale));

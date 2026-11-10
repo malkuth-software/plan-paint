@@ -145,11 +145,41 @@ void RecentFiles::load() {
     }
     paths = std::move(loaded);
 }
+namespace {
+// Windows filenames compare without regard to case or separator spelling, so
+// C:\Art\A.PNG and c:/art/a.png are one recent entry. Elsewhere names are
+// compared exactly: case-sensitive volumes may hold both.
+bool same_recent_path(const std::string& left, const std::string& right) {
+#ifdef _WIN32
+    if (left.size() != right.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        char a = left[index] == '\\' ? '/' : left[index];
+        char b = right[index] == '\\' ? '/' : right[index];
+        a = a >= 'A' && a <= 'Z' ? static_cast<char>(a - 'A' + 'a') : a;
+        b = b >= 'A' && b <= 'Z' ? static_cast<char>(b - 'A' + 'a') : b;
+        if (a != b) {
+            return false;
+        }
+    }
+    return true;
+#else
+    return left == right;
+#endif
+}
+struct SameRecentPath {
+    const std::string& path;
+    bool operator()(const std::string& candidate) const {
+        return same_recent_path(candidate, path);
+    }
+};
+} // namespace
 void RecentFiles::remember(const std::string& path) {
     if (path.empty() || path.size() > 65536) {
         return;
     }
-    paths.erase(std::remove(paths.begin(), paths.end(), path), paths.end());
+    paths.erase(std::remove_if(paths.begin(), paths.end(), SameRecentPath{path}), paths.end());
     paths.insert(paths.begin(), path);
     if (paths.size() > 12) {
         paths.resize(12);

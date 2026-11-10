@@ -615,6 +615,63 @@ void test_conv() {
     for (paint::Color pixel : output.pixels) {
         require(paint::equal(pixel, {20, 40, 60, 255}), "short line failed");
     }
+    // Images of 65536 pixels or more fan their lines out over worker threads.
+    // With identical rows (columns), every threaded row (column) must equal the
+    // single-line resize, which runs on one thread: this pins each worker's
+    // line offsets and strides, for nodal and area sampling.
+    const int wide = 300, tall = 240;
+    paint::Image row, rows, column, columns, expected, actual;
+    row.reset(wide, 1);
+    column.reset(1, tall);
+    rows.reset(wide, tall);
+    columns.reset(wide, tall);
+    for (int x = 0; x < wide; ++x) {
+        row.set(x, 0, {static_cast<std::uint8_t>((x * 37) % 256), static_cast<std::uint8_t>(x % 7 * 30), 90,
+                       static_cast<std::uint8_t>(64 + x % 192)});
+    }
+    for (int y = 0; y < tall; ++y) {
+        column.set(0, y, {40, static_cast<std::uint8_t>((y * 53) % 256), static_cast<std::uint8_t>(y % 5 * 50),
+                          static_cast<std::uint8_t>(255 - y % 128)});
+    }
+    for (int y = 0; y < tall; ++y) {
+        for (int x = 0; x < wide; ++x) {
+            rows.set(x, y, row.get(x, 0));
+            columns.set(x, y, column.get(0, y));
+        }
+    }
+    for (int area = 0; area < 2; ++area) {
+        const int targets[2] = {173, 451};
+        for (int target : targets) {
+            if (area) {
+                paint::conv_resize_area(row, target, 1, expected);
+                paint::conv_resize_area(rows, target, tall, actual);
+            } else {
+                paint::conv_resize(row, target, 1, expected);
+                paint::conv_resize(rows, target, tall, actual);
+            }
+            for (int y = 0; y < tall; ++y) {
+                for (int x = 0; x < target; ++x) {
+                    require(std::memcmp(&actual.pixels[static_cast<std::size_t>(y) * target + x],
+                                        &expected.pixels[x], sizeof(paint::Color)) == 0,
+                            "threaded rows match the single-row resize");
+                }
+            }
+            if (area) {
+                paint::conv_resize_area(column, 1, target, expected);
+                paint::conv_resize_area(columns, wide, target, actual);
+            } else {
+                paint::conv_resize(column, 1, target, expected);
+                paint::conv_resize(columns, wide, target, actual);
+            }
+            for (int y = 0; y < target; ++y) {
+                for (int x = 0; x < wide; ++x) {
+                    require(std::memcmp(&actual.pixels[static_cast<std::size_t>(y) * wide + x], &expected.pixels[y],
+                                        sizeof(paint::Color)) == 0,
+                            "threaded columns match the single-column resize");
+                }
+            }
+        }
+    }
 }
 void test_conv_area() {
     paint::Image source, output;
@@ -1584,13 +1641,11 @@ void test_file_security() {
     paint::save_image(ordinary, ordinary_png.string());
     const std::vector<std::uint8_t> png = paint::read_image_bytes(ordinary_png.string());
     paint::write_file_atomic(png, disguised_heif.string(), "HEIF signature test write failed");
-    rejected = false;
-    try {
-        static_cast<void>(paint::load_image(disguised_heif.string()));
-    } catch (const std::exception&) {
-        rejected = true;
-    }
-    require(rejected, "a non-HEIF file reached the native HEIF decoder");
+    // Content decides: PNG bytes named .heic open as PNG and never reach the
+    // native HEIF decoder (which would refuse them on every platform).
+    const paint::Image disguised = paint::load_image(disguised_heif.string());
+    require(disguised.width == 4 && disguised.height == 4 && paint::equal(disguised.get(1, 1), ordinary.get(1, 1)),
+            "PNG bytes named .heic open by content, not through the HEIF decoder");
     std::filesystem::remove_all(directory);
 }
 } // namespace
