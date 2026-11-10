@@ -707,14 +707,29 @@ void EditorDialog::initialize_control_tree() {
         button("dialog-cancel", kind_ == EditorDialogKind::english_help ? "Cancel" : tr("Cancel"), {panel_.width - 110, panel_.height - 41, 90, 28});
     }
 }
+void EditorDialog::set_windowed(bool windowed) {
+    windowed_ = windowed;
+    invalidate(gf::Dirty::layout | gf::Dirty::paint);
+}
+gf::Size EditorDialog::window_client_size() const {
+    const gf::Size size{panel_.width, std::max(1.0, panel_.height - title_band)};
+    return size;
+}
 void EditorDialog::arrange(gf::Rect bounds) {
     if (attached_window()) {
         gf::Size client = (*attached_window()).client_size();
         bounds = {0, 0, client.width, client.height};
     }
     arrange_self(bounds);
-    panel_.x = std::floor((bounds.width - panel_.width) / 2);
-    panel_.y = std::floor((bounds.height - panel_.height) / 2);
+    if (windowed_) {
+        // In its own window the panel's title band lies above the client
+        // area: the window's title bar stands in for it.
+        panel_.x = 0;
+        panel_.y = -title_band;
+    } else {
+        panel_.x = std::floor((bounds.width - panel_.width) / 2);
+        panel_.y = std::floor((bounds.height - panel_.height) / 2);
+    }
     for (std::size_t i = 0; i < controls_.size(); ++i) {
         gf::Rect position = (*controls_[i]).requested_bounds();
         position.x += panel_.x;
@@ -724,13 +739,18 @@ void EditorDialog::arrange(gf::Rect bounds) {
 }
 void EditorDialog::on_paint(gf::Painter& painter, gf::Rect) {
     gf::Rect bounds = committed_arranged_bounds();
-    painter.fill_rect({0, 0, bounds.width, bounds.height}, interface_color(*this, gf::Color::rgba(33, 51, 73, 48)));
-    painter.draw_box_shadow(panel_, 3, {0, 7}, 22, 0, interface_color(*this, gf::Color::rgba(20, 35, 53, 80)));
-    painter.fill_rounded_rect(panel_, 3, interface_color(*this, gf::Color::rgba(244, 247, 250)));
-    painter.fill_rect({panel_.x + 1, panel_.y + 1, panel_.width - 2, 35}, interface_color(*this, gf::Color::rgba(215, 230, 247)));
-    painter.stroke_rounded_rect(panel_, 3, interface_color(*this, gf::Color::rgba(126, 150, 178)), 1);
-    painter.draw_text_utf8({panel_.x + 16, panel_.y + 24}, title(),
-                           {gf::FontRole::control, 15, 600, false, 0.08}, interface_color(*this, gf::Color::rgba(35, 60, 86)));
+    if (windowed_) {
+        painter.fill_rect({0, 0, bounds.width, bounds.height}, interface_color(*this, gf::Color::rgba(244, 247, 250)));
+    } else {
+        painter.fill_rect({0, 0, bounds.width, bounds.height}, interface_color(*this, gf::Color::rgba(33, 51, 73, 48)));
+        painter.draw_box_shadow(panel_, 3, {0, 7}, 22, 0, interface_color(*this, gf::Color::rgba(20, 35, 53, 80)));
+        painter.fill_rounded_rect(panel_, 3, interface_color(*this, gf::Color::rgba(244, 247, 250)));
+        painter.fill_rect({panel_.x + 1, panel_.y + 1, panel_.width - 2, 35}, interface_color(*this, gf::Color::rgba(215, 230, 247)));
+        painter.stroke_rounded_rect(panel_, 3, interface_color(*this, gf::Color::rgba(126, 150, 178)), 1);
+        painter.draw_text_utf8({panel_.x + 16, panel_.y + 24}, title(),
+                               {gf::FontRole::control, 15, 600, false, 0.08},
+                               interface_color(*this, gf::Color::rgba(35, 60, 86)));
+    }
     painter.draw_line({panel_.x + 1, panel_.y + panel_.height - 53},
                       {panel_.x + panel_.width - 1, panel_.y + panel_.height - 53},
                       interface_color(*this, gf::Color::rgba(205, 217, 231)), 1);

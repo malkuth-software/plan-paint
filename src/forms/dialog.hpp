@@ -116,6 +116,16 @@ class EditorDialog final : public gui_forms::Control {
     const ColorMosaic& color_mosaic(double hue) const;
     PickerSpace picker_space = PickerSpace::RGB;
     bool mosaic = false;
+    // The dialog as the root of its own owned window (the window's title bar
+    // carries the title and the close box) instead of an overlay drawn over
+    // the editor with its own title band. Set before the dialog is attached.
+    void set_windowed(bool windowed);
+    // The client size of the dialog's own window: the panel less its title band.
+    [[nodiscard]] gui_forms::Size window_client_size() const;
+    // The dialog's title, as its window or its title band shows it.
+    [[nodiscard]] std::string title() const;
+    // The height of the title band an overlay dialog draws at its top.
+    static constexpr double title_band = 36;
 
   private:
     void initialize_numeric_transform();
@@ -386,6 +396,7 @@ class EditorDialog final : public gui_forms::Control {
     Color original_, color_;
     int original_width_ = 1, original_height_ = 1, custom_slot_ = 0;
     gui_forms::Rect panel_;
+    bool windowed_ = false;
     std::vector<gui_forms::Control::Ptr> controls_;
     std::vector<gui_forms::SubscriptionToken> subscriptions_;
     std::vector<std::shared_ptr<SwatchButton>> custom_;
@@ -445,7 +456,6 @@ class EditorDialog final : public gui_forms::Control {
     void icon_size_clicked(gui_forms::ButtonBase& control);
     void icon_policy_changed(std::optional<std::size_t> index);
     void refresh_icon_plan();
-    std::string title() const;
     void atlas_changed(double value);
     void accept();
 };

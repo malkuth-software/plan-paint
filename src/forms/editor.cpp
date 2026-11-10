@@ -669,9 +669,9 @@ void Editor::refresh() {
     if (ribbon_) {
         (*ribbon_).synchronize();
     }
-    if (window() && editor_dialog_) {
+    if (editor_dialog_ && (*editor_dialog_).attached_window()) {
         std::shared_ptr<AtlasPanel> gallery =
-            std::dynamic_pointer_cast<AtlasPanel>((*window()).find("atlas-gallery-panel"));
+            std::dynamic_pointer_cast<AtlasPanel>((*(*editor_dialog_).attached_window()).find("atlas-gallery-panel"));
         if (gallery) {
             (*gallery).synchronize();
         }
@@ -2074,6 +2074,52 @@ void Editor::paste() {
     }
     refresh();
 }
+namespace {
+// The closed notice of a dialog's own window, for the editor that opened it.
+struct DialogWindowClosed {
+    std::weak_ptr<Editor> editor;
+    std::uint64_t serial = 0;
+    void operator()() const {
+        const std::shared_ptr<Editor> owner = editor.lock();
+        if (owner) {
+            (*owner).dialog_window_closed(serial);
+        }
+    }
+};
+// Destroys a dialog's own window once the event that closed it is over.
+struct DestroyDialogWindow {
+    gf::ApplicationWindowHandle window;
+    void operator()() const {
+        if (window.active()) {
+            static_cast<void>(window.windows().destroy_window(window));
+        }
+    }
+};
+} // namespace
+gf::Window* Editor::dialog_window() const {
+    if (!editor_dialog_ || !editor_dialog_window_.active()) {
+        return nullptr;
+    }
+    gf::Window* result = (*editor_dialog_).attached_window();
+    return result;
+}
+void Editor::dialog_window_closed(std::uint64_t serial) {
+    if (serial != editor_dialog_serial_ || !editor_dialog_window_.active()) {
+        return;
+    }
+    editor_dialog_window_ = {};
+    close_editor_dialog();
+}
+void Editor::on_pointer_preview(gf::PointerEvent& event) {
+    if (!editor_dialog_window_.active()) {
+        Control::on_pointer_preview(event);
+        return;
+    }
+    if (event.action == gf::PointerAction::down) {
+        static_cast<void>(editor_dialog_window_.bring_to_front());
+    }
+    event.handled = true;
+}
 void Editor::open_editor_dialog(EditorDialogKind kind, bool secondary) {
     if (!attached_window()) {
         return;
@@ -2082,17 +2128,55 @@ void Editor::open_editor_dialog(EditorDialogKind kind, bool secondary) {
     close_editor_dialog();
     editor_dialog_ = gf::make_control<EditorDialog>(
         gf::StableId("editor-dialog"), std::static_pointer_cast<Editor>(shared_from_this()), kind, secondary);
+    // In a running application the dialog is a window of its own, owned by
+    // the editor's and modal to it as the original's dialogs were: it moves
+    // freely, carries a native title bar and close box, and the editor's
+    // window refuses input until it closes (on_pointer_preview; key presses
+    // already stop while a dialog is open).
+    const gf::ApplicationWindows windows = handle_.windows();
+    if (windows.active() && windows.capabilities().supports(gf::HostCapability::runtime_windows)) {
+        (*editor_dialog_).set_windowed(true);
+        ++editor_dialog_serial_;
+        gf::ApplicationWindowOpenResult opened;
+        {
+            const gf::Size size = (*editor_dialog_).window_client_size();
+            gf::ApplicationWindow entry;
+            entry.stable_id = "editor-dialog-" + std::to_string(editor_dialog_serial_);
+            entry.owner_id = "main";
+            entry.model = std::make_unique<gf::Window>(editor_dialog_, size);
+            entry.options.title = (*editor_dialog_).title();
+            entry.options.initial_size = size;
+            entry.options.minimum_size = size;
+            entry.options.minimizable = false;
+            entry.options.closed =
+                DialogWindowClosed{std::static_pointer_cast<Editor>(shared_from_this()), editor_dialog_serial_};
+            opened = windows.open_window(std::move(entry));
+        }
+        if (opened.status.accepted()) {
+            editor_dialog_window_ = opened.window;
+            interface_themes.apply(*editor_dialog_, settings.interface_hue);
+            reveal_dialog_gallery(kind);
+            return;
+        }
+        // Refused: the entry (and the window model holding the dialog) is
+        // gone; the dialog opens over the editor instead.
+        (*editor_dialog_).set_windowed(false);
+    }
     editor_dialog_popup_ = (*attached_window()).open_overlay(shared_from_this(), editor_dialog_);
     // The dialog is outside the editor's subtree, so it takes its own tint
     // once the overlay has attached it.
     interface_themes.apply(*editor_dialog_, settings.interface_hue);
     editor_dialog_focus_ = (*attached_window()).begin_focus_scope(editor_dialog_);
-    if (kind == EditorDialogKind::atlas_gallery) {
-        std::shared_ptr<AtlasPanel> gallery =
-            std::dynamic_pointer_cast<AtlasPanel>((*attached_window()).find("atlas-gallery-panel"));
-        if (gallery) {
-            (*gallery).reveal_current();
-        }
+    reveal_dialog_gallery(kind);
+}
+void Editor::reveal_dialog_gallery(EditorDialogKind kind) {
+    if (kind != EditorDialogKind::atlas_gallery || !editor_dialog_ || !(*editor_dialog_).attached_window()) {
+        return;
+    }
+    std::shared_ptr<AtlasPanel> gallery =
+        std::dynamic_pointer_cast<AtlasPanel>((*(*editor_dialog_).attached_window()).find("atlas-gallery-panel"));
+    if (gallery) {
+        (*gallery).reveal_current();
     }
 }
 void Editor::close_editor_dialog() {
@@ -2111,6 +2195,15 @@ void Editor::close_editor_dialog() {
         editor_dialog_focus_ = {};
     }
     editor_dialog_popup_.disconnect();
+    if (editor_dialog_window_.active()) {
+        const gf::ApplicationWindowHandle dialog = editor_dialog_window_;
+        editor_dialog_window_ = {};
+        // The window's closed notice now names a stale serial. The window
+        // goes on the editor's next turn: this may run inside the dialog
+        // window's own event (Escape, OK, Cancel), which must finish first.
+        ++editor_dialog_serial_;
+        static_cast<void>(begin_invoke(DestroyDialogWindow{dialog}));
+    }
     editor_dialog_.reset();
 }
 void Editor::complete_deferred_save() {

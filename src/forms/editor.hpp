@@ -271,6 +271,8 @@ class Editor final : public gui_forms::Control {
                const std::string& initial_path = {});
     void closing(gui_forms::HostCloseRequest& request);
     void execute(const std::string& command);
+    // The open dialog's own window, or null (no dialog, or an overlay dialog).
+    [[nodiscard]] gui_forms::Window* dialog_window() const;
     void choose_tool(Tool tool);
     void on_attached_to_window() override;
     void on_detaching_from_window(gui_forms::SurfaceRoot& former_window) noexcept override;
@@ -389,6 +391,11 @@ class Editor final : public gui_forms::Control {
     std::shared_ptr<Ribbon> ribbon_;
     std::shared_ptr<HelpBook> help_;
     std::shared_ptr<EditorDialog> editor_dialog_;
+    // The dialog's own window while it is open as one (a running
+    // application); inactive for an overlay dialog (tests, hosts without
+    // runtime windows). The serial makes a stale closed notice harmless.
+    gui_forms::ApplicationWindowHandle editor_dialog_window_;
+    std::uint64_t editor_dialog_serial_ = 0;
     gui_forms::OverlayToken editor_dialog_popup_;
     gui_forms::FocusScopeId editor_dialog_focus_;
     std::vector<std::shared_ptr<gui_forms::Command>> commands_;
@@ -503,6 +510,12 @@ class Editor final : public gui_forms::Control {
     void update_cursor_status();
     // Repaints what follows the canvas view besides the canvas: the rulers.
     void view_moved();
+    // The dialog window's close box closed it: forget it as Cancel would.
+    void dialog_window_closed(std::uint64_t serial);
+    void reveal_dialog_gallery(EditorDialogKind kind);
+    // While a dialog has its own window the editor's window refuses pointer
+    // input, as the original's modal dialogs made it do.
+    void on_pointer_preview(gui_forms::PointerEvent& event) override;
     void zoom_slider_changed(double value);
     void status_clicked(gui_forms::ButtonBase& button);
     void command_invoked(const gui_forms::CommandInvocation& invocation);
