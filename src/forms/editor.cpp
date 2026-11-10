@@ -2086,6 +2086,30 @@ struct DialogWindowClosed {
         }
     }
 };
+// The ready notice of a dialog's own window: the editor keeps its handle.
+struct DialogWindowReady {
+    std::weak_ptr<Editor> editor;
+    std::uint64_t serial = 0;
+    void operator()(gf::Window&, gf::ApplicationWindowHandle handle) const {
+        const std::shared_ptr<Editor> owner = editor.lock();
+        if (owner) {
+            (*owner).dialog_window_ready(serial, handle);
+        }
+    }
+};
+// Runs a modal dialog's nested loop on the editor's next turn, once the
+// command that opened it has finished: callers set their deferred state
+// (pending_save_path, deferred_command, ...) after opening the dialog.
+struct ShowDialogModal {
+    std::weak_ptr<Editor> editor;
+    std::uint64_t serial = 0;
+    void operator()() const {
+        const std::shared_ptr<Editor> owner = editor.lock();
+        if (owner) {
+            (*owner).run_modal_dialog(serial);
+        }
+    }
+};
 // Destroys a dialog's own window once the event that closed it is over.
 struct DestroyDialogWindow {
     gf::ApplicationWindowHandle window;
@@ -2103,15 +2127,27 @@ gf::Window* Editor::dialog_window() const {
     gf::Window* result = (*editor_dialog_).attached_window();
     return result;
 }
+void Editor::dialog_window_ready(std::uint64_t serial, gf::ApplicationWindowHandle handle) {
+    if (serial != editor_dialog_serial_ || !editor_dialog_) {
+        // Closed before its window was ready: the window goes too.
+        static_cast<void>(begin_invoke(DestroyDialogWindow{handle}));
+        return;
+    }
+    editor_dialog_window_ = handle;
+    // The dialog is outside the editor's subtree, so it takes its own tint.
+    interface_themes.apply(*editor_dialog_, settings.interface_hue);
+    reveal_dialog_gallery(editor_dialog_kind_);
+}
 void Editor::dialog_window_closed(std::uint64_t serial) {
     if (serial != editor_dialog_serial_ || !editor_dialog_window_.active()) {
         return;
     }
+    // The close box: the dialog closes as Cancel closes it.
     editor_dialog_window_ = {};
     close_editor_dialog();
 }
 void Editor::on_pointer_preview(gf::PointerEvent& event) {
-    if (!editor_dialog_window_.active()) {
+    if (!editor_dialog_refuses_input_ || !editor_dialog_window_.active()) {
         Control::on_pointer_preview(event);
         return;
     }
@@ -2119,6 +2155,68 @@ void Editor::on_pointer_preview(gf::PointerEvent& event) {
         static_cast<void>(editor_dialog_window_.bring_to_front());
     }
     event.handled = true;
+}
+gf::ApplicationWindow Editor::dialog_window_entry() {
+    const gf::Size size = (*editor_dialog_).window_client_size();
+    const std::shared_ptr<Editor> self = std::static_pointer_cast<Editor>(shared_from_this());
+    gf::ApplicationWindow entry;
+    entry.stable_id = "editor-dialog-" + std::to_string(editor_dialog_serial_);
+    entry.owner_id = "main";
+    entry.model = std::make_unique<gf::Window>(editor_dialog_, size);
+    entry.options.title = (*editor_dialog_).title();
+    entry.options.initial_size = size;
+    entry.options.minimum_size = size;
+    entry.options.minimizable = false;
+    entry.options.ready = DialogWindowReady{self, editor_dialog_serial_};
+    entry.options.closed = DialogWindowClosed{self, editor_dialog_serial_};
+    return entry;
+}
+bool Editor::open_modeless_dialog_window() {
+    const gf::ApplicationWindows windows = handle_.windows();
+    gf::ApplicationWindowOpenResult opened;
+    {
+        gf::ApplicationWindow entry = dialog_window_entry();
+        opened = windows.open_window(std::move(entry));
+    }
+    // A refusal leaves the window model (and its hold on the dialog) gone
+    // with the entry; the ready notice stored the handle on success.
+    const bool accepted = opened.status.accepted();
+    return accepted;
+}
+void Editor::open_dialog_overlay() {
+    (*editor_dialog_).set_windowed(false);
+    editor_dialog_popup_ = (*attached_window()).open_overlay(shared_from_this(), editor_dialog_);
+    // The dialog is outside the editor's subtree, so it takes its own tint
+    // once the overlay has attached it.
+    interface_themes.apply(*editor_dialog_, settings.interface_hue);
+    editor_dialog_focus_ = (*attached_window()).begin_focus_scope(editor_dialog_);
+    reveal_dialog_gallery(editor_dialog_kind_);
+}
+void Editor::run_modal_dialog(std::uint64_t serial) {
+    if (serial != editor_dialog_serial_ || !editor_dialog_ || editor_dialog_window_.active() || !attached_window()) {
+        return;
+    }
+    const gf::ApplicationWindows windows = handle_.windows();
+    gf::ApplicationModalResult result;
+    {
+        gf::ApplicationWindow entry = dialog_window_entry();
+        // The nested loop: returns once the dialog's window has closed (OK,
+        // Cancel, Escape and the close box all close it through
+        // close_editor_dialog or dialog_window_closed).
+        result = windows.show_modal(std::move(entry));
+    }
+    if (result.status.accepted() || serial != editor_dialog_serial_ || !editor_dialog_ ||
+        editor_dialog_window_.active()) {
+        return;
+    }
+    // Refused before the window opened (a host without a nested loop): an
+    // owned window whose owner refuses input instead, else the overlay.
+    editor_dialog_refuses_input_ = true;
+    if (open_modeless_dialog_window()) {
+        return;
+    }
+    editor_dialog_refuses_input_ = false;
+    open_dialog_overlay();
 }
 void Editor::open_editor_dialog(EditorDialogKind kind, bool secondary) {
     if (!attached_window()) {
@@ -2128,46 +2226,26 @@ void Editor::open_editor_dialog(EditorDialogKind kind, bool secondary) {
     close_editor_dialog();
     editor_dialog_ = gf::make_control<EditorDialog>(
         gf::StableId("editor-dialog"), std::static_pointer_cast<Editor>(shared_from_this()), kind, secondary);
+    editor_dialog_kind_ = kind;
+    ++editor_dialog_serial_;
     // In a running application the dialog is a window of its own, owned by
-    // the editor's and modal to it as the original's dialogs were: it moves
-    // freely, carries a native title bar and close box, and the editor's
-    // window refuses input until it closes (on_pointer_preview; key presses
-    // already stop while a dialog is open).
+    // the editor's and modal to it as the original's dialogs were (all were
+    // ImGui modal popups): it moves freely and carries a native title bar
+    // and close box. Without runtime windows (the paint-forms fixture) it
+    // opens over the editor as before.
     const gf::ApplicationWindows windows = handle_.windows();
     if (windows.active() && windows.capabilities().supports(gf::HostCapability::runtime_windows)) {
         (*editor_dialog_).set_windowed(true);
-        ++editor_dialog_serial_;
-        gf::ApplicationWindowOpenResult opened;
-        {
-            const gf::Size size = (*editor_dialog_).window_client_size();
-            gf::ApplicationWindow entry;
-            entry.stable_id = "editor-dialog-" + std::to_string(editor_dialog_serial_);
-            entry.owner_id = "main";
-            entry.model = std::make_unique<gf::Window>(editor_dialog_, size);
-            entry.options.title = (*editor_dialog_).title();
-            entry.options.initial_size = size;
-            entry.options.minimum_size = size;
-            entry.options.minimizable = false;
-            entry.options.closed =
-                DialogWindowClosed{std::static_pointer_cast<Editor>(shared_from_this()), editor_dialog_serial_};
-            opened = windows.open_window(std::move(entry));
-        }
-        if (opened.status.accepted()) {
-            editor_dialog_window_ = opened.window;
-            interface_themes.apply(*editor_dialog_, settings.interface_hue);
-            reveal_dialog_gallery(kind);
+        if (modal_dialogs) {
+            static_cast<void>(begin_invoke(
+                ShowDialogModal{std::static_pointer_cast<Editor>(shared_from_this()), editor_dialog_serial_}));
             return;
         }
-        // Refused: the entry (and the window model holding the dialog) is
-        // gone; the dialog opens over the editor instead.
-        (*editor_dialog_).set_windowed(false);
+        if (open_modeless_dialog_window()) {
+            return;
+        }
     }
-    editor_dialog_popup_ = (*attached_window()).open_overlay(shared_from_this(), editor_dialog_);
-    // The dialog is outside the editor's subtree, so it takes its own tint
-    // once the overlay has attached it.
-    interface_themes.apply(*editor_dialog_, settings.interface_hue);
-    editor_dialog_focus_ = (*attached_window()).begin_focus_scope(editor_dialog_);
-    reveal_dialog_gallery(kind);
+    open_dialog_overlay();
 }
 void Editor::reveal_dialog_gallery(EditorDialogKind kind) {
     if (kind != EditorDialogKind::atlas_gallery || !editor_dialog_ || !(*editor_dialog_).attached_window()) {
@@ -2195,6 +2273,7 @@ void Editor::close_editor_dialog() {
         editor_dialog_focus_ = {};
     }
     editor_dialog_popup_.disconnect();
+    editor_dialog_refuses_input_ = false;
     if (editor_dialog_window_.active()) {
         const gf::ApplicationWindowHandle dialog = editor_dialog_window_;
         editor_dialog_window_ = {};

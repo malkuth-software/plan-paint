@@ -1071,6 +1071,20 @@ void business_card_and_hidden_overlay_switch() {
     require(!shown(window, "settings-invalidation-overlay"), "Settings shows nothing while the overlay is off");
     routed_button(window, "dialog-cancel");
 }
+// Without a running application's windowing (this fixture) a dialog opens
+// over the editor; in a running application it opens as an owned window of
+// its own (paint-dialog-window-native checks that, and show_modal).
+void dialog_overlay_without_runtime_windows() {
+    Fixture fixture;
+    gf::Window& window = *fixture.window;
+    paint::forms::Editor& editor = *fixture.editor;
+    editor.execute("about");
+    window.perform_layout();
+    require(editor.dialog_window() == nullptr && find_control(window, "dialog-cancel") != nullptr,
+            "without runtime windows the About dialog opens over the editor");
+    routed_button(window, "dialog-cancel");
+    require(find_control(window, "dialog-cancel") == nullptr, "Cancel closes the overlay dialog");
+}
 void ribbon_original_rows_and_hints() {
     Fixture fixture;
     gf::Window& window = *fixture.window;
@@ -6702,6 +6716,7 @@ int main(int argc, char** argv) {
         ribbon_structure_and_contextual_sets();
         ribbon_original_rows_and_hints();
         business_card_and_hidden_overlay_switch();
+        dialog_overlay_without_runtime_windows();
         std::cout << "GUI.Forms: RGBA, routed capture, undo, material strokes, curves/save, selections, "
                      "path, stamp and anchored zoom passed\n";
         return 0;

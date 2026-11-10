@@ -192,6 +192,19 @@ struct NativeRecoveryDirectory {
         std::filesystem::remove_all(path, error);
     }
 };
+struct NativeExercise;
+// Inside the modal dialog's nested loop: the dialog has its own window, a
+// second window of the run; then it closes, which ends the loop.
+struct ModalDialogProbe {
+    NativeExercise* exercise = nullptr;
+    void operator()() const;
+};
+// After the modal loop: one window again; then the run ends.
+struct ModalDialogFinish {
+    NativeExercise* exercise = nullptr;
+    gf::ApplicationWindowHandle handle;
+    void operator()() const;
+};
 struct NativeExercise {
     std::shared_ptr<paint::forms::Editor> editor;
     bool keep_open = false, resize_preview = false, features = false, compact = false, bugs = false,
@@ -202,6 +215,13 @@ struct NativeExercise {
          icon_ribbon_review = false, icon_batch_review = false, icon_stamp_review = false, icon_indexed_review = false, icon_shared_review = false, icon_index_paint_review = false;
     bool geometry_styles_review = false, markers_review = false;
     bool pan_probe = false;
+    // --dialog-window: an editor dialog opens as a second, owned window, and
+    // runs modally through show_modal. A failure found inside the nested
+    // loop is kept here and reported after the run.
+    bool dialog_window_review = false;
+    std::string dialog_failure;
+    bool modal_seen = false;
+    gf::ApplicationWindowHandle main_handle;
     std::string clipboard_role;
     std::filesystem::path clipboard_directory;
     std::unique_ptr<paint::tests::NativeClipboardExchange> clipboard_exchange;
@@ -955,6 +975,42 @@ struct NativeExercise {
             throw std::runtime_error("Native pan probe close failed");
         }
     }
+    // An editor dialog in a window of its own: first driven from this loop
+    // (modal_dialogs off), then modally through show_modal.
+    void dialog_window_run(gf::Window& window, gf::ApplicationWindowHandle handle) {
+        const gf::ApplicationWindows windows = handle.windows();
+        (*editor).modal_dialogs = false;
+        (*editor).execute("about");
+        gf::Window* dialog = (*editor).dialog_window();
+        if (dialog == nullptr || dialog == &window || windows.window_count() != 2) {
+            throw std::runtime_error("The About dialog did not open as a second window");
+        }
+        if (window.find("dialog-cancel") || !(*dialog).find("dialog-cancel") || !find_shown(window, "dialog-cancel")) {
+            throw std::runtime_error("The dialog's controls are not in the dialog's own window");
+        }
+        const gf::Size client = (*dialog).client_size();
+        if (client.width <= 0 || client.height <= 0 || client.width > window.client_size().width) {
+            throw std::runtime_error("The dialog window has no sensible size");
+        }
+        (*editor).close_editor_dialog();
+        if ((*editor).dialog_window() != nullptr) {
+            throw std::runtime_error("Closing the dialog left its window known to the editor");
+        }
+        // The window goes on the editor's next turn.
+        drain_all(window);
+        if (windows.window_count() != 1) {
+            throw std::runtime_error("The dialog's window outlived the dialog");
+        }
+        (*editor).modal_dialogs = true;
+        (*editor).execute("about");
+        if ((*editor).dialog_window() != nullptr) {
+            throw std::runtime_error("A modal dialog's window opened before the opening command finished");
+        }
+        // Posted after the dialog's show_modal: runs inside its nested loop.
+        // The probe queues the finish check once it has closed the dialog.
+        main_handle = handle;
+        static_cast<void>((*editor).begin_invoke(ModalDialogProbe{this}));
+    }
     void ready(gf::Window& window, gf::ApplicationWindowHandle handle) {
         if (!window.host_services()) {
             throw std::runtime_error("Native host services were not attached");
@@ -973,6 +1029,11 @@ struct NativeExercise {
         }
         if (pan_probe) {
             pan_probe_run(window, handle);
+            entered = true;
+            return;
+        }
+        if (dialog_window_review) {
+            dialog_window_run(window, handle);
             entered = true;
             return;
         }
@@ -1718,6 +1779,28 @@ struct WindowsFixtureReady {
 };
 #endif
 } // namespace
+void ModalDialogProbe::operator()() const {
+    paint::forms::Editor& editor = *(*exercise).editor;
+    gf::Window* dialog = editor.dialog_window();
+    if (dialog == nullptr) {
+        (*exercise).dialog_failure = "The modal About dialog has no window of its own inside its loop";
+    } else if (!(*dialog).find("dialog-cancel")) {
+        (*exercise).dialog_failure = "The modal dialog's controls are not in its window";
+    }
+    (*exercise).modal_seen = true;
+    // Ends the nested loop: the window goes on the editor's next turn, and
+    // the finish check is queued behind that.
+    editor.close_editor_dialog();
+    static_cast<void>(editor.begin_invoke(ModalDialogFinish{exercise, (*exercise).main_handle}));
+}
+void ModalDialogFinish::operator()() const {
+    if (!(*exercise).modal_seen) {
+        (*exercise).dialog_failure = "The modal loop ended before its probe ran";
+    } else if (handle.windows().window_count() != 1) {
+        (*exercise).dialog_failure = "The modal dialog's window outlived its loop";
+    }
+    static_cast<void>(handle.request_close());
+}
 int main(int argc, char** argv) {
     try {
         // Outlive the editor and its recovery worker. Never inspect or retire
@@ -1788,12 +1871,16 @@ int main(int argc, char** argv) {
         exercise.guide_review = argc > 1 && std::string(argv[1]) == "--guide";
         exercise.bugs = argc > 1 && std::string(argv[1]) == "--bugs";
         exercise.pan_probe = argc > 1 && std::string(argv[1]) == "--pan-probe";
+        exercise.dialog_window_review = argc > 1 && std::string(argv[1]) == "--dialog-window";
         if (exercise.pan_probe) {
             exercise.keep_open = false;
         }
         exercise.resize_preview = argc > 1 && std::string(argv[1]) == "--resize-preview";
         exercise.editor = gf::make_control<paint::forms::Editor>(gf::StableId("native.editor"));
         native_editor = exercise.editor.get();
+        // The exercises drive dialogs from their own loop: their windows open
+        // at once, without show_modal's nested loop (--dialog-window covers it).
+        (*exercise.editor).modal_dialogs = false;
         (*exercise.editor).recovery_root = recovery.path;
         gf::ApplicationWindowOptions options;
         options.title = "Plan Paint — GUI.Forms native interaction check";
@@ -1838,6 +1925,12 @@ int main(int argc, char** argv) {
                                                 std::move(options));
         if (result.callback_exception) {
             std::rethrow_exception(result.callback_exception);
+        }
+        if (!exercise.dialog_failure.empty()) {
+            throw std::runtime_error(exercise.dialog_failure);
+        }
+        if (exercise.dialog_window_review && !exercise.modal_seen) {
+            throw std::runtime_error("The modal dialog never ran its loop");
         }
         if (exercise.clipboard_exchange && !(*exercise.clipboard_exchange).success()) {
             throw std::runtime_error((*exercise.clipboard_exchange).error());
