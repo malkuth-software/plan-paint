@@ -1016,5 +1016,7 @@
   "Wheel": "Ruota dentata",
   "Set as desktop background (center)": "Imposta come sfondo del desktop (al centro)",
   "Set as desktop background (fill)": "Imposta come sfondo del desktop (riempi)",
-  "Set as desktop background (tile)": "Imposta come sfondo del desktop (affianca)"
+  "Set as desktop background (tile)": "Imposta come sfondo del desktop (affianca)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "Biglietto da visita di Malkuthsoft; apre malkuthsoft.com",
+  "Invalidation overlay: on until Plan Paint closes": "Sovrapposizione di invalidazione: attiva fino alla chiusura di Plan Paint"
 }

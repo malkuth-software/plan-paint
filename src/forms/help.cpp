@@ -70,6 +70,8 @@ void HelpBook::initialize_control_tree() {
         add_child(header);
         add_child(body);
     }
+    card_ = gf::make_control<BusinessCard>(gf::StableId("business-card"));
+    add_child(card_);
 }
 gf::Event<gf::ButtonBase&>& HelpBook::close_clicked() {
     return (*close_).clicked();
@@ -100,6 +102,14 @@ void HelpBook::arrange(gf::Rect bounds) {
         rectangles.push_back({12, y, width, height});
         y += height + 7;
     }
+    // The card, centred under the topics at most 300 points wide, its
+    // shadow's room beside and below it.
+    const double card_width = std::min(300.0, width - 24);
+    const double card_height = card_width / BusinessCard::aspect;
+    controls.push_back(card_);
+    rectangles.push_back({12 + (width - card_width) * 0.5, y + 12, card_width + BusinessCard::shadow_room,
+                          card_height + BusinessCard::shadow_room});
+    y += 12 + card_height + BusinessCard::shadow_room + 12;
     arrange_scroll_viewport({bounds.width, bounds.height}, {width + 24, y + 5});
     gf::Point offset = scroll_position();
     for (std::size_t i = 0; i < controls.size(); ++i) {

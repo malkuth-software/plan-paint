@@ -3,6 +3,7 @@
 #include "cursors/tool_cursors.hpp"
 #include "fixtures/icon_reference.hpp"
 #include "forms/display.hpp"
+#include "forms/business_card.hpp"
 #include "forms/editor.hpp"
 #include "forms/ribbon.hpp"
 #include "icon_palette.hpp"
@@ -14,6 +15,7 @@
 #include <filesystem>
 #include <gui_forms/controls/ribbon/ribbon.hpp>
 #include <gui_forms/controls/ribbon_gallery/ribbon_gallery.hpp>
+#include <gui_forms/diagnostics/invalidation_overlay/invalidation_overlay.hpp>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -1016,6 +1018,59 @@ gf::ImageId home_command_image(gf::Window& window, const std::string& id) {
 }
 // The original's rows, restored once GUI.Forms gave stacked rows commands
 // side by side (beside_previous), and its hints, as ribbon labels.
+// The website the business card asked to open (its opener in this test).
+std::string card_link_opened;
+void record_card_link(const std::string& address) {
+    card_link_opened = address;
+}
+// Malkuthsoft's card at the foot of the help book: a click opens the
+// website; holding D while right-clicking the name switches on the
+// invalidation overlay for the session (the name prints red) and Settings
+// shows that read-only. It runs last: the switch is the process's, and the
+// test turns it off again so no later window carries outlines.
+void business_card_and_hidden_overlay_switch() {
+    Fixture fixture;
+    gf::Window& window = *fixture.window;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::set_invalidation_overlay_default(false);
+    static_cast<void>(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::f1}));
+    window.perform_layout();
+    std::shared_ptr<paint::forms::BusinessCard> card =
+        std::dynamic_pointer_cast<paint::forms::BusinessCard>(find_control(window, "business-card"));
+    require(editor.show_help && card != nullptr, "the help book carries Malkuthsoft's business card");
+    require(paint::forms::BusinessCard::name == "Malkuthsoft" &&
+                paint::forms::BusinessCard::website == "https://malkuthsoft.com",
+            "the card names Malkuthsoft and links its website");
+    gf::Control::Ptr book = find_control(window, "help-book");
+    (*std::static_pointer_cast<gf::ScrollableControl>(book)).scroll_control_into_view(card);
+    window.perform_layout();
+    (*card).opener = &record_card_link;
+    const gf::Rect card_bounds = bounds_of(window, "business-card");
+    const gf::Rect band = window_rect(*card, (*card).name_band());
+    press_at(window, "business-card", {card_bounds.x + card_bounds.width / 2, card_bounds.bottom() - 12},
+             gf::PointerButton::primary);
+    require(card_link_opened == "https://malkuthsoft.com", "a click on the card opens malkuthsoft.com");
+    press_at(window, "business-card", centre(band), gf::PointerButton::secondary);
+    require(!gf::invalidation_overlay_default(), "a right-click on the name alone changes nothing");
+    static_cast<void>(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::d}));
+    require((*card).d_held, "the editor sees D held whatever has focus");
+    press_at(window, "business-card", {card_bounds.x + card_bounds.width / 2, card_bounds.bottom() - 12},
+             gf::PointerButton::secondary);
+    require(!gf::invalidation_overlay_default(), "D and a right-click off the name change nothing");
+    press_at(window, "business-card", centre(band), gf::PointerButton::secondary);
+    require(gf::invalidation_overlay_default(), "holding D while right-clicking the name switches the overlay on");
+    static_cast<void>(window.dispatch_key({gf::KeyAction::up, gf::PhysicalKey::d}));
+    require(gf::invalidation_overlay_default() && !(*card).d_held, "releasing D is seen; the overlay stays on");
+    editor.execute("settings");
+    window.perform_layout();
+    require(shown(window, "settings-invalidation-overlay"), "Settings shows the overlay is on, read-only");
+    routed_button(window, "dialog-cancel");
+    gf::set_invalidation_overlay_default(false);
+    editor.execute("settings");
+    window.perform_layout();
+    require(!shown(window, "settings-invalidation-overlay"), "Settings shows nothing while the overlay is off");
+    routed_button(window, "dialog-cancel");
+}
 void ribbon_original_rows_and_hints() {
     Fixture fixture;
     gf::Window& window = *fixture.window;
@@ -6611,6 +6666,7 @@ int main(int argc, char** argv) {
         ribbon_galleries_and_modal_transactions();
         ribbon_structure_and_contextual_sets();
         ribbon_original_rows_and_hints();
+        business_card_and_hidden_overlay_switch();
         std::cout << "GUI.Forms: RGBA, routed capture, undo, material strokes, curves/save, selections, "
                      "path, stamp and anchored zoom passed\n";
         return 0;

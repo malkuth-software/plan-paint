@@ -1563,6 +1563,11 @@ void Editor::zoom(double factor, gf::Point anchor) {
     refresh();
 }
 void Editor::on_key_preview(gf::KeyEvent& event) {
+    // The business card's hidden switch wants D held: every D down and up
+    // passes here first, whatever has focus, and is left unhandled.
+    if (event.physical_key == gf::PhysicalKey::d && help_) {
+        (*help_).card().d_held = event.action == gf::KeyAction::down;
+    }
     if (pattern_editing) { return; }
     if (event.action != gf::KeyAction::down || (*ribbon_).file_menu_open() || editor_dialog_) {
         return;

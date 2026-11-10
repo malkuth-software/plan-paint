@@ -2,6 +2,7 @@
 #include "about_form.hpp"
 #include "english_help_form.hpp"
 #include "tool_size_form.hpp"
+#include <gui_forms/diagnostics/invalidation_overlay/invalidation_overlay.hpp>
 #include "localization.hpp"
 #include "forms/interface_theme.hpp"
 #include "forms/atlas.hpp"
@@ -431,6 +432,13 @@ void EditorDialog::initialize_control_tree() {
         put(canvas_controls_, {530, 286, 216, 32});
         label("settings-accessibility-hint", tr("Use canvas controls to position the drawing cursor and draw without dragging."), {530, 334, 216, 105});
         (*std::static_pointer_cast<gf::Label>(controls_.back())).text_wrapping = gf::TextWrapping::word;
+        // Read-only: the business card's hidden switch is the only way on,
+        // and nothing turns it off before Plan Paint closes.
+        if (gf::invalidation_overlay_default()) {
+            label("settings-invalidation-overlay", tr("Invalidation overlay: on until Plan Paint closes"),
+                  {530, 446, 216, 52});
+            (*std::static_pointer_cast<gf::Label>(controls_.back())).text_wrapping = gf::TextWrapping::word;
+        }
         label("settings-scroll-label", tr("Scroll distance"), {24, 58, 220, 28});
         atlas_numbers_.push_back(
             number("settings-scroll", {280, 57, 180, 30}, 0.1, 100, (*editor).settings.scroll_distance, 1));

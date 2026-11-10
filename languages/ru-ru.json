@@ -1016,5 +1016,7 @@
   "Wheel": "Колесо",
   "Set as desktop background (center)": "Сделать фоном рабочего стола (по центру)",
   "Set as desktop background (fill)": "Сделать фоном рабочего стола (заполнить)",
-  "Set as desktop background (tile)": "Сделать фоном рабочего стола (мозаика)"
+  "Set as desktop background (tile)": "Сделать фоном рабочего стола (мозаика)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "Визитная карточка Malkuthsoft; открывает malkuthsoft.com",
+  "Invalidation overlay: on until Plan Paint closes": "Подсветка перерисовки: включена до закрытия Plan Paint"
 }
