@@ -3,6 +3,7 @@
 #include "raster.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 namespace paint::forms {
 namespace gf = gui_forms;
 Point PaintCanvas::visible_paste_origin(int width, int height) {
@@ -244,17 +245,30 @@ void PaintCanvas::on_paint(gf::Painter& painter, gf::Rect damage) {
     gf::Rect bounds = client_rectangle();
     const std::shared_ptr<Editor> editor = editor_.lock();
     update_backing();
+    // Everything below moves with the view unless the view is turned, so a
+    // pan copies the painted canvas (RasterCanvas::set_view).
+    const bool turned = std::abs(view_angle) > 1e-10;
+    declare_paint_follows_view(!turned);
     if (backing_.value) {
+        // The felt's tiles are counted from the sheet's corner, so that the
+        // surround moves with the sheet: the pattern starts whole tiles left
+        // of and above the canvas and is clipped to it.
         const double tile = canvas_backing_tile_size(loaded_backing_);
         const double pixels = loaded_backing_ == CanvasBacking::PaleFelt ? 128 : 512;
-        painter.fill_image_pattern(backing_, {pixels, pixels}, bounds, {tile, tile});
+        const gf::Rect corner = RasterCanvas::bitmap_to_client({0, 0, 1, 1});
+        const double anchor_x = corner.x - tile * std::ceil((corner.x - bounds.x) / tile);
+        const double anchor_y = corner.y - tile * std::ceil((corner.y - bounds.y) / tile);
+        const gf::Rect pattern{anchor_x, anchor_y, bounds.right() - anchor_x, bounds.bottom() - anchor_y};
+        painter.save();
+        painter.clip_rect(bounds);
+        painter.fill_image_pattern(backing_, {pixels, pixels}, pattern, {tile, tile});
+        painter.restore();
     } else {
         painter.fill_rect(bounds, gf::Color::rgba(208, 218, 226));
     }
-    const gf::GradientStop light[] = {{0, gf::Color::rgba(255, 255, 255, 22)},
-                                      {1, gf::Color::rgba(60, 77, 95, 15)}};
-    painter.fill_linear_gradient(bounds, {0, 0}, {0, bounds.height}, light);
-    if (editor && std::abs(view_angle) > 1e-10) {
+    // The surround is opaque, so a pan may copy the canvas's pixels.
+    report_opaque_cover(painter, bounds);
+    if (editor && turned) {
         paint_rotated(painter, *editor);
         return;
     }
@@ -840,7 +854,6 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
         const bool bgra = format == gf::LiveSurfacePixelFormat::bgra32_premultiplied_srgb;
         const double tile = transparency_cell_size.read() > 0 ? transparency_cell_size.read() : 12.0;
         const double scale = zoom.read();
-        const gui_drawing::PointF origin = view_origin.read();
         const int source_width = static_cast<int>(frame.width());
         const int source_height = static_cast<int>(frame.height());
         // Only the picture changed: convert just the output pixels showing
@@ -852,17 +865,58 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
             write = (*viewport_surface_).try_acquire_write(true);
             partial = static_cast<bool>(write);
         }
-        if (!partial) {
-            if (!viewport_surface_ || surface_width != static_cast<unsigned>(width) ||
-                surface_height != static_cast<unsigned>(height)) {
-                viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width),
-                    static_cast<unsigned>(height), format, gf::default_live_surface_buffer_count, true});
+        // A pan alone (the same picture, zoom, scale and output rectangle)
+        // by whole device pixels: the kept pixels move by the pan and only
+        // the band it exposed is converted. Sampling and checker cells are
+        // counted from the sheet's corner, so the moved pixels equal a fresh
+        // conversion.
+        const double shift_x = (sheet.x - viewport_sheet_.x) * device_scale;
+        const double shift_y = (sheet.y - viewport_sheet_.y) * device_scale;
+        bool moved = !partial && viewport_surface_ && viewport_generation_ != 0 &&
+            viewport_generation_ == frame.generation() && viewport_source_ == display_surface_ &&
+            viewport_bounds_ == destination && viewport_zoom_ == scale && viewport_scale_ == device_scale &&
+            surface_width == static_cast<unsigned>(width) && surface_height == static_cast<unsigned>(height) &&
+            viewport_columns_.size() == static_cast<std::size_t>(width) && shift_x == std::round(shift_x) &&
+            shift_y == std::round(shift_y) && std::abs(shift_x) < width && std::abs(shift_y) < height;
+        if (moved) {
+            write = (*viewport_surface_).try_acquire_write(true);
+            moved = static_cast<bool>(write);
+        }
+        const int move_x = moved ? static_cast<int>(shift_x) : 0;
+        const int move_y = moved ? static_cast<int>(shift_y) : 0;
+        if (moved) {
+            // Rows are moved in the order that never overwrites a row still
+            // to move; within a row, memmove handles the overlap.
+            const std::size_t row_bytes = write.row_bytes();
+            const std::size_t kept_bytes = static_cast<std::size_t>(width - std::abs(move_x)) * 4;
+            const std::size_t to_column = static_cast<std::size_t>(std::max(0, move_x)) * 4;
+            const std::size_t from_column = static_cast<std::size_t>(std::max(0, -move_x)) * 4;
+            std::byte* const pixels = write.pixels().data();
+            if (move_y > 0) {
+                for (int y = height - 1; y >= move_y; --y) {
+                    std::memmove(pixels + static_cast<std::size_t>(y) * row_bytes + to_column,
+                                 pixels + static_cast<std::size_t>(y - move_y) * row_bytes + from_column, kept_bytes);
+                }
+            } else {
+                for (int y = 0; y < height + move_y; ++y) {
+                    std::memmove(pixels + static_cast<std::size_t>(y) * row_bytes + to_column,
+                                 pixels + static_cast<std::size_t>(y - move_y) * row_bytes + from_column, kept_bytes);
+                }
             }
-            write = (*viewport_surface_).try_acquire_write();
-            if (!write) {
-                viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width),
-                    static_cast<unsigned>(height), format, gf::default_live_surface_buffer_count, true});
+        }
+        if (!partial) {
+            if (!moved) {
+                if (!viewport_surface_ || surface_width != static_cast<unsigned>(width) ||
+                    surface_height != static_cast<unsigned>(height)) {
+                    viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width),
+                        static_cast<unsigned>(height), format, gf::default_live_surface_buffer_count, true});
+                }
                 write = (*viewport_surface_).try_acquire_write();
+                if (!write) {
+                    viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width),
+                        static_cast<unsigned>(height), format, gf::default_live_surface_buffer_count, true});
+                    write = (*viewport_surface_).try_acquire_write();
+                }
             }
             // Each output column samples one source column and lies in one
             // checker column; both are worked out once per view, not per
@@ -871,11 +925,15 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
             viewport_cells_.resize(static_cast<std::size_t>(width));
             for (int x = 0; x < width; ++x) {
                 const double cx = destination.x + (x + 0.5) / device_scale;
-                const int sx = std::clamp(static_cast<int>(std::floor(cx / scale + origin.x)), 0, source_width - 1);
+                const int sx = std::clamp(static_cast<int>(std::floor((cx - sheet.x) / scale)), 0, source_width - 1);
                 viewport_columns_[static_cast<std::size_t>(x)] = static_cast<std::size_t>(sx) * 4;
-                viewport_cells_[static_cast<std::size_t>(x)] = static_cast<int>((cx - visible.x) / tile);
+                viewport_cells_[static_cast<std::size_t>(x)] = static_cast<int>((cx - sheet.x) / tile);
             }
         }
+        // After a moved pan: the exposed columns, converted on every row,
+        // and the exposed rows, converted whole.
+        const int band_begin = move_x > 0 ? 0 : width + move_x;
+        const int band_end = move_x > 0 ? move_x : width;
         // The output columns and rows to convert: all, or those whose source
         // column and row lie in the published damage (the tables are monotonic).
         int column_begin = 0;
@@ -902,18 +960,32 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
                                            bgra ? transparency_second_.red : transparency_second_.blue};
         int row_begin = height;
         int row_end = 0;
+        std::uint64_t converted = 0;
         for (int y = 0; y < height && column_begin < column_end; ++y) {
             const double cy = destination.y + (y + 0.5) / device_scale;
-            const int sy = std::clamp(static_cast<int>(std::floor(cy / scale + origin.y)), 0, source_height - 1);
+            const int sy = std::clamp(static_cast<int>(std::floor((cy - sheet.y) / scale)), 0, source_height - 1);
             if (partial && (sy < viewport_dirty_.y || sy >= viewport_dirty_.y + viewport_dirty_.h)) {
                 continue;
             }
+            int row_first = column_begin;
+            int row_last = column_end;
+            if (moved) {
+                const bool exposed_row = move_y > 0 ? y < move_y : y >= height + move_y;
+                if (!exposed_row) {
+                    row_first = band_begin;
+                    row_last = band_end;
+                }
+                if (row_first >= row_last) {
+                    continue;
+                }
+            }
             row_begin = std::min(row_begin, y);
             row_end = y + 1;
-            const int row_cell = static_cast<int>((cy - visible.y) / tile);
+            converted += static_cast<std::uint64_t>(row_last - row_first);
+            const int row_cell = static_cast<int>((cy - sheet.y) / tile);
             const std::byte* source_row = frame.pixels().data() + static_cast<std::size_t>(sy) * frame.row_bytes();
             std::byte* row = write.pixels().data() + static_cast<std::size_t>(y) * write.row_bytes();
-            for (int x = column_begin; x < column_end; ++x) {
+            for (int x = row_first; x < row_last; ++x) {
                 const std::byte* pixel = source_row + viewport_columns_[static_cast<std::size_t>(x)];
                 const bool second = ((viewport_cells_[static_cast<std::size_t>(x)] + row_cell) & 1) == 0;
                 const unsigned* background = second ? second_colour : first;
@@ -934,14 +1006,7 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
                 static_cast<double>(column_end - column_begin), static_cast<double>(row_end - row_begin)}));
         }
         ++work_statistics_.viewport_conversions;
-        if (partial) {
-            work_statistics_.viewport_converted_pixels +=
-                static_cast<std::uint64_t>(std::max(0, column_end - column_begin)) *
-                static_cast<std::uint64_t>(std::max(0, row_end - row_begin));
-        } else {
-            work_statistics_.viewport_converted_pixels +=
-                static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height);
-        }
+        work_statistics_.viewport_converted_pixels += converted;
         viewport_dirty_ = {};
         viewport_generation_ = frame.generation();
         viewport_source_ = display_surface_;
@@ -949,6 +1014,7 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
         viewport_zoom_ = zoom.read();
         viewport_origin_ = view_origin.read();
         viewport_scale_ = device_scale;
+        viewport_sheet_ = {sheet.x, sheet.y};
     }
     painter.draw_live_surface(viewport_surface_, destination);
 }

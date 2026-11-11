@@ -90,6 +90,9 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     gui_forms::Rect viewport_bounds_;
     gui_drawing::PointF viewport_origin_;
     double viewport_zoom_ = 0, viewport_scale_ = 0;
+    // The sheet's client origin at the last conversion: a pan by whole
+    // device pixels moves the kept pixels and converts the exposed band.
+    gui_forms::Point viewport_sheet_;
     // The viewport conversion's per-column tables (source byte offset and
     // checker column), reused from frame to frame.
     std::vector<std::size_t> viewport_columns_;
@@ -401,6 +404,10 @@ class Editor final : public gui_forms::Control {
     std::shared_ptr<gui_forms::Button> zoom_out_, zoom_in_, zoom_reset_, tool_size_status_;
     std::shared_ptr<gui_forms::TrackBar> zoom_slider_;
     std::optional<gui_forms::Point> cursor_client_;
+    // The canvas view at the last view_moved, for the client offset a pan
+    // moved the canvas's pixels by (a zero zoom: none yet).
+    gui_drawing::PointF moved_view_origin_;
+    double moved_view_zoom_ = 0;
     bool synchronizing_zoom_ = false;
     std::shared_ptr<Ribbon> ribbon_;
     std::shared_ptr<HelpBook> help_;

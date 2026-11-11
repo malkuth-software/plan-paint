@@ -6519,6 +6519,40 @@ void canvas_pan_by_wheel_and_damage() {
     // The status bar's cursor readout may repaint too (30 units high).
     require(damage > 0 && damage <= canvas.width * canvas.height + 1280.0 * 30.0,
             "a wheel pan repaints the canvas, not the ribbon or the whole window");
+    // Where the window can copy (the native hosts), a pan in a binary view
+    // moves the painted canvas and repaints only the band it exposed: the
+    // canvas declares that its paint follows the view and that the felt
+    // covers it (no viewport-fixed gradient), and the viewport conversion
+    // converts only the exposed band at a zoom it must convert.
+    window.set_scroll_copies_supported(true);
+    const gf::Size client = window.client_size();
+    std::unique_ptr<gf::PaintFramebuffer> framebuffer = window.create_framebuffer(client, 1.0);
+    const gf::Rect whole{0, 0, client.width, client.height};
+    require(framebuffer && (*framebuffer).begin(window.image_resources(), whole), "a test framebuffer is available");
+    for (const double view_zoom : {1.0, 2.0}) {
+        editor.canvas().set_view(view_zoom, {200, 200});
+        window.perform_layout();
+        static_cast<void>(window.paint((*framebuffer).painter(), whole));
+        static_cast<void>(window.take_damage());
+        const std::uint64_t converted_before = editor.canvas().work_statistics().viewport_converted_pixels;
+        gf::PointerEvent band{gf::PointerAction::wheel, gf::PointerButton::none, position};
+        band.wheel_delta = {0, -8};
+        band.wheel_unit = gf::WheelDeltaUnit::pixels;
+        static_cast<void>(window.dispatch_pointer(band));
+        window.perform_layout();
+        const gf::DamageRegion copied = window.take_damage();
+        static_cast<void>(window.paint((*framebuffer).painter(), copied.rectangles()));
+        const std::uint64_t converted = editor.canvas().work_statistics().viewport_converted_pixels - converted_before;
+        std::cout << "Copied pan at zoom " << view_zoom << ": damage " << copied.area() << ", converted " << converted
+                  << " (canvas " << canvas.width * canvas.height << ")\n";
+        // The exposed band (8 rows of the canvas), the rulers' strips when
+        // shown and the status bar's cursor readout.
+        require(copied.area() <= canvas.width * 8.0 + (canvas.width + canvas.height + 40.0) * 21.0 + 1280.0 * 30.0,
+                "a copied wheel pan repaints only the exposed band, not the canvas");
+        require(converted <= static_cast<std::uint64_t>(canvas.width * 8.0 + 1.0),
+                "a copied pan converts only the exposed band of the viewport");
+    }
+    (*framebuffer).end();
 }
 // A short pencil stroke repaints only its own few pixels (owner: "drawing
 // into the canvas invalidates everything"): the published damage is the

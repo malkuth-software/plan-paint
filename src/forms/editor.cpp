@@ -359,10 +359,34 @@ void Editor::on_paint(gf::Painter& painter, gf::Rect) {
 double wheel_line_pixels(const EditorSettings& settings) {
     return settings.scroll_distance;
 }
-// The canvas repaints itself when its view changes; of the editor's own
-// paint only the rulers follow the view, so a pan damages their strips and
-// leaves the ribbon and the status bar alone.
+// The canvas repaints itself when its view changes, or moves its painted
+// pixels by a copy on a pan; of the editor's own paint only the rulers
+// follow the view, so a pan damages their strips and leaves the ribbon and
+// the status bar alone. The canvas overlay's marks that stay with the
+// pointer rather than the sheet are copied with the pan: they are repainted
+// where they are and where the copy moved them.
 void Editor::view_moved() {
+    const gui_drawing::PointF origin = (*canvas_).view_origin.read();
+    const double zoom = (*canvas_).zoom.read();
+    const bool pan = moved_view_zoom_ == zoom && std::abs((*canvas_).view_angle) <= 1e-10;
+    const gf::Point offset{(moved_view_origin_.x - origin.x) * zoom, (moved_view_origin_.y - origin.y) * zoom};
+    moved_view_origin_ = origin;
+    moved_view_zoom_ = zoom;
+    if (pan && (offset.x != 0 || offset.y != 0)) {
+        if (warp_active() || resize_handle_ >= 0 || transform_image_.value ||
+            (document.tool == Tool::Guide && cursor_client_)) {
+            // A transform preview or a guide's line to the pointer spans the canvas.
+            (*canvas_).invalidate(gf::Dirty::paint);
+        } else if (cursor_client_) {
+            const double reach = tool_preview_reach();
+            if (reach > 0) {
+                const gf::Point here = *cursor_client_;
+                (*canvas_).invalidate(gf::Rect{here.x - reach, here.y - reach, reach * 2, reach * 2});
+                (*canvas_).invalidate(
+                    gf::Rect{here.x + offset.x - reach, here.y + offset.y - reach, reach * 2, reach * 2});
+            }
+        }
+    }
     if (!show_rulers) {
         return;
     }
