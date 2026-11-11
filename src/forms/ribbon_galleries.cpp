@@ -283,13 +283,18 @@ void Ribbon::synchronize_galleries() {
     if (brush_set != brush_images_) {
         fill_brushes();
     }
+    // A changed custom colour refills the palette: replacing a swatch's
+    // artwork gives it a new ImageId, which only new gallery items carry.
+    bool custom_changed = false;
     for (std::size_t index = 0; index < custom_shown_.size() && index < 29; ++index) {
         const std::string id = "custom-" + std::to_string(index);
-        const Color color = palette_color(id);
-        if (!equal(color, custom_shown_[index])) {
-            custom_shown_[index] = color;
-            static_cast<void>(artwork(id, swatch_image(color)));
+        if (!equal(palette_color(id), custom_shown_[index])) {
+            custom_changed = true;
+            break;
         }
+    }
+    if (custom_changed) {
+        fill_palette();
     }
     const Ink& choice = (*editor).spiro.selected_peg >= 0 ? (*editor).spiro.pegs[(*editor).spiro.selected_peg].effect
                         : secondary_color_                ? document.alt_ink

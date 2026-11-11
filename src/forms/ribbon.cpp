@@ -21,127 +21,66 @@ namespace {
 const Tool ribbon_tools[] = {Tool::Select, Tool::Lasso,  Tool::Pencil,    Tool::Fill,
                              Tool::Eraser, Tool::Picker, Tool::Magnifier, Tool::Brush,
                              Tool::Shape,  Tool::Path,   Tool::Stamp,     Tool::Guide};
-gf::SurfaceMaterial gallery_material(bool selected, bool hot, bool pressed) {
-    gf::SurfaceMaterial material;
-    material.fills = {gf::MaterialFillLayer::solid(gf::Color::rgba(0, 0, 0, 0))};
-    if (selected || hot || pressed) {
-        gf::Color top = selected ? gf::Color::rgba(255, 237, 186) : gf::Color::rgba(255, 249, 228);
-        gf::Color bottom = selected ? gf::Color::rgba(255, 207, 102) : gf::Color::rgba(255, 228, 157);
-        if (pressed) {
-            top = gf::Color::rgba(246, 193, 91);
-            bottom = gf::Color::rgba(255, 226, 151);
-        }
-        material.fills.push_back(gf::MaterialFillLayer::linear({0, 0}, {0, 1}, {{0, top}, {1, bottom}}));
-        material.border =
-            gf::MaterialBorder{selected ? gf::Color::rgba(196, 147, 50) : gf::Color::rgba(219, 182, 109), 1};
-        material.corner_radius = 2;
-        material.keylines.push_back({gf::MaterialEdge::top, gf::Color::rgba(255, 255, 240), 1, 1});
-        material.keylines.push_back({gf::MaterialEdge::left, gf::Color::rgba(255, 255, 240, 180), 1, 1});
-        material.keylines.push_back({gf::MaterialEdge::bottom, gf::Color::rgba(160, 109, 28, 35), 1, 1});
-    }
-    return material;
-}
-} // namespace
-Color ribbon_color(int index) {
-    return office_color(std::clamp(index, 0, 29));
-}
-static std::shared_ptr<const gf::Theme> make_gallery_theme() {
-    gf::ThemeDefinition definition = gf::windows_professional_theme_definition();
-    definition.id = "rainstar-classic-ribbon";
-    definition.structure.typography.control = {gf::FontRole::control, 14, 400, false, 0};
-    definition.structure.typography.field = {gf::FontRole::content, 14, 400, false};
-    for (gf::ControlVisualRole role :
-         {gf::ControlVisualRole::button, gf::ControlVisualRole::command_button}) {
-        gf::ControlRoleRecipes& recipes = definition.roles[static_cast<std::size_t>(role)];
-        for (std::size_t state = 0; state < gf::control_surface_state_count; ++state) {
-            bool hot = state == static_cast<std::size_t>(gf::ControlSurfaceState::hot);
-            bool pressed = state == static_cast<std::size_t>(gf::ControlSurfaceState::pressed);
-            recipes.ordinary[state].material = gallery_material(false, hot, pressed);
-            recipes.selected[state].material = gallery_material(true, hot, pressed);
-            recipes.ordinary[state].pressed_content_offset = {};
-            recipes.selected[state].pressed_content_offset = {};
-        }
-    }
-    return gf::Theme::create(std::move(definition));
-}
-std::shared_ptr<const gf::Theme> gallery_theme() {
-    static const std::shared_ptr<const gf::Theme> theme = make_gallery_theme();
-    return theme;
-}
-namespace {
-gf::SurfaceMaterial action_material(bool selected, gf::ControlSurfaceState state) {
-    const bool disabled = state == gf::ControlSurfaceState::disabled;
-    const bool pressed = state == gf::ControlSurfaceState::pressed;
-    const bool hot = state == gf::ControlSurfaceState::hot;
-    if (selected && !disabled) {
-        return gallery_material(true, hot, pressed);
-    }
-    gf::SurfaceMaterial material;
-    material.corner_radius = 3;
-    const gf::Color top = disabled   ? gf::Color::rgba(190, 207, 228)
-                          : pressed  ? gf::Color::rgba(152, 181, 218)
-                          : selected ? gf::Color::rgba(188, 210, 241)
-                          : hot      ? gf::Color::rgba(218, 233, 252)
-                                     : gf::Color::rgba(210, 228, 251);
-    const gf::Color bottom = disabled   ? gf::Color::rgba(181, 199, 222)
-                             : pressed  ? gf::Color::rgba(181, 204, 235)
-                             : selected ? gf::Color::rgba(153, 181, 222)
-                             : hot      ? gf::Color::rgba(177, 204, 242)
-                                        : gf::Color::rgba(163, 193, 236);
-    material.fills = {gf::MaterialFillLayer::linear({0, 0}, {0, 1}, {{0, top}, {1, bottom}})};
-    material.border = gf::MaterialBorder{disabled ? gf::Color::rgba(143, 166, 196, 100)
-                                         : hot    ? gf::Color::rgba(53, 94, 150)
-                                                  : gf::Color::rgba(99, 132, 178),
-                                         1};
-    const gf::Color upper = disabled  ? gf::Color::rgba(255, 255, 255, 100)
-                            : pressed ? gf::Color::rgba(44, 86, 132, 130)
-                                      : gf::Color::rgba(255, 255, 255, selected ? 185 : 230);
-    const gf::Color lower =
-        pressed ? gf::Color::rgba(255, 255, 255, 155) : gf::Color::rgba(49, 86, 134, selected ? 110 : 135);
-    material.keylines.push_back({gf::MaterialEdge::top, upper, 1, 1});
-    if (!disabled) {
-        material.keylines.push_back({gf::MaterialEdge::left, upper, 1, 1});
-        material.keylines.push_back({gf::MaterialEdge::right, lower, 1, 1});
-        material.keylines.push_back({gf::MaterialEdge::bottom, lower, 1, 1});
-        if (!pressed) {
-            material.shadows.push_back({{0, 1}, 0, 0, gf::Color::rgba(41, 75, 119, 85), false});
-        }
-    }
-    return material;
-}
-std::shared_ptr<const gf::Theme> make_cobalt_theme() {
-    gf::ThemeDefinition definition = gf::windows_professional_theme_definition();
-    definition.id = "rainstar-royale-cobalt";
-    definition.structure.typography.control = {gf::FontRole::control, 14, 400, false, 0};
-    definition.structure.typography.field = {gf::FontRole::content, 14, 400, false};
-    definition.compatibility.border = gf::Color::rgba(99, 132, 178);
-    definition.compatibility.text = gf::Color::rgba(21, 55, 101);
-    definition.compatibility.disabled_text = gf::Color::rgba(98, 121, 151);
-    for (gf::ControlVisualRole role : {gf::ControlVisualRole::button, gf::ControlVisualRole::command_button,
-                                       gf::ControlVisualRole::accent_button}) {
-        gf::ControlRoleRecipes& recipes = definition.roles[static_cast<std::size_t>(role)];
-        for (std::size_t state = 0; state < gf::control_surface_state_count; ++state) {
-            const gf::ControlSurfaceState surface = static_cast<gf::ControlSurfaceState>(state);
-            for (int selected = 0; selected < 2; ++selected) {
-                gf::ControlVisualRecipe& recipe =
-                    selected ? recipes.selected[state] : recipes.ordinary[state];
-                recipe.material = action_material(selected != 0, surface);
-                recipe.text = surface == gf::ControlSurfaceState::disabled ? gf::Color::rgba(98, 121, 151)
-                                                                           : gf::Color::rgba(21, 55, 101);
-                recipe.glyph = recipe.text;
-                recipe.focus_ring = gf::Color::rgba(20, 60, 116);
-                recipe.default_ring = gf::Color::rgba(33, 75, 129);
-                recipe.default_width = 1;
-                recipe.pressed_content_offset = {1, 1};
+// Blends a line of `width` pixels from `start` to `end` into `image`, each
+// pixel covered by its distance from the segment (a one-pixel soft edge).
+void glyph_line(Image& image, double x0, double y0, double x1, double y1, double width, Color color) {
+    const double dx = x1 - x0;
+    const double dy = y1 - y0;
+    const double length_squared = dx * dx + dy * dy;
+    const double reach = width * 0.5 + 1.0;
+    const int left = std::max(0, static_cast<int>(std::floor(std::min(x0, x1) - reach)));
+    const int right = std::min(image.width - 1, static_cast<int>(std::ceil(std::max(x0, x1) + reach)));
+    const int top = std::max(0, static_cast<int>(std::floor(std::min(y0, y1) - reach)));
+    const int bottom = std::min(image.height - 1, static_cast<int>(std::ceil(std::max(y0, y1) + reach)));
+    for (int y = top; y <= bottom; ++y) {
+        for (int x = left; x <= right; ++x) {
+            const double px = x + 0.5 - x0;
+            const double py = y + 0.5 - y0;
+            const double along = length_squared > 0 ? std::clamp((px * dx + py * dy) / length_squared, 0.0, 1.0) : 0.0;
+            const double ex = px - along * dx;
+            const double ey = py - along * dy;
+            const double distance = std::sqrt(ex * ex + ey * ey);
+            const double coverage = std::clamp(width * 0.5 + 0.5 - distance, 0.0, 1.0);
+            if (coverage > 0) {
+                Color covered = color;
+                covered.a = static_cast<std::uint8_t>(std::lround(color.a * coverage));
+                image.blend(x, y, covered);
             }
         }
     }
-    return gf::Theme::create(std::move(definition));
+}
+// The Guide command's set-square, as the original's GuideGlyph drew it: a
+// right triangle with an inner cut-out and four ruler ticks, at the
+// ribbon's large icon size.
+Image guide_glyph() {
+    Image glyph;
+    glyph.reset(32, 32, {255, 255, 255, 0});
+    const Color ink{38, 95, 140, 255};
+    const double left = 2;
+    const double top = 1;
+    const double size = 29;
+    glyph_line(glyph, left, top, left, top + size, 2, ink);
+    glyph_line(glyph, left, top + size, left + size, top + size, 2, ink);
+    glyph_line(glyph, left + size, top + size, left, top, 2, ink);
+    glyph_line(glyph, left + size * 0.2, top + size * 0.47, left + size * 0.2, top + size * 0.8, 1, ink);
+    glyph_line(glyph, left + size * 0.2, top + size * 0.8, left + size * 0.53, top + size * 0.8, 1, ink);
+    glyph_line(glyph, left + size * 0.53, top + size * 0.8, left + size * 0.2, top + size * 0.47, 1, ink);
+    for (int tick = 1; tick < 5; ++tick) {
+        const double y = top + size * tick / 5;
+        glyph_line(glyph, left, y, left + 3, y, 1, ink);
+    }
+    return glyph;
 }
 } // namespace
-std::shared_ptr<const gf::Theme> ribbon_theme() {
-    static const std::shared_ptr<const gf::Theme> theme = make_cobalt_theme();
-    return theme;
+gf::ImageId Ribbon::guide_image() {
+    const std::map<std::string, gf::ImageId>::const_iterator found = images_.find("guide-glyph");
+    if (found != images_.end()) {
+        return (*found).second;
+    }
+    return artwork("guide-glyph", guide_glyph());
+}
+Color ribbon_color(int index) {
+    return office_color(std::clamp(index, 0, 29));
 }
 OpacityIndicator opacity_indicator(Color color) {
     OpacityIndicator indicator;
@@ -158,8 +97,9 @@ OpacityIndicator opacity_indicator(Color color) {
 }
 SwatchButton::SwatchButton(gf::StableId id, std::string text, Color color)
     : Button(std::move(id), std::move(text)), color_(color) {
+    // A swatch without a caption is a palette cell (the package's .swatch).
     if ((*this).text.read().empty()) {
-        set_theme_override(gallery_theme());
+        static_cast<void>(add_class("swatch"));
     }
 }
 void SwatchButton::set_color(Color color) {
@@ -384,13 +324,6 @@ void Ribbon::initialize_control_tree() {
 }
 
 void Ribbon::on_attached_to_window() {
-    // The editor keeps its authored theme override for its own chrome; the
-    // ribbon shows the application's theme, compiled with Plan Paint's theme
-    // package (themes/plan-paint: the bubble command faces).
-    const std::shared_ptr<const gf::Theme> application = (*attached_window()).theme_ptr();
-    (*bar_).set_theme_override(application);
-    (*quick_access_).set_theme_override(application);
-    (*help_).set_theme_override(application);
     (*quick_access_).set_commands({{command("save", tr("Save")), icon(14, 16), true},
                                    {command("undo", tr("Undo (Ctrl/Command+Z)")), icon(15, 16), true},
                                    {command("redo", tr("Redo (Ctrl/Command+Y)")), icon(16, 16), true}});
@@ -718,7 +651,8 @@ void Ribbon::synchronize_commands() {
 }
 
 // The Primary and Alt commands show their material; the image is replaced
-// in place (same ImageId) when the material changes.
+// when the material changes (a replacement has a new generational ImageId,
+// which the rebuilt tab specs carry).
 void Ribbon::update_color_images() {
     const std::shared_ptr<Editor> editor = editor_.lock();
     if (!editor || !attached_window()) {
@@ -731,17 +665,23 @@ void Ribbon::update_color_images() {
     stored_alt.secondary.a = 0;
     stored_alt.transparent_pattern = true;
     const Ink secondary = document.tool == Tool::Pencil ? pencil_ink(stored_alt) : stored_alt;
+    // A material counts as shown only once its image exists: before the
+    // window has attached, artwork() makes none, and the next pass retries.
     if (!primary_shown_ || !same_material(*primary_shown_, primary)) {
+        if (artwork("primary-material", material_sample(primary)).value == 0U) {
+            return;
+        }
         primary_shown_ = primary;
-        static_cast<void>(artwork("primary-material", material_sample(primary)));
         const OpacityIndicator indicator = opacity_indicator(primary.primary);
         (*command("primary", tr("Primary")))
             .set_description(tr("Opacity") + ": " + std::to_string(indicator.percent) + "% (" +
                              std::to_string(primary.primary.a) + "/255)");
     }
     if (!secondary_shown_ || !same_material(*secondary_shown_, secondary)) {
+        if (artwork("secondary-material", material_sample(secondary)).value == 0U) {
+            return;
+        }
         secondary_shown_ = secondary;
-        static_cast<void>(artwork("secondary-material", material_sample(secondary)));
         const OpacityIndicator indicator = opacity_indicator(secondary.primary);
         (*command("secondary", tr("Alt")))
             .set_description(tr("Opacity") + ": " + std::to_string(indicator.percent) + "% (" +

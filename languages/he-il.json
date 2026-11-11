@@ -1016,5 +1016,7 @@
   "Wheel": "גלגל",
   "Set as desktop background (center)": "הגדרה כרקע שולחן העבודה (מרכוז)",
   "Set as desktop background (fill)": "הגדרה כרקע שולחן העבודה (מילוי)",
-  "Set as desktop background (tile)": "הגדרה כרקע שולחן העבודה (פריסה)"
+  "Set as desktop background (tile)": "הגדרה כרקע שולחן העבודה (פריסה)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "כרטיס הביקור של Malkuthsoft; פותח את malkuthsoft.com",
+  "Invalidation overlay: on until Plan Paint closes": "שכבת סימון פסילה: פעילה עד שסוגרים את Plan Paint"
 }

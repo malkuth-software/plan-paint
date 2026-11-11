@@ -1016,5 +1016,7 @@
   "Wheel": "輪盤",
   "Set as desktop background (center)": "設為桌面背景 (置中)",
   "Set as desktop background (fill)": "設為桌面背景 (填滿)",
-  "Set as desktop background (tile)": "設為桌面背景 (並排)"
+  "Set as desktop background (tile)": "設為桌面背景 (並排)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "Malkuthsoft 名片；開啟 malkuthsoft.com",
+  "Invalidation overlay: on until Plan Paint closes": "失效疊加層：開啟，直到關閉 Plan Paint"
 }

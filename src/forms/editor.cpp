@@ -114,9 +114,7 @@ void PaintCanvas::on_paint_overlay(gf::Painter& painter, gf::Rect damage) {
         (*editor).paint_canvas_overlay(painter, damage);
     }
 }
-Editor::Editor(gf::StableId id) : Control(std::move(id)) {
-    set_theme_override(ribbon_theme());
-}
+Editor::Editor(gf::StableId id) : Control(std::move(id)) {}
 void Editor::initialize_control_tree() {
     allow_drop = true;
     initialize_warp();
@@ -162,7 +160,6 @@ void Editor::initialize_control_tree() {
     zoom_in_ = gf::make_control<gf::Button>(gf::StableId("status-zoom-in"), "+");
     zoom_reset_ = gf::make_control<gf::Button>(gf::StableId("status-zoom-reset"), "100%");
     for (const std::shared_ptr<gf::Button>& button : {zoom_out_, zoom_in_, zoom_reset_, tool_size_status_}) {
-        (*button).set_theme_override(ribbon_theme());
         (*button).content_padding = {2, 1, 2, 1};
         (*button).font = gf::FontSpec{gf::FontRole::control,
                             button == zoom_reset_ || button == tool_size_status_ ? 12.0 : 18.0, 400, false};
@@ -340,6 +337,21 @@ void Editor::on_paint(gf::Painter& painter, gf::Rect) {
         const double x = position * bounds.width / 1280;
         painter.draw_line({x, y + 5}, {x, bounds.height - 5}, interface_color(*this, gf::Color::rgba(193, 208, 224)), 1);
     }
+}
+double wheel_line_pixels(const EditorSettings& settings) {
+    return settings.scroll_distance;
+}
+// The canvas repaints itself when its view changes; of the editor's own
+// paint only the rulers follow the view, so a pan damages their strips and
+// leaves the ribbon and the status bar alone.
+void Editor::view_moved() {
+    if (!show_rulers) {
+        return;
+    }
+    const gf::Rect area = (*canvas_).committed_arranged_bounds();
+    const double ribbon_height = area.y - 20;
+    invalidate(gf::Rect{0, ribbon_height, 20 + area.width, 21});
+    invalidate(gf::Rect{0, ribbon_height, 21, 20 + area.height});
 }
 gf::Point Editor::screen(Point point) const {
     const gui_drawing::PointF mapped = (*canvas_).view_point({point.x, point.y});
@@ -879,6 +891,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
         control_ = gf::has_modifier(event.modifiers, gf::Modifier::control);
         alt_ = gf::has_modifier(event.modifiers, gf::Modifier::alt);
         gf::Point client = (*canvas_).point_from_window(event.position);
+        const std::optional<gf::Point> previous_cursor = cursor_client_;
         if (event.action == gf::PointerAction::leave && !(*canvas_).has_pointer_capture()) {
             cursor_client_.reset();
         } else {
@@ -957,7 +970,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
         if (document.tool == Tool::Stamp || document.tool == Tool::Pencil || document.tool == Tool::Eraser ||
             document.tool == Tool::Magnifier || document.tool == Tool::Picker ||
             document.tool == Tool::Brush || document.tool == Tool::Path || document.curve.line_set) {
-            (*canvas_).invalidate(gf::Dirty::paint);
+            invalidate_tool_preview(previous_cursor);
         }
         if (document.tool == Tool::Path &&
             (event.action == gf::PointerAction::move || event.action == gf::PointerAction::leave)) {
@@ -974,16 +987,21 @@ void Editor::pointer(const gf::PointerEvent& event) {
                 const double half_width = viewport.width / (2 * scale);
                 const double half_height = viewport.height / (2 * scale);
                 const gf::Rect view = canvas().view_bounds();
-                origin.x = std::clamp(origin.x - event.wheel_delta.x * settings.scroll_distance / scale,
+                // A precise device (a trackpad) reports logical pixels, which
+                // pan exactly; a detented wheel reports lines, each one scroll
+                // step (wheel_line_pixels).
+                const double step =
+                    event.wheel_unit == gf::WheelDeltaUnit::pixels ? 1.0 : wheel_line_pixels(settings);
+                origin.x = std::clamp(origin.x - event.wheel_delta.x * step / scale,
                                       view.x - half_width, view.x + view.width - half_width);
-                origin.y = std::clamp(origin.y - event.wheel_delta.y * settings.scroll_distance / scale,
+                origin.y = std::clamp(origin.y - event.wheel_delta.y * step / scale,
                                       view.y - half_height, view.y + view.height - half_height);
                 (*canvas_).view_origin = origin;
                 if (warp_mode_ == WarpMode::rotation || (resize_handle_ >= 0 && resize_selection_)) {
                     update_transform_preview();
                 }
                 update_cursor_status();
-                invalidate(gf::Dirty::paint);
+                view_moved();
             }
             return;
         }
@@ -1017,7 +1035,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
                         {pan_origin_.x - (client.x - pan_start_.x) / (*canvas_).zoom.read(),
                          pan_origin_.y - (client.y - pan_start_.y) / (*canvas_).zoom.read()};
                     update_cursor_status();
-                    invalidate(gf::Dirty::paint);
+                    view_moved();
                 }
             } else if (event.action == gf::PointerAction::up) {
                 const bool sample = picker_pending_;
@@ -1138,7 +1156,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
                 (*canvas_).view_origin = {pan_origin_.x - (client.x - pan_start_.x) / (*canvas_).zoom.read(),
                                             pan_origin_.y - (client.y - pan_start_.y) / (*canvas_).zoom.read()};
                 update_cursor_status();
-                invalidate(gf::Dirty::paint);
+                view_moved();
             } else if (dragging_) {
                 move(point);
             }
@@ -1546,6 +1564,11 @@ void Editor::zoom(double factor, gf::Point anchor) {
     refresh();
 }
 void Editor::on_key_preview(gf::KeyEvent& event) {
+    // The business card's hidden switch wants D held: every D down and up
+    // passes here first, whatever has focus, and is left unhandled.
+    if (event.physical_key == gf::PhysicalKey::d && help_) {
+        (*help_).card().d_held = event.action == gf::KeyAction::down;
+    }
     if (pattern_editing) { return; }
     if (event.action != gf::KeyAction::down || (*ribbon_).file_menu_open() || editor_dialog_) {
         return;
@@ -1672,7 +1695,7 @@ void Editor::on_key_preview(gf::KeyEvent& event) {
             if (warp_active() || resize_handle_ >= 0) {
                 update_transform_preview();
             }
-            invalidate(gf::Dirty::paint);
+            view_moved();
             event.handled = true;
             return;
         } else if (document.atlas.kind != AtlasKind::None && !document.selection.active && !warp_active() &&
@@ -2059,8 +2082,10 @@ void Editor::open_editor_dialog(EditorDialogKind kind, bool secondary) {
     close_editor_dialog();
     editor_dialog_ = gf::make_control<EditorDialog>(
         gf::StableId("editor-dialog"), std::static_pointer_cast<Editor>(shared_from_this()), kind, secondary);
-    interface_themes.apply(*editor_dialog_, settings.interface_hue);
     editor_dialog_popup_ = (*attached_window()).open_overlay(shared_from_this(), editor_dialog_);
+    // The dialog is outside the editor's subtree, so it takes its own tint
+    // once the overlay has attached it.
+    interface_themes.apply(*editor_dialog_, settings.interface_hue);
     editor_dialog_focus_ = (*attached_window()).begin_focus_scope(editor_dialog_);
     if (kind == EditorDialogKind::atlas_gallery) {
         std::shared_ptr<AtlasPanel> gallery =

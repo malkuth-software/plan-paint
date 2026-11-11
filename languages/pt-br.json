@@ -1016,5 +1016,7 @@
   "Wheel": "Roda",
   "Set as desktop background (center)": "Definir como plano de fundo (centralizar)",
   "Set as desktop background (fill)": "Definir como plano de fundo (preencher)",
-  "Set as desktop background (tile)": "Definir como plano de fundo (lado a lado)"
+  "Set as desktop background (tile)": "Definir como plano de fundo (lado a lado)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "Cartão de visita da Malkuthsoft; abre malkuthsoft.com",
+  "Invalidation overlay: on until Plan Paint closes": "Sobreposição de invalidação: ativa até fechar o Plan Paint"
 }

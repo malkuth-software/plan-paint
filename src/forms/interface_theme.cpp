@@ -136,41 +136,29 @@ std::shared_ptr<const gf::Theme> tint_theme(const std::shared_ptr<const gf::Them
     return gf::Theme::create(std::move(definition));
 }
 } // namespace
-void InterfaceThemes::visit(gf::Control& control, int hue) {
-    std::shared_ptr<const gf::Theme> current = control.theme_override();
-    if (current) {
-        Entry& entry = entries_[&control];
-        if (entry.control.expired() || (current != entry.applied && current != entry.source)) {
-            entry = {control.shared_from_this(), current, {}, -1};
-        }
-        if (entry.hue != hue) {
-            std::shared_ptr<const gf::Theme>& cached = cache_[entry.source];
-            if (!cached) {
-                cached = tint_theme(entry.source, hue);
-            }
-            entry.applied = cached;
-            entry.hue = hue;
-            control.set_theme_override(entry.applied);
-            control.invalidate(gf::Dirty::paint);
-        }
-    }
-    for (const std::shared_ptr<gf::Control>& child : control.children()) {
-        visit(*child, hue);
-    }
-}
 void InterfaceThemes::apply(gf::Control& root, int hue) {
-    if (cached_hue_ != hue) {
-        cache_.clear();
-        cached_hue_ = hue;
+    gf::Window* window = root.attached_window();
+    if (!window) {
+        return;
     }
-    std::map<const gf::Control*, Entry>::iterator entry = entries_.begin();
-    while (entry != entries_.end()) {
-        if ((*entry).second.control.expired()) {
-            entry = entries_.erase(entry);
-        } else {
-            ++entry;
+    std::shared_ptr<const gf::Theme> wanted;
+    if (hue != 220) {
+        const std::shared_ptr<const gf::Theme> source = (*window).theme_ptr();
+        if (source != source_ || hue != tinted_hue_) {
+            tinted_ = tint_theme(source, hue);
+            source_ = source;
+            tinted_hue_ = hue;
         }
+        wanted = tinted_;
     }
-    visit(root, hue);
+    if (root.theme_override() == wanted) {
+        return;
+    }
+    if (wanted) {
+        root.set_theme_override(wanted);
+    } else {
+        root.clear_theme_override();
+    }
+    root.invalidate(gf::Dirty::paint);
 }
 } // namespace paint::forms

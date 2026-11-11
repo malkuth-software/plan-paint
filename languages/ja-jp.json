@@ -1016,5 +1016,7 @@
   "Wheel": "ホイール",
   "Set as desktop background (center)": "デスクトップの背景に設定 (中央)",
   "Set as desktop background (fill)": "デスクトップの背景に設定 (全体)",
-  "Set as desktop background (tile)": "デスクトップの背景に設定 (並べて表示)"
+  "Set as desktop background (tile)": "デスクトップの背景に設定 (並べて表示)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "Malkuthsoft の名刺。malkuthsoft.com を開きます",
+  "Invalidation overlay: on until Plan Paint closes": "無効化オーバーレイ: Plan Paint を閉じるまでオン"
 }

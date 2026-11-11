@@ -1016,5 +1016,7 @@
   "Wheel": "العجلة",
   "Set as desktop background (center)": "تعيين كخلفية لسطح المكتب (توسيط)",
   "Set as desktop background (fill)": "تعيين كخلفية لسطح المكتب (ملء)",
-  "Set as desktop background (tile)": "تعيين كخلفية لسطح المكتب (تجانب)"
+  "Set as desktop background (tile)": "تعيين كخلفية لسطح المكتب (تجانب)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "بطاقة عمل Malkuthsoft؛ تفتح malkuthsoft.com",
+  "Invalidation overlay: on until Plan Paint closes": "طبقة إبراز الإبطال: مفعّلة حتى إغلاق Plan Paint"
 }

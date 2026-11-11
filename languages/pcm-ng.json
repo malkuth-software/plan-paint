@@ -1016,5 +1016,7 @@
   "Wheel": "Wheel",
   "Set as desktop background (center)": "Use as desktop background (for middle)",
   "Set as desktop background (fill)": "Use as desktop background (fill am)",
-  "Set as desktop background (tile)": "Use as desktop background (tile am)"
+  "Set as desktop background (tile)": "Use as desktop background (tile am)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "Malkuthsoft business card; e dey open malkuthsoft.com",
+  "Invalidation overlay: on until Plan Paint closes": "Invalidation overlay: e dey on until Plan Paint close"
 }

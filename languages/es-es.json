@@ -1016,5 +1016,7 @@
   "Wheel": "Rueda",
   "Set as desktop background (center)": "Establecer como fondo de escritorio (centrado)",
   "Set as desktop background (fill)": "Establecer como fondo de escritorio (relleno)",
-  "Set as desktop background (tile)": "Establecer como fondo de escritorio (mosaico)"
+  "Set as desktop background (tile)": "Establecer como fondo de escritorio (mosaico)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "Tarjeta de visita de Malkuthsoft; abre malkuthsoft.com",
+  "Invalidation overlay: on until Plan Paint closes": "Superposición de invalidación: activa hasta cerrar Plan Paint"
 }

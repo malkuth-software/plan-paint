@@ -1016,5 +1016,7 @@
   "Wheel": "Колесо",
   "Set as desktop background (center)": "Зробити тлом стільниці (по центру)",
   "Set as desktop background (fill)": "Зробити тлом стільниці (заповнити)",
-  "Set as desktop background (tile)": "Зробити тлом стільниці (мозаїка)"
+  "Set as desktop background (tile)": "Зробити тлом стільниці (мозаїка)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "Візитна картка Malkuthsoft; відкриває malkuthsoft.com",
+  "Invalidation overlay: on until Plan Paint closes": "Підсвічування перемальовування: увімкнено до закриття Plan Paint"
 }

@@ -1016,5 +1016,7 @@
   "Wheel": "چرخ",
   "Set as desktop background (center)": "تنظیم به‌عنوان پس‌زمینهٔ میزکار (وسط)",
   "Set as desktop background (fill)": "تنظیم به‌عنوان پس‌زمینهٔ میزکار (پرکردن)",
-  "Set as desktop background (tile)": "تنظیم به‌عنوان پس‌زمینهٔ میزکار (کاشی)"
+  "Set as desktop background (tile)": "تنظیم به‌عنوان پس‌زمینهٔ میزکار (کاشی)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "کارت ویزیت Malkuthsoft؛ malkuthsoft.com را باز می‌کند",
+  "Invalidation overlay: on until Plan Paint closes": "لایهٔ نمایش ابطال: تا بسته شدن Plan Paint روشن است"
 }

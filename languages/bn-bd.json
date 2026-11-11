@@ -1016,5 +1016,7 @@
   "Wheel": "চাকা",
   "Set as desktop background (center)": "ডেস্কটপের পটভূমি করুন (মাঝখানে)",
   "Set as desktop background (fill)": "ডেস্কটপের পটভূমি করুন (পূরণ)",
-  "Set as desktop background (tile)": "ডেস্কটপের পটভূমি করুন (টাইল)"
+  "Set as desktop background (tile)": "ডেস্কটপের পটভূমি করুন (টাইল)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "Malkuthsoft-এর ব্যবসায়িক কার্ড; malkuthsoft.com খোলে",
+  "Invalidation overlay: on until Plan Paint closes": "অবৈধকরণ ওভারলে: Plan Paint বন্ধ না হওয়া পর্যন্ত চালু"
 }

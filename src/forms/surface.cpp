@@ -329,6 +329,40 @@ void PaintCanvas::paint_atlas_context(gf::Painter& painter, const Editor& editor
         painter.draw_image(reference_, bitmap_to_client({0, 0, width, height}), 0.5);
     }
 }
+double Editor::tool_preview_reach() const {
+    if (document.curve.line_set || document.tool == Tool::Path || document.tool == Tool::Stamp) {
+        return 0;
+    }
+    const double zoom = (*canvas_).zoom.read();
+    double reach = 0;
+    if (document.tool == Tool::Magnifier || document.tool == Tool::Picker) {
+        // The 64-point lens, its shadow and its "8x" caption.
+        reach = 64 + 10;
+    } else if (document.tool == Tool::Eraser) {
+        reach = std::max(0.5, document.ink.size * 0.5) * zoom + 3;
+    } else if (document.tool == Tool::Pencil) {
+        // The pixel under the cursor (turned with the view, up to its
+        // diagonal away) and its three-point outline.
+        reach = zoom * 1.5 + 4;
+    } else if (document.tool == Tool::Brush && brush_family != BrushFamily::Heal) {
+        reach = 2;
+    }
+    return reach;
+}
+void Editor::invalidate_tool_preview(std::optional<gf::Point> previous) {
+    const double reach = tool_preview_reach();
+    if (reach <= 0) {
+        (*canvas_).invalidate(gf::Dirty::paint);
+        return;
+    }
+    if (previous) {
+        (*canvas_).invalidate(gf::Rect{(*previous).x - reach, (*previous).y - reach, reach * 2, reach * 2});
+    }
+    if (cursor_client_) {
+        (*canvas_).invalidate(
+            gf::Rect{(*cursor_client_).x - reach, (*cursor_client_).y - reach, reach * 2, reach * 2});
+    }
+}
 void Editor::paint_tool_preview(gf::Painter& painter) {
     if (cursor_client_ && document.tool == Tool::Brush && brush_family == BrushFamily::Heal) {
         const gf::Point center = *cursor_client_;
@@ -793,46 +827,122 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
     const gf::Rect destination{left / device_scale - window_origin.x, top / device_scale - window_origin.y,
         width / device_scale, height / device_scale};
     const gf::LiveSurfacePixelFormat format = gf::native_live_surface_pixel_format();
-    if (!viewport_surface_ || viewport_generation_ != frame.generation() || viewport_source_ != display_surface_ ||
-        viewport_bounds_ != destination || viewport_zoom_ != zoom.read() || viewport_origin_.x != view_origin.read().x ||
-        viewport_origin_.y != view_origin.read().y || viewport_scale_ != device_scale) {
-        if (!viewport_surface_ || (*viewport_surface_).snapshot().description.width != static_cast<unsigned>(width) ||
-            (*viewport_surface_).snapshot().description.height != static_cast<unsigned>(height)) {
-            viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width), static_cast<unsigned>(height),
-                format, gf::default_live_surface_buffer_count, true});
-        }
-        gf::LiveSurfaceWriteLease write = (*viewport_surface_).try_acquire_write();
-        if (!write) {
-            viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width), static_cast<unsigned>(height),
-                format, gf::default_live_surface_buffer_count, true});
-            write = (*viewport_surface_).try_acquire_write();
-        }
+    const unsigned surface_width = viewport_surface_ ? (*viewport_surface_).snapshot().description.width : 0U;
+    const unsigned surface_height = viewport_surface_ ? (*viewport_surface_).snapshot().description.height : 0U;
+    // The same view as the last conversion: only the picture changed. A
+    // generation of zero is a forced redo (the checker colours changed).
+    const bool same_view = viewport_surface_ && viewport_generation_ != 0 && viewport_source_ == display_surface_ &&
+        viewport_bounds_ == destination && viewport_zoom_ == zoom.read() && viewport_origin_.x == view_origin.read().x &&
+        viewport_origin_.y == view_origin.read().y && viewport_scale_ == device_scale &&
+        surface_width == static_cast<unsigned>(width) && surface_height == static_cast<unsigned>(height) &&
+        viewport_columns_.size() == static_cast<std::size_t>(width);
+    if (!same_view || viewport_generation_ != frame.generation()) {
         const bool bgra = format == gf::LiveSurfacePixelFormat::bgra32_premultiplied_srgb;
         const double tile = transparency_cell_size.read() > 0 ? transparency_cell_size.read() : 12.0;
-        for (int y = 0; y < height; ++y) {
-            const double cy = destination.y + (y + 0.5) / device_scale;
-            const int sy = std::clamp(static_cast<int>(std::floor(cy / zoom.read() + view_origin.read().y)),
-                0, static_cast<int>(frame.height()) - 1);
-            std::byte* row = write.pixels().data() + y * write.row_bytes();
+        const double scale = zoom.read();
+        const gui_drawing::PointF origin = view_origin.read();
+        const int source_width = static_cast<int>(frame.width());
+        const int source_height = static_cast<int>(frame.height());
+        // Only the picture changed: convert just the output pixels showing
+        // the source pixels published since the last conversion, over the
+        // previous contents, and publish that rectangle alone.
+        bool partial = same_view && viewport_dirty_.w > 0 && viewport_dirty_.h > 0;
+        gf::LiveSurfaceWriteLease write;
+        if (partial) {
+            write = (*viewport_surface_).try_acquire_write(true);
+            partial = static_cast<bool>(write);
+        }
+        if (!partial) {
+            if (!viewport_surface_ || surface_width != static_cast<unsigned>(width) ||
+                surface_height != static_cast<unsigned>(height)) {
+                viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width),
+                    static_cast<unsigned>(height), format, gf::default_live_surface_buffer_count, true});
+            }
+            write = (*viewport_surface_).try_acquire_write();
+            if (!write) {
+                viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width),
+                    static_cast<unsigned>(height), format, gf::default_live_surface_buffer_count, true});
+                write = (*viewport_surface_).try_acquire_write();
+            }
+            // Each output column samples one source column and lies in one
+            // checker column; both are worked out once per view, not per
+            // pixel (a pan at device scale 2 converts some three million pixels).
+            viewport_columns_.resize(static_cast<std::size_t>(width));
+            viewport_cells_.resize(static_cast<std::size_t>(width));
             for (int x = 0; x < width; ++x) {
                 const double cx = destination.x + (x + 0.5) / device_scale;
-                const int sx = std::clamp(static_cast<int>(std::floor(cx / zoom.read() + view_origin.read().x)),
-                    0, static_cast<int>(frame.width()) - 1);
-                const std::byte* pixel = frame.pixels().data() + sy * frame.row_bytes() + sx * 4;
-                const bool second = ((static_cast<int>((cx - visible.x) / tile) +
-                                      static_cast<int>((cy - visible.y) / tile)) & 1) == 0;
-                const gf::Color background = second ? transparency_second_ : transparency_first_;
+                const int sx = std::clamp(static_cast<int>(std::floor(cx / scale + origin.x)), 0, source_width - 1);
+                viewport_columns_[static_cast<std::size_t>(x)] = static_cast<std::size_t>(sx) * 4;
+                viewport_cells_[static_cast<std::size_t>(x)] = static_cast<int>((cx - visible.x) / tile);
+            }
+        }
+        // The output columns and rows to convert: all, or those whose source
+        // column and row lie in the published damage (the tables are monotonic).
+        int column_begin = 0;
+        int column_end = width;
+        if (partial) {
+            const std::size_t dirty_left = static_cast<std::size_t>(std::max(0, viewport_dirty_.x)) * 4;
+            const std::size_t dirty_right =
+                static_cast<std::size_t>(std::max(0, viewport_dirty_.x + viewport_dirty_.w)) * 4;
+            column_begin = width;
+            column_end = 0;
+            for (int x = 0; x < width; ++x) {
+                const std::size_t offset = viewport_columns_[static_cast<std::size_t>(x)];
+                if (offset >= dirty_left && offset < dirty_right) {
+                    column_begin = std::min(column_begin, x);
+                    column_end = x + 1;
+                }
+            }
+        }
+        // The two checker colours in output byte order (blue first for BGRA).
+        const unsigned first[3] = {bgra ? transparency_first_.blue : transparency_first_.red, transparency_first_.green,
+                                   bgra ? transparency_first_.red : transparency_first_.blue};
+        const unsigned second_colour[3] = {bgra ? transparency_second_.blue : transparency_second_.red,
+                                           transparency_second_.green,
+                                           bgra ? transparency_second_.red : transparency_second_.blue};
+        int row_begin = height;
+        int row_end = 0;
+        for (int y = 0; y < height && column_begin < column_end; ++y) {
+            const double cy = destination.y + (y + 0.5) / device_scale;
+            const int sy = std::clamp(static_cast<int>(std::floor(cy / scale + origin.y)), 0, source_height - 1);
+            if (partial && (sy < viewport_dirty_.y || sy >= viewport_dirty_.y + viewport_dirty_.h)) {
+                continue;
+            }
+            row_begin = std::min(row_begin, y);
+            row_end = y + 1;
+            const int row_cell = static_cast<int>((cy - visible.y) / tile);
+            const std::byte* source_row = frame.pixels().data() + static_cast<std::size_t>(sy) * frame.row_bytes();
+            std::byte* row = write.pixels().data() + static_cast<std::size_t>(y) * write.row_bytes();
+            for (int x = column_begin; x < column_end; ++x) {
+                const std::byte* pixel = source_row + viewport_columns_[static_cast<std::size_t>(x)];
+                const bool second = ((viewport_cells_[static_cast<std::size_t>(x)] + row_cell) & 1) == 0;
+                const unsigned* background = second ? second_colour : first;
                 const unsigned inverse = 255U - std::to_integer<unsigned>(pixel[3]);
                 row[x * 4] = static_cast<std::byte>(std::to_integer<unsigned>(pixel[0]) +
-                    ((bgra ? background.blue : background.red) * inverse + 127U) / 255U);
+                    (background[0] * inverse + 127U) / 255U);
                 row[x * 4 + 1] = static_cast<std::byte>(std::to_integer<unsigned>(pixel[1]) +
-                    (background.green * inverse + 127U) / 255U);
+                    (background[1] * inverse + 127U) / 255U);
                 row[x * 4 + 2] = static_cast<std::byte>(std::to_integer<unsigned>(pixel[2]) +
-                    ((bgra ? background.red : background.blue) * inverse + 127U) / 255U);
+                    (background[2] * inverse + 127U) / 255U);
                 row[x * 4 + 3] = std::byte{255};
             }
         }
-        static_cast<void>(write.publish());
+        if (!partial) {
+            static_cast<void>(write.publish());
+        } else if (row_begin < row_end) {
+            static_cast<void>(write.publish({static_cast<double>(column_begin), static_cast<double>(row_begin),
+                static_cast<double>(column_end - column_begin), static_cast<double>(row_end - row_begin)}));
+        }
+        ++work_statistics_.viewport_conversions;
+        if (partial) {
+            work_statistics_.viewport_converted_pixels +=
+                static_cast<std::uint64_t>(std::max(0, column_end - column_begin)) *
+                static_cast<std::uint64_t>(std::max(0, row_end - row_begin));
+        } else {
+            work_statistics_.viewport_converted_pixels +=
+                static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height);
+        }
+        viewport_dirty_ = {};
         viewport_generation_ = frame.generation();
         viewport_source_ = display_surface_;
         viewport_bounds_ = destination;

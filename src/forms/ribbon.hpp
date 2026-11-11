@@ -16,8 +16,6 @@ class Editor;
 class AtlasPanel;
 class IconPanel;
 Color ribbon_color(int index);
-std::shared_ptr<const gui_forms::Theme> ribbon_theme();
-std::shared_ptr<const gui_forms::Theme> gallery_theme();
 struct OpacityIndicator {
     int percent = 100;
     std::string text;
@@ -130,7 +128,7 @@ class Ribbon final : public gui_forms::Control {
     std::vector<gui_forms::SubscriptionToken> subscriptions_, popup_subscriptions_;
     GalleryEntry shapes_, palette_, patterns_, brushes_, sizes_, stamp_shapes_, gradient_presets_;
     // Loaded images, by "<size>/<icon>" for ribbon icons and by name for
-    // generated artwork, which is replaced in place (same ImageId).
+    // generated artwork (a replacement stores its new generational ImageId).
     std::map<std::string, gui_forms::ImageId> images_;
     std::shared_ptr<gui_forms::ImageList> popup_images_;
     // Plan Paint's own picker in an overlay, and the command that opened it.
@@ -188,9 +186,13 @@ class Ribbon final : public gui_forms::Control {
     gui_forms::RibbonCommandSpec hosted(const std::string& id, const std::string& text,
                                         gui_forms::RibbonCommandKind kind, double width = 0);
     void number(gui_forms::RibbonGroupSpec& group, const std::string& id, const std::string& text, double width = 0);
+    // A hint as plain label commands, one per line of `text` (ids id, id-2, ...).
+    void hint(gui_forms::RibbonGroupSpec& target, const std::string& id, const std::string& text);
     gui_forms::RibbonCommandSpec gallery_command(const std::string& id, const GalleryEntry& entry);
     gui_forms::ImageId icon(int index, int size);
     gui_forms::ImageId artwork(const std::string& name, const Image& image);
+    // The Guide command's set-square image, made once (none while detached).
+    gui_forms::ImageId guide_image();
 
     // -- galleries (ribbon_galleries.cpp) -----------------------------------------
     GalleryEntry make_gallery(const std::string& id, const std::string& text, gui_forms::RibbonGalleryForm form);

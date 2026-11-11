@@ -1016,5 +1016,7 @@
   "Wheel": "Roue",
   "Set as desktop background (center)": "Définir comme fond d’écran (centré)",
   "Set as desktop background (fill)": "Définir comme fond d’écran (remplir)",
-  "Set as desktop background (tile)": "Définir comme fond d’écran (mosaïque)"
+  "Set as desktop background (tile)": "Définir comme fond d’écran (mosaïque)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "Carte de visite de Malkuthsoft ; ouvre malkuthsoft.com",
+  "Invalidation overlay: on until Plan Paint closes": "Surcouche d’invalidation : active jusqu’à la fermeture de Plan Paint"
 }

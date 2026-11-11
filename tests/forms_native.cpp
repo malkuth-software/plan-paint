@@ -3,6 +3,7 @@
 #include "safe_file.hpp"
 #include "fixtures/icon_reference.hpp"
 #include "forms/editor.hpp"
+#include "canvas_backing.hpp"
 #include "forms/ribbon.hpp"
 #include "native_clipboard.hpp"
 #include "paths.hpp"
@@ -25,36 +26,90 @@ namespace {
 namespace gf = gui_forms;
 // The ribbon's commands and tabs are parts of gf::Ribbon ("ribbon-bar"), not
 // controls; hosted fields are its children "ribbon-bar.<id>".
+// The control a ribbon command hosts, wherever it is (on the plane, in an
+// open folded group's overlay, or held while its group is folded).
 gf::Control::Ptr hosted_control(gf::Window& window, const std::string& id) {
-    return window.find("ribbon-bar." + id);
+    const gf::Control::Ptr found = window.find("ribbon-bar." + id);
+    if (found) {
+        return found;
+    }
+    const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(window.find("ribbon-bar"));
+    if (!bar) {
+        return nullptr;
+    }
+    // Each accessor throws std::out_of_range for a command of another kind.
+    try {
+        return (*bar).combo_box(id);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        return (*bar).numeric_up_down(id);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        return (*bar).check_box(id);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        return (*bar).text_box(id);
+    } catch (const std::out_of_range&) {
+    }
+    return nullptr;
 }
-// The window bounds of the ribbon command `id` realized on the selected
-// tab (its face, or its hosted control's part), or none.
+// The window rectangle of a realized command's visible part: a button's
+// face, or (a hosted command has no face of its own) the part of the control
+// it hosts; none when nothing of it shows. `origin` is the window position
+// the parts are relative to.
+std::optional<gf::Rect> command_part_bounds(const gf::Ribbon::CommandParts& parts, gf::Rect origin) {
+    const gf::PartGeometry* const shown[] = {&parts.command_face,          &parts.command_combo_box,
+                                             &parts.command_numeric_up_down, &parts.command_check_box,
+                                             &parts.command_text_box,      &parts.command_gallery,
+                                             &parts.command_font_control,  &parts.command_color_picker};
+    for (const gf::PartGeometry* part : shown) {
+        if ((*part).present) {
+            const gf::Rect face = (*part).bounds;
+            const gf::Rect result{origin.x + face.x, origin.y + face.y, face.width, face.height};
+            return result;
+        }
+    }
+    return std::nullopt;
+}
+// The window bounds of the ribbon command `id` on the selected tab: on the
+// plane, or else inside a folded group, which is opened (as a user opens it)
+// and left open so its hosted controls can be inspected; none when neither
+// shows it. Folding is the Ribbon's behaviour at narrow widths.
 std::optional<gf::Rect> ribbon_command_bounds(gf::Window& window, const std::string& id) {
     window.perform_layout();
     const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(window.find("ribbon-bar"));
     if (!bar) {
         return std::nullopt;
     }
-    const gf::Rect origin = (*bar).absolute_bounds();
     for (const gf::Ribbon::CommandItem& command : (*bar).realized_commands()) {
-        if (command.stable_id != id) {
-            continue;
+        if (command.stable_id == id) {
+            return command_part_bounds(command.parts, (*bar).absolute_bounds());
         }
-        // A button shows its face; a hosted command has no face of its own,
-        // only the part of the control it hosts.
-        const gf::Ribbon::CommandParts& parts = command.parts;
-        const gf::PartGeometry* const shown[] = {&parts.command_face,          &parts.command_combo_box,
-                                                 &parts.command_numeric_up_down, &parts.command_check_box,
-                                                 &parts.command_text_box,      &parts.command_gallery,
-                                                 &parts.command_font_control,  &parts.command_color_picker};
-        for (const gf::PartGeometry* part : shown) {
-            if ((*part).present) {
-                const gf::Rect face = (*part).bounds;
-                const gf::Rect result{origin.x + face.x, origin.y + face.y, face.width, face.height};
-                return result;
+    }
+    const gf::Control::Ptr open = (*bar).group_overlay();
+    if ((*bar).overlay_group() && open) {
+        for (const gf::Ribbon::CommandItem& command : (*bar).realized_overlay_commands()) {
+            if (command.stable_id == id) {
+                return command_part_bounds(command.parts, (*open).absolute_bounds());
             }
         }
+    }
+    for (const gf::Ribbon::Group& group : (*bar).realized_groups()) {
+        if (!group.collapsed || !(*bar).show_group_overlay(group.stable_id, gf::MenuOpenMode::pointer)) {
+            continue;
+        }
+        window.perform_layout();
+        const gf::Control::Ptr overlay = (*bar).group_overlay();
+        for (const gf::Ribbon::CommandItem& command : (*bar).realized_overlay_commands()) {
+            if (command.stable_id == id && overlay) {
+                return command_part_bounds(command.parts, (*overlay).absolute_bounds());
+            }
+        }
+        (*bar).close_group_overlay();
+        window.perform_layout();
     }
     return std::nullopt;
 }
@@ -127,6 +182,7 @@ struct NativeExercise {
          corners_review = false, sticky_review = false, opacity_review = false, stamp_placement_review = false, advanced_effects_review = false, external_file_review = false, icon_validation_review = false, toolbar_strip_review = false, numeric_transform_review = false, icon_effects_review = false, alpha_tools_review = false, icon_palette_review = false, icon_states_review = false,
          icon_ribbon_review = false, icon_batch_review = false, icon_stamp_review = false, icon_indexed_review = false, icon_shared_review = false, icon_index_paint_review = false;
     bool geometry_styles_review = false, markers_review = false;
+    bool pan_probe = false;
     std::string clipboard_role;
     std::filesystem::path clipboard_directory;
     std::unique_ptr<paint::tests::NativeClipboardExchange> clipboard_exchange;
@@ -757,6 +813,129 @@ struct NativeExercise {
             throw std::runtime_error("Native canvas retained capture after release");
         }
     }
+    // --pan-probe: the cost of panning the canvas, as the host meets it.
+    // Sixty trackpad-sized wheel steps (8 pixels each) over a 3000 x 2000
+    // image, each followed by the damage the window reports and one paint of
+    // that damage into a framebuffer at the window's device scale; prints the
+    // damage area and the paint time per step, then closes.
+    void pan_probe_run(gf::Window& window, gf::ApplicationWindowHandle handle) {
+        paint::Document& document = (*editor).document;
+        // PAINT_PAN_PROBE_WIDTH picks another image width (height two thirds).
+        int width = 3000;
+        const char* width_override = std::getenv("PAINT_PAN_PROBE_WIDTH");
+        if (width_override && *width_override) {
+            width = std::clamp(std::atoi(width_override), 300, 12000);
+        }
+        const int height = width * 2 / 3;
+        // PAINT_PAN_PROBE_BACKING picks another canvas surround (by index).
+        const char* backing_override = std::getenv("PAINT_PAN_PROBE_BACKING");
+        if (backing_override && *backing_override) {
+            (*editor).settings.canvas_backing = static_cast<paint::CanvasBacking>(
+                std::clamp(std::atoi(backing_override), 0, paint::canvas_backing_count - 1));
+        }
+        document.new_image(width, height);
+        for (int y = 0; y < document.image.height; ++y) {
+            for (int x = 0; x < document.image.width; ++x) {
+                document.image.set(x, y, {static_cast<std::uint8_t>(x * 255 / width),
+                                          static_cast<std::uint8_t>(y * 255 / height), 160, 255});
+            }
+        }
+        (*editor).refresh();
+        window.perform_layout();
+        const gf::Size size = window.client_size();
+        std::unique_ptr<gf::PaintFramebuffer> framebuffer = window.create_framebuffer(size, window.scale());
+        const gf::Rect full{0, 0, size.width, size.height};
+        if (!framebuffer || !(*framebuffer).begin(window.image_resources(), full)) {
+            throw std::runtime_error("Native framebuffer is unavailable");
+        }
+        static_cast<void>(window.paint((*framebuffer).painter(), full));
+        static_cast<void>(window.take_damage());
+        gf::RasterCanvas& canvas = (*editor).canvas();
+        const gf::Rect area = canvas.committed_arranged_bounds();
+        const gf::Point centre = canvas.point_to_window({area.width * 0.5, area.height * 0.5});
+        double total_area = 0;
+        double total_ms = 0;
+        double worst_ms = 0;
+        const int steps = 60;
+        const gf::MetricsSnapshot start_metrics = window.metrics_snapshot();
+        for (int step = 0; step < steps; ++step) {
+            gf::PointerEvent wheel{gf::PointerAction::wheel, gf::PointerButton::none, centre};
+            wheel.wheel_delta = {0, -8};
+            wheel.wheel_unit = gf::WheelDeltaUnit::pixels;
+            static_cast<void>(window.dispatch_pointer(wheel));
+            window.perform_layout();
+            const gf::DamageRegion damage = window.take_damage();
+            const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+            static_cast<void>(window.paint((*framebuffer).painter(), damage.rectangles()));
+            const std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+            const double ms = std::chrono::duration<double, std::milli>(end - start).count();
+            total_area += damage.area();
+            total_ms += ms;
+            worst_ms = std::max(worst_ms, ms);
+        }
+        // Plan Paint's share of the canvas paint: its overlay alone, over
+        // the whole canvas, timed apart from the window's paint.
+        const gf::MetricsSnapshot metrics = window.metrics_snapshot();
+        const std::chrono::steady_clock::time_point overlay_start = std::chrono::steady_clock::now();
+        for (int step = 0; step < 10; ++step) {
+            (*editor).paint_canvas_overlay((*framebuffer).painter(), {0, 0, area.width, area.height});
+        }
+        const double overlay_ms = std::chrono::duration<double, std::milli>(
+                                      std::chrono::steady_clock::now() - overlay_start).count() / 10;
+        // The canvas's own paint operations, each timed alone over the
+        // canvas: the felt surround, the light gradient and the sheet shadow.
+        const paint::Image felt = paint::canvas_backing_texture(paint::CanvasBacking::PaleFelt);
+        std::vector<std::byte> felt_pixels(felt.pixels.size() * 4);
+        for (std::size_t index = 0; index < felt.pixels.size(); ++index) {
+            felt_pixels[index * 4] = static_cast<std::byte>(felt.pixels[index].b);
+            felt_pixels[index * 4 + 1] = static_cast<std::byte>(felt.pixels[index].g);
+            felt_pixels[index * 4 + 2] = static_cast<std::byte>(felt.pixels[index].r);
+            felt_pixels[index * 4 + 3] = std::byte{255};
+        }
+        const gf::ImageLoadResult felt_image =
+            window.load_bgra32_premultiplied(felt.width, felt.height, felt.width * 4, felt_pixels);
+        const gf::Rect bounds{0, 0, area.width, area.height};
+        gf::Painter& painter = (*framebuffer).painter();
+        const double tile = paint::canvas_backing_tile_size(paint::CanvasBacking::PaleFelt);
+        std::chrono::steady_clock::time_point mark = std::chrono::steady_clock::now();
+        for (int step = 0; step < 5; ++step) {
+            painter.fill_image_pattern(felt_image.image, {128, 128}, bounds, {tile, tile});
+        }
+        const double felt_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - mark).count() / 5;
+        const gf::GradientStop light[] = {{0, gf::Color::rgba(255, 255, 255, 22)},
+                                          {1, gf::Color::rgba(60, 77, 95, 15)}};
+        mark = std::chrono::steady_clock::now();
+        for (int step = 0; step < 5; ++step) {
+            painter.fill_linear_gradient(bounds, {0, 0}, {0, bounds.height}, light);
+        }
+        const double gradient_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - mark).count() / 5;
+        const gf::Rect sheet = canvas.bitmap_to_client({0, 0, width, height});
+        mark = std::chrono::steady_clock::now();
+        for (int step = 0; step < 5; ++step) {
+            painter.draw_box_shadow(sheet, 0, {1.5, 2.5}, 6, 0, gf::Color::rgba(42, 53, 67, 75));
+        }
+        const double shadow_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - mark).count() / 5;
+        std::cout << "Pan probe canvas operations: felt surround " << felt_ms << " ms, gradient " << gradient_ms
+                  << " ms, sheet shadow " << shadow_ms << " ms\n";
+        (*framebuffer).end();
+        std::cout << "Pan probe overlay: " << overlay_ms << " ms per canvas; controls painted "
+                  << (metrics.controls_painted - start_metrics.controls_painted) / steps
+                  << " per step, display commands replayed "
+                  << (metrics.display_commands_replayed - start_metrics.display_commands_replayed) / steps
+                  << " per step, chunks rebuilt "
+                  << (metrics.display_chunks_rebuilt - start_metrics.display_chunks_rebuilt) / steps << " per step" << "\n";
+        std::cout << "Pan probe: image " << width << " x " << height << ", scale " << window.scale() << ", window " << size.width << " x " << size.height
+                  << ", canvas " << area.width << " x " << area.height << "; per step: damage "
+                  << total_area / steps << " (logical units), paint " << total_ms / steps << " ms average, "
+                  << worst_ms << " ms worst\n"
+                  << std::flush;
+        if (!handle.request_close().accepted()) {
+            throw std::runtime_error("Native pan probe close failed");
+        }
+    }
     void ready(gf::Window& window, gf::ApplicationWindowHandle handle) {
         if (!window.host_services()) {
             throw std::runtime_error("Native host services were not attached");
@@ -770,6 +949,11 @@ struct NativeExercise {
         if (!clipboard_role.empty()) {
             clipboard_exchange = std::make_unique<paint::tests::NativeClipboardExchange>(
                 *editor, window, handle, clipboard_directory, clipboard_role == "--clipboard-producer");
+            entered = true;
+            return;
+        }
+        if (pan_probe) {
+            pan_probe_run(window, handle);
             entered = true;
             return;
         }
@@ -1584,6 +1768,10 @@ int main(int argc, char** argv) {
         exercise.view_review = argc > 1 && std::string(argv[1]) == "--view";
         exercise.guide_review = argc > 1 && std::string(argv[1]) == "--guide";
         exercise.bugs = argc > 1 && std::string(argv[1]) == "--bugs";
+        exercise.pan_probe = argc > 1 && std::string(argv[1]) == "--pan-probe";
+        if (exercise.pan_probe) {
+            exercise.keep_open = false;
+        }
         exercise.resize_preview = argc > 1 && std::string(argv[1]) == "--resize-preview";
         exercise.editor = gf::make_control<paint::forms::Editor>(gf::StableId("native.editor"));
         (*exercise.editor).recovery_root = recovery.path;

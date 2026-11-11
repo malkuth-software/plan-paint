@@ -1016,5 +1016,7 @@
   "Wheel": "Rad",
   "Set as desktop background (center)": "Als Desktophintergrund festlegen (zentriert)",
   "Set as desktop background (fill)": "Als Desktophintergrund festlegen (füllend)",
-  "Set as desktop background (tile)": "Als Desktophintergrund festlegen (gekachelt)"
+  "Set as desktop background (tile)": "Als Desktophintergrund festlegen (gekachelt)",
+  "Malkuthsoft business card; opens malkuthsoft.com": "Visitenkarte von Malkuthsoft; öffnet malkuthsoft.com",
+  "Invalidation overlay: on until Plan Paint closes": "Invalidierungsanzeige: an, bis Plan Paint geschlossen wird"
 }
