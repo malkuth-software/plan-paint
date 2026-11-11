@@ -1,24 +1,24 @@
 {
   "repository": "malkuth-software/gui_forms",
-  "commit": "2d0f52006a5d1f8ce98a2191c841052b2dd500b7",
-  "cache_release": "build-2d0f52006a5d1f8ce98a2191c841052b2dd500b7",
+  "commit": "66a7f2e5b6a48e935867de7853927e5c3104858e",
+  "cache_release": "build-66a7f2e5b6a48e935867de7853927e5c3104858e",
   "compiler": "22.1.8",
   "caches": {
     "linux-arm64": {
       "asset": "gui-forms-cache-linux-arm64.tar.gz",
-      "sha256": "65443b9035375c15e2703958afe052401470fe45ff834b1918fb247b2b50e8f0"
+      "sha256": "1c56ca19659eca5a03cd17d129001710cf97dd75cc2bb8257269c5816c615d6b"
     },
     "linux-x64": {
       "asset": "gui-forms-cache-linux-x64.tar.gz",
-      "sha256": "53546e08de59d6d33fc294f2d927aeea56e0d991ab30099601c453931af33094"
+      "sha256": "6fdeceed351c39bafef3863e78598e6c659f397e58625d5bfe1c22820603e007"
     },
     "macos-arm64": {
       "asset": "gui-forms-cache-macos-arm64.tar.gz",
-      "sha256": "fa2aad3c1fe492b5ab0550c3f075b2616cf7270bc3699175be4e93b9b527f63c"
+      "sha256": "d1e3dbe01ab6edde1fa950b044e29d319b6ea68f8d4dab3c5cd6963fb96bea1e"
     },
     "windows-x64": {
       "asset": "gui-forms-cache-windows-x64.tar.gz",
-      "sha256": "af328c744efec15f2c9ae5e5294dce7f1e8357c37e6a4882dadbf30ef754a4a7"
+      "sha256": "c17916f8c0e0c592bbfa32d1b7e1a846f7c81f0a4812185e477aa8ca6722d1f8"
     }
   }
 }
