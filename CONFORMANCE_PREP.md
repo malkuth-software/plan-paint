@@ -294,4 +294,5 @@ ctest --test-dir <plan-paint>/build --output-on-failure
    rule `paint_rotated` states (publish replacements from input, layout or worker delivery, never from paint).
    That is long, blocking work in a paint inside the modal loop. It does not by itself explain a loop that never
    ends, but it is the work the material change starts; moving the tile render to a worker and the image
-   replacement out of `on_paint` (to the settings change) is the Plan Paint follow-up.
+   replacement out of `on_paint` (to the settings change) is done in 3eac5ec: `request_backing` renders on a
+   worker, `deliver_backing` loads the image outside paint, and paint shows the plain colour until then.
