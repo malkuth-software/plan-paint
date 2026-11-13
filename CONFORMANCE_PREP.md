@@ -269,3 +269,20 @@ ctest --test-dir <plan-paint>/build --output-on-failure
 - Signature drift in calls whose names survived (the identifier check works on names only).
 - A partially exported class (only a link proves exports).
 - The behaviour change in point 4 (MouseDown/MouseUp subscribers now run).
+
+## Owner findings on the 7c9c931 build
+
+1. **Canvas pans (fixed, 3734f6c).** The rotation handle smeared along a pan: it keeps to the viewport's edge, so
+   the scroll copy moved its old pixels and nothing damaged them (`Control::scroll_content` leaves stationary paint
+   to the caller). `PaintCanvas::apply_view` now damages it where the copy moved it and where it is now; the
+   editor's pans go through `set_view_origin`. A tilted canvas re-rendered its whole frame on every pan step; its
+   paint now follows the view (the last frame drawn moved by the pan) and a whole-unit pan shifts the kept pixels
+   and renders only the exposed bands.
+2. **Selected Pencil (tool) tab drawn as a plain bordered box (open).** The look matches the stock selected
+   menu-item recipe, as if no `ribbon::part(tab)` rule applied. Neither Plan Paint's theme package nor its tab spec
+   gives the tool tab anything the Materials tab lacks (it differs only in `modes` and in being selected by
+   `select_tab` from `show_tool_context`). Not found statically.
+3. **Settings dialog: OK and Cancel do not close it (open).** Both call `Editor::close_editor_dialog`, which posts
+   `DestroyDialogWindow` through `begin_invoke` while `show_modal`'s nested loop runs, itself started from posted
+   work (`ShowDialogModal`, ebfa470, never built). The modal path, and every dialog, closes this way; the close box
+   does not. Not resolved statically.
