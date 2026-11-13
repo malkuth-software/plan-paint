@@ -293,7 +293,7 @@ void Editor::arrange(gf::Rect bounds) {
     if (previous_ribbon_height > 0 && previous_ribbon_height != ribbon_height) {
         gui_drawing::PointF origin = (*canvas_).view_origin.read();
         origin.y += (ribbon_height - previous_ribbon_height) / (*canvas_).zoom.read();
-        (*canvas_).view_origin = origin;
+        (*canvas_).set_view_origin(origin);
     }
     set_child_layout(ribbon_, {0, 0, bounds.width, ribbon_height});
     const bool file_notice_visible = !file_notice_.empty() && !pattern_editing;
@@ -1076,7 +1076,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
                                       view.x - half_width, view.x + view.width - half_width);
                 origin.y = std::clamp(origin.y - event.wheel_delta.y * step / scale,
                                       view.y - half_height, view.y + view.height - half_height);
-                (*canvas_).view_origin = origin;
+                (*canvas_).set_view_origin(origin);
                 if (warp_mode_ == WarpMode::rotation || (resize_handle_ >= 0 && resize_selection_)) {
                     update_transform_preview();
                 }
@@ -1111,9 +1111,9 @@ void Editor::pointer(const gf::PointerEvent& event) {
                     picker_pending_ = false;
                 }
                 if (panning_) {
-                    (*canvas_).view_origin = 
+                    (*canvas_).set_view_origin(
                         {pan_origin_.x - (client.x - pan_start_.x) / (*canvas_).zoom.read(),
-                         pan_origin_.y - (client.y - pan_start_.y) / (*canvas_).zoom.read()};
+                         pan_origin_.y - (client.y - pan_start_.y) / (*canvas_).zoom.read()});
                     update_cursor_status();
                     view_moved();
                 }
@@ -1233,8 +1233,8 @@ void Editor::pointer(const gf::PointerEvent& event) {
             }
         } else if (event.action == gf::PointerAction::move) {
             if (panning_) {
-                (*canvas_).view_origin = {pan_origin_.x - (client.x - pan_start_.x) / (*canvas_).zoom.read(),
-                                            pan_origin_.y - (client.y - pan_start_.y) / (*canvas_).zoom.read()};
+                (*canvas_).set_view_origin({pan_origin_.x - (client.x - pan_start_.x) / (*canvas_).zoom.read(),
+                                            pan_origin_.y - (client.y - pan_start_.y) / (*canvas_).zoom.read()});
                 update_cursor_status();
                 view_moved();
             } else if (dragging_) {

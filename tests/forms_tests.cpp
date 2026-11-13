@@ -10,6 +10,7 @@
 #include "localization.hpp"
 #include "plan_paint_theme.hpp"
 #include "safe_file.hpp"
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -19,6 +20,7 @@
 #include <gui_forms/diagnostics/invalidation_overlay/invalidation_overlay.hpp>
 #include <iostream>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <thread>
 namespace {
@@ -5643,6 +5645,78 @@ void drain_canvas_work(Fixture& fixture) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     } while ((*fixture.editor).canvas().view_busy() || (*fixture.editor).background_busy());
 }
+// Runs the canvas's display deadline and settles its workers.
+void settle_rotated_frame(Fixture& fixture) {
+    static_cast<void>((*fixture.window).poll_frame_schedule(gf::FrameClock::now() + std::chrono::milliseconds(20)));
+    drain_canvas_work(fixture);
+    static_cast<void>((*fixture.window).poll_frame_schedule(gf::FrameClock::now() + std::chrono::milliseconds(20)));
+}
+// The owner: panning a tilted canvas redrew everything on every step, and
+// the rotation handle left a trail of copies along a pan. A pan of a turned
+// view by whole units moves the kept frame and renders only the bands it
+// exposed, and the result equals a whole render at the new origin; a copied
+// pan damages the handle where the copy moved it and where it is now.
+void rotated_pan_shifts_the_frame_and_damages_the_handle() {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::Window& window = *fixture.window;
+    editor.settings.rotate_view = true;
+    editor.document.image.set(35, 35, {20, 70, 110, 255});
+    editor.rotate_view(0.35);
+    editor.canvas().set_view(1, {-40, -30});
+    settle_rotated_frame(fixture);
+    const paint::forms::CanvasWorkStatistics before = editor.canvas().work_statistics();
+    require(!editor.canvas().rendered_view_pixels().empty(), "the turned view has a rendered frame");
+    editor.canvas().set_view_origin({-33, -35});
+    settle_rotated_frame(fixture);
+    const paint::forms::CanvasWorkStatistics after = editor.canvas().work_statistics();
+    const gf::Rect viewport = editor.canvas().client_rectangle();
+    const double band = 7.0 * std::ceil(viewport.height) + 5.0 * std::ceil(viewport.width);
+    require(after.view_renders == before.view_renders && after.view_shifts == before.view_shifts + 1,
+            "a whole-unit pan of a turned view shifts the frame instead of rendering it again");
+    require(static_cast<double>(after.view_shift_pixels - before.view_shift_pixels) <= band,
+            "a shifted frame renders only the exposed bands");
+    const std::span<const std::byte> kept = editor.canvas().rendered_view_pixels();
+    const std::vector<std::byte> shifted(kept.begin(), kept.end());
+    editor.canvas().set_view(2, {-33, -35});
+    settle_rotated_frame(fixture);
+    editor.canvas().set_view(1, {-33, -35});
+    settle_rotated_frame(fixture);
+    require(editor.canvas().work_statistics().view_renders == after.view_renders + 2,
+            "a change of zoom renders the whole frame");
+    const std::span<const std::byte> whole = editor.canvas().rendered_view_pixels();
+    require(whole.size() == shifted.size() && std::equal(whole.begin(), whole.end(), shifted.begin()),
+            "a shifted frame equals a whole render at the new origin");
+
+    // A copied pan: the handle keeps to the viewport's edge, so the copy's
+    // stale pixels of it and its new place are both damaged.
+    window.set_scroll_copies_supported(true);
+    const gf::Size client = window.client_size();
+    std::unique_ptr<gf::PaintFramebuffer> framebuffer = window.create_framebuffer(client, 1.0);
+    const gf::Rect all{0, 0, client.width, client.height};
+    require(framebuffer && (*framebuffer).begin(window.image_resources(), all), "a test framebuffer is available");
+    window.perform_layout();
+    static_cast<void>(window.paint((*framebuffer).painter(), all));
+    static_cast<void>(window.take_damage());
+    const gf::Point handle_before = editor.canvas().rotation_handle();
+    editor.canvas().set_view_origin({-33, -55});
+    window.perform_layout();
+    const gf::DamageRegion damage = window.take_damage();
+    const gf::Point handle_after = editor.canvas().rotation_handle();
+    const gf::Point copied{handle_before.x, handle_before.y + 20};
+    for (const gf::Point point : {copied, handle_after}) {
+        const gf::Point at = editor.canvas().point_to_window(point);
+        const gf::Rect face{at.x - 12, at.y - 12, 24, 24};
+        bool covered = false;
+        for (const gf::Rect rectangle : damage.rectangles()) {
+            if (!gf::Rect::intersection(rectangle, face).empty()) {
+                covered = true;
+            }
+        }
+        require(covered, "a copied pan damages the rotation handle where the copy moved it and where it is now");
+    }
+    (*framebuffer).end();
+}
 void canvas_work_is_coalesced_and_stamp_is_cached() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
@@ -6759,6 +6833,7 @@ int main(int argc, char** argv) {
         working_view_coordinates_and_reset();
         rotated_frames_use_published_images();
         canvas_work_is_coalesced_and_stamp_is_cached();
+        rotated_pan_shifts_the_frame_and_damages_the_handle();
         persistent_selection_painting();
         selection_holes_flood_and_floating_paste();
         selection_text_path_carpet_and_move();

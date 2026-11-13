@@ -4,6 +4,7 @@
 #include "file_change.hpp"
 #include "file_reveal.hpp"
 #include <future>
+#include <span>
 #include <gui_forms/timer.hpp>
 #include "forms/interface_theme.hpp"
 #include "forms/pattern_canvas.hpp"
@@ -33,6 +34,10 @@ struct CanvasWorkStatistics {
     std::uint64_t view_preparations = 0, view_renders = 0, stamp_preparations = 0, stamp_renders = 0;
     // Viewport conversions run, and the output pixels they wrote (a brush stroke converts its own few).
     std::uint64_t viewport_conversions = 0, viewport_converted_pixels = 0;
+    // Rotated-view frames made by moving the kept pixels of the last frame
+    // by a pan of whole units and rendering only the exposed bands, and the
+    // pixels those bands rendered.
+    std::uint64_t view_shifts = 0, view_shift_pixels = 0;
 };
 class PaintCanvas final : public gui_forms::RasterCanvas {
   public:
@@ -56,6 +61,11 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     void arrange(gui_forms::Rect bounds) override;
     bool view_busy() const;
     std::string view_error;
+    // The rotated view's last rendered frame: BGRA, premultiplied, rows of
+    // rendered width times four bytes (empty before the first render). For
+    // checks that a shifted frame equals a whole render.
+    [[nodiscard]] std::span<const std::byte> rendered_view_pixels() const& noexcept { return rotated_pixels_; }
+    std::span<const std::byte> rendered_view_pixels() const&& = delete;
 
     double view_angle = 0;
     gui_drawing::PointF document_point(gui_drawing::PointF point) const noexcept;
@@ -119,6 +129,21 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     gui_forms::FrameRequestToken display_request_, preparation_request_;
     gui_forms::FrameTime next_display_{}, preparation_deadline_{};
     void render_display();
+    // Fills the rotated view's pixels in the area {left, top, columns, rows}
+    // of the frame (inside rendered_size_), from the source at the current
+    // angle, zoom and origin; the rest of rotated_pixels_ is untouched.
+    void render_rotated_area(const Editor& editor, bool prepared, int left, int top, int columns, int rows);
+    // Moves rotated_pixels_ by (shift_x, shift_y) whole units, each smaller
+    // than the frame's side, and renders the bands the move exposed.
+    void shift_rotated_frame(const Editor& editor, bool prepared, int shift_x, int shift_y);
+    // The bitmap's origin in client units as RasterCanvas places it (its
+    // content offset): a pan's scroll copy moves the painted canvas by the
+    // change of this point.
+    [[nodiscard]] gui_forms::Point view_anchor() const noexcept;
+    // A pan or zoom: sets the view, then damages the rotation handle where
+    // it is now and where a scroll copy moved its old pixels, since the
+    // handle keeps to the viewport's edge while the content moves.
+    void apply_view(double zoom, gui_drawing::PointF origin);
     std::weak_ptr<Editor> editor_;
     gui_forms::ImageId backing_, repeated_, reference_, rotated_;
     Image view_source_;
@@ -129,6 +154,12 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     double rendered_angle_ = 0, rendered_zoom_ = 0;
     gui_drawing::PointF rendered_origin_;
     gui_forms::Size rendered_size_;
+    // The rotated frame's pixels (owned here, reused frame to frame; its
+    // length is rendered width * height * 4) and view_anchor() when they
+    // were rendered: paint_rotated draws the frame moved by the anchor's
+    // change since, which is what a scroll copy did to the painted canvas.
+    std::vector<std::byte> rotated_pixels_;
+    gui_forms::Point rendered_anchor_;
     bool view_worker_initialized_ = false;
     void paint_rotated(gui_forms::Painter& painter, const Editor& editor);
     void prepare_view(gui_forms::FrameTime now = gui_forms::FrameClock::now());
