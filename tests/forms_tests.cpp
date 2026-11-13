@@ -3721,6 +3721,11 @@ class PreviewPainter final : public gf::Painter {
         image_bounds = bounds;
         painted_images.push_back(id);
     }
+    // The tiled images (the canvas surround).
+    std::vector<gf::ImageId> patterned_images;
+    void fill_image_pattern(gf::ImageId id, gf::Size, gf::Rect, gf::Size, gf::ImagePatternWrap, double) override {
+        patterned_images.push_back(id);
+    }
 };
 void live_canvas_damage_opacity_and_reuse() {
     Fixture fixture;
@@ -5645,6 +5650,46 @@ void drain_canvas_work(Fixture& fixture) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     } while ((*fixture.editor).canvas().view_busy() || (*fixture.editor).background_busy());
 }
+// The owner: the Settings dialog hung after a change of canvas surround,
+// whose tile was rendered and its image replaced inside the canvas's paint.
+// A change of setting renders the tile on a worker; paint never loads or
+// replaces an image and shows the material's plain colour until the worker
+// delivers, which replaces the image outside paint.
+void backing_change_renders_off_paint() {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::Window& window = *fixture.window;
+    window.perform_layout();
+    editor.settings.canvas_backing = paint::CanvasBacking::Sapphire;
+    editor.canvas().request_backing();
+    for (int frame = 0; frame < 3; ++frame) {
+        const std::uint64_t revision = window.image_resources().snapshot().revision;
+        PreviewPainter painter;
+        editor.canvas().on_paint(painter, editor.canvas().client_rectangle());
+        require(window.image_resources().snapshot().revision == revision,
+                "painting the canvas never loads or replaces the surround's image");
+        require(editor.canvas().backing_ready() || painter.patterned_images.empty(),
+                "until its tile is delivered the surround is its plain colour");
+    }
+    const gf::FrameTime deadline = gf::FrameClock::now() + std::chrono::seconds(60);
+    while (!editor.canvas().backing_ready()) {
+        static_cast<void>(window.drain_posted_work());
+        require(gf::FrameClock::now() < deadline, "the surround's worker delivers its tile");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    const std::uint64_t delivered = window.image_resources().snapshot().revision;
+    PreviewPainter ready;
+    editor.canvas().on_paint(ready, editor.canvas().client_rectangle());
+    require(window.image_resources().snapshot().revision == delivered && !ready.patterned_images.empty(),
+            "once delivered, paint draws the loaded tile without touching resources");
+    // A change while a render runs, then back: the delivery for the
+    // superseded choice is dropped and the chosen tile stays loaded.
+    editor.settings.canvas_backing = paint::CanvasBacking::Oxblood;
+    editor.canvas().request_backing();
+    editor.settings.canvas_backing = paint::CanvasBacking::Sapphire;
+    editor.canvas().request_backing();
+    require(editor.canvas().backing_ready(), "returning to the loaded material needs no render");
+}
 // Runs the canvas's display deadline and settles its workers.
 void settle_rotated_frame(Fixture& fixture) {
     static_cast<void>((*fixture.window).poll_frame_schedule(gf::FrameClock::now() + std::chrono::milliseconds(20)));
@@ -6834,6 +6879,7 @@ int main(int argc, char** argv) {
         rotated_frames_use_published_images();
         canvas_work_is_coalesced_and_stamp_is_cached();
         rotated_pan_shifts_the_frame_and_damages_the_handle();
+        backing_change_renders_off_paint();
         persistent_selection_painting();
         selection_holes_flood_and_floating_paste();
         selection_text_path_carpet_and_move();

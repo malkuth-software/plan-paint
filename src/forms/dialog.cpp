@@ -1247,6 +1247,9 @@ void EditorDialog::accept() {
             settings.save();
             if ((*editor).settings.canvas_controls && !settings.canvas_controls) { (*editor).canvas_control_action(4); }
             (*editor).settings = settings;
+            // A new surround renders on the canvas's worker; the dialog
+            // closes at once, the canvas showing the plain colour meanwhile.
+            (*editor).canvas().request_backing();
             if (!settings.rotate_view) {
                 (*editor).rotate_view(0);
             }

@@ -3,7 +3,10 @@
 #include "raster.hpp"
 #include <algorithm>
 #include <cmath>
+#include <atomic>
 #include <cstring>
+#include <string>
+#include <thread>
 namespace paint::forms {
 namespace gf = gui_forms;
 Point PaintCanvas::visible_paste_origin(int width, int height) {
@@ -158,15 +161,102 @@ void PaintCanvas::stroke_outline(gf::Painter& painter, gui_drawing::RectI pixels
 }
 void PaintCanvas::on_attached_to_window() {
     RasterCanvas::on_attached_to_window();
-    update_backing();
+    request_backing();
 }
-void PaintCanvas::update_backing() {
+// One surround tile render: the material asked for, and the worker's result
+// (the tile, or the error that ended it). The worker writes image and error
+// before setting done; the UI thread reads them after joining.
+struct BackingRenderJob {
+    CanvasBacking backing = CanvasBacking::PaleFelt;
+    Image image;
+    std::string error;
+    std::atomic<bool> cancel{false}, done{false};
+};
+namespace {
+struct BackingDelivery {
+    std::weak_ptr<PaintCanvas> canvas;
+    void operator()() const {
+        const std::shared_ptr<PaintCanvas> owner = canvas.lock();
+        if (owner) {
+            (*owner).deliver_backing();
+        }
+    }
+};
+// The worker: renders the tile and posts its delivery to the canvas's
+// window. The canvas joins it before it detaches (stop_backing), so the
+// window it posts to is live until the worker ends.
+struct BackingWork {
+    std::shared_ptr<BackingRenderJob> job;
+    PaintCanvas* dispatcher = nullptr;
+    std::weak_ptr<PaintCanvas> owner;
+    void operator()() const {
+        try {
+            (*job).image = canvas_backing_texture((*job).backing, &(*job).cancel);
+        } catch (const std::exception& error) {
+            (*job).error = error.what();
+        }
+        (*job).done.store(true, std::memory_order_release);
+        if (!(*job).cancel.load()) {
+            static_cast<void>((*dispatcher).begin_invoke(BackingDelivery{owner}));
+        }
+    }
+};
+} // namespace
+CanvasBacking PaintCanvas::chosen_backing() const noexcept {
     const std::shared_ptr<Editor> editor = editor_.lock();
     const CanvasBacking choice = editor ? (*editor).settings.canvas_backing : CanvasBacking::PaleFelt;
-    if (!attached_window() || (backing_.value && choice == loaded_backing_)) {
+    return choice;
+}
+bool PaintCanvas::backing_ready() const noexcept {
+    const bool ready = backing_.value != 0 && loaded_backing_ == chosen_backing();
+    return ready;
+}
+void PaintCanvas::stop_backing() noexcept {
+    if (backing_job_) {
+        (*backing_job_).cancel.store(true);
+    }
+    if (backing_worker_.joinable()) {
+        backing_worker_.join();
+    }
+    backing_job_.reset();
+}
+void PaintCanvas::request_backing() {
+    if (!attached_window()) {
         return;
     }
-    const Image texture = canvas_backing_texture(choice);
+    const CanvasBacking choice = chosen_backing();
+    if (backing_ready()) {
+        // A render for an earlier choice is no longer wanted.
+        stop_backing();
+        return;
+    }
+    if (backing_job_ && (*backing_job_).backing == choice) {
+        return;
+    }
+    stop_backing();
+    backing_job_ = std::make_shared<BackingRenderJob>();
+    (*backing_job_).backing = choice;
+    backing_worker_ = std::thread(
+        BackingWork{backing_job_, this, std::static_pointer_cast<PaintCanvas>(shared_from_this())});
+}
+void PaintCanvas::deliver_backing() {
+    if (!attached_window() || !backing_job_ || !(*backing_job_).done.load(std::memory_order_acquire)) {
+        return;
+    }
+    if (backing_worker_.joinable()) {
+        backing_worker_.join();
+    }
+    const std::shared_ptr<BackingRenderJob> job = std::move(backing_job_);
+    backing_job_.reset();
+    if (!(*job).error.empty()) {
+        // The plain colour stays; the next change of setting asks again.
+        return;
+    }
+    if ((*job).backing != chosen_backing()) {
+        request_backing();
+        return;
+    }
+    const Image& texture = (*job).image;
     std::vector<std::byte> pixels(texture.pixels.size() * 4);
     for (std::size_t index = 0; index < texture.pixels.size(); ++index) {
         const Color color = texture.pixels[index];
@@ -184,10 +274,12 @@ void PaintCanvas::update_backing() {
                   .load_bgra32_premultiplied(texture.width, texture.height, texture.width * 4, pixels);
     if (result) {
         backing_ = result.image;
-        loaded_backing_ = choice;
+        loaded_backing_ = (*job).backing;
     }
+    invalidate(gf::Dirty::paint);
 }
 void PaintCanvas::on_detaching_from_window(gf::SurfaceRoot& former_window) noexcept {
+    stop_backing();
     if (backing_.value) {
         static_cast<void>(former_window.remove_image(backing_));
     }
@@ -216,6 +308,7 @@ void PaintCanvas::on_detaching_from_window(gf::SurfaceRoot& former_window) noexc
     RasterCanvas::on_detaching_from_window(former_window);
 }
 void PaintCanvas::on_dispose() noexcept {
+    stop_backing();
     if (backing_.value && window()) {
         static_cast<void>((*window()).remove_image(backing_));
     }
@@ -244,7 +337,6 @@ void PaintCanvas::on_dispose() noexcept {
 void PaintCanvas::on_paint(gf::Painter& painter, gf::Rect damage) {
     gf::Rect bounds = client_rectangle();
     const std::shared_ptr<Editor> editor = editor_.lock();
-    update_backing();
     // Everything below moves with the view, so a pan copies the painted
     // canvas (RasterCanvas::set_view). A turned view draws its last frame
     // moved by the pan until the next frame (paint_rotated); only its
@@ -252,7 +344,10 @@ void PaintCanvas::on_paint(gf::Painter& painter, gf::Rect damage) {
     const bool turned = std::abs(view_angle) > 1e-10;
     const bool status_line = turned && (view_worker_.busy() || !view_error.empty());
     declare_paint_follows_view(!status_line);
-    if (backing_.value) {
+    // Paint only reads what is ready: the chosen material's tile once the
+    // worker delivered it (request_backing), its plain colour until then.
+    const CanvasBacking choice = chosen_backing();
+    if (backing_ready()) {
         // The felt's tiles are counted from the sheet's corner, so that the
         // surround moves with the sheet: the pattern starts whole tiles left
         // of and above the canvas and is clipped to it.
@@ -267,7 +362,8 @@ void PaintCanvas::on_paint(gf::Painter& painter, gf::Rect damage) {
         painter.fill_image_pattern(backing_, {pixels, pixels}, pattern, {tile, tile});
         painter.restore();
     } else {
-        painter.fill_rect(bounds, gf::Color::rgba(208, 218, 226));
+        const Color plain = canvas_backing_color(choice);
+        painter.fill_rect(bounds, gf::Color::rgba(plain.r, plain.g, plain.b));
     }
     // The surround is opaque, so a pan may copy the canvas's pixels.
     report_opaque_cover(painter, bounds);
@@ -535,6 +631,7 @@ struct ViewCompletion {
 };
 } // namespace
 PaintCanvas::~PaintCanvas() {
+    stop_backing();
     view_worker_.cancel();
     view_worker_.wait();
 }
@@ -661,6 +758,7 @@ void PaintCanvas::set_view(double scale, gui_drawing::PointF origin) {
 }
 void PaintCanvas::arrange(gf::Rect bounds) {
     RasterCanvas::arrange(bounds);
+    request_backing();
     prepare_display();
 }
 void PaintCanvas::preparation_frame(gf::FrameTime now) {

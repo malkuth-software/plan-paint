@@ -255,6 +255,20 @@ struct NativeExercise {
             throw std::runtime_error(std::string((*error).text.read()));
         }
     }
+    // Starts the surround's tile for the chosen material and waits until
+    // its worker has delivered it, so a capture shows the tile.
+    void await_backing(gf::Window& window) {
+        const std::chrono::steady_clock::time_point deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        (*editor).canvas().request_backing();
+        while (!(*editor).canvas().backing_ready()) {
+            drain_all(window);
+            if (std::chrono::steady_clock::now() > deadline) {
+                throw std::runtime_error("The canvas surround's tile was not delivered");
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
     void modal_probe_tick() {
         (*modal_timer).stop();
         const ModalDialogProbe probe{this};
@@ -453,6 +467,7 @@ struct NativeExercise {
     void interface_gallery(gf::Window& window) {
         (*editor).settings.storage_path.clear();
         (*editor).settings.canvas_backing = static_cast<paint::CanvasBacking>(backing);
+        await_backing(window);
         paint::Document& document = (*editor).document;
         document.new_image(640, 360);
         document.image.reset(640, 360, {252, 250, 245, 255});
@@ -886,6 +901,7 @@ struct NativeExercise {
         if (backing_override && *backing_override) {
             (*editor).settings.canvas_backing = static_cast<paint::CanvasBacking>(
                 std::clamp(std::atoi(backing_override), 0, paint::canvas_backing_count - 1));
+            await_backing(window);
         }
         document.new_image(width, height);
         for (int y = 0; y < document.image.height; ++y) {

@@ -5,6 +5,7 @@
 #include "file_reveal.hpp"
 #include <future>
 #include <span>
+#include <thread>
 #include <gui_forms/timer.hpp>
 #include "forms/interface_theme.hpp"
 #include "forms/pattern_canvas.hpp"
@@ -30,6 +31,7 @@
 #include <gui_forms/host.hpp>
 namespace paint::forms {
 class Editor;
+struct BackingRenderJob;
 struct CanvasWorkStatistics {
     std::uint64_t view_preparations = 0, view_renders = 0, stamp_preparations = 0, stamp_renders = 0;
     // Viewport conversions run, and the output pixels they wrote (a brush stroke converts its own few).
@@ -61,6 +63,19 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     void arrange(gui_forms::Rect bounds) override;
     bool view_busy() const;
     std::string view_error;
+    // The surround's tile for the editor's canvas_backing setting: starts
+    // its render on a worker unless it is loaded or rendering. Call it when
+    // the setting changes; attaching and arranging the canvas call it too.
+    // The image is loaded or replaced only when the worker delivers
+    // (deliver_backing), never during paint; until then the surround is the
+    // material's plain colour.
+    void request_backing();
+    // The worker's delivery, on the UI thread: loads the tile when it is
+    // still the chosen material, else asks for the chosen one. A failed
+    // render leaves the plain colour.
+    void deliver_backing();
+    // Whether the chosen material's tile is loaded.
+    [[nodiscard]] bool backing_ready() const noexcept;
     // The rotated view's last rendered frame: BGRA, premultiplied, rows of
     // rendered width times four bytes (empty before the first render). For
     // checks that a shifted frame equals a whole render.
@@ -165,7 +180,12 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     void prepare_view(gui_forms::FrameTime now = gui_forms::FrameClock::now());
 
     CanvasBacking loaded_backing_ = CanvasBacking::Count;
-    void update_backing();
+    // The material the editor's settings choose (the pale felt detached).
+    [[nodiscard]] CanvasBacking chosen_backing() const noexcept;
+    // Cancels and joins the tile render, if any; its delivery then finds no job.
+    void stop_backing() noexcept;
+    std::shared_ptr<BackingRenderJob> backing_job_;
+    std::thread backing_worker_;
     std::uint64_t atlas_revision_ = 0;
     void paint_atlas_context(gui_forms::Painter& painter, const Editor& editor);
 };
