@@ -1,3 +1,5 @@
+# PLACEHOLDER until the conformance rebase: the commit below is the pre-conformance pin. The rebase
+# writes the one template_harness main commit that GUI.Forms and every product pin (CONFORMANCE_PREP.md).
 [harness]
 repository = "malkuth-software/template_harness"
 commit = "5c95a7710f4ec8970cc58698ce259ed41e14ff6a"

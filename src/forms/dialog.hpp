@@ -13,11 +13,11 @@
 #include "image.hpp"
 #include <gui_forms/basic_controls.hpp>
 #include <gui_forms/canvas.hpp>
-#include <gui_forms/controls/panel/combo_box/combo_box.hpp>
-#include <gui_forms/controls/panel/list_box/list_box.hpp>
-#include <gui_forms/controls/panel/numeric_up_down/numeric_up_down.hpp>
-#include <gui_forms/controls/panel/text_box/text_box.hpp>
-#include <gui_forms/controls/range_control/track_bar/track_bar.hpp>
+#include <gui_forms/controls/combo_box.hpp>
+#include <gui_forms/controls/list_box.hpp>
+#include <gui_forms/controls/numeric_up_down.hpp>
+#include <gui_forms/controls/text_box.hpp>
+#include <gui_forms/controls/track_bar.hpp>
 #include <memory>
 #include <thread>
 namespace paint::forms {
@@ -71,10 +71,19 @@ class ColorPlane final : public gui_forms::Control {
   public:
     ColorPlane(gui_forms::StableId id, std::weak_ptr<EditorDialog> dialog, bool hue_strip);
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
-    void on_pointer(gui_forms::PointerEvent& event) override;
     void on_detaching_from_window(gui_forms::SurfaceRoot& window) noexcept override;
 
+  protected:
+    // The mouse raisers hand the target phase to handle_pointer.
+    void on_mouse_down(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_up(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_move(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_wheel(gui_forms::MouseEventArgs& arguments) override;
+
   private:
+    // A primary press captures the pointer; while captured, down, move and up
+    // choose the colour under the pointer.
+    void handle_pointer(gui_forms::PointerEvent& event);
     std::weak_ptr<EditorDialog> dialog_;
     bool hue_strip_;
     gui_forms::ImageId mosaic_image_;
@@ -111,7 +120,12 @@ class EditorDialog final : public gui_forms::Control {
     void initialize_control_tree();
     void arrange(gui_forms::Rect bounds) override;
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
-    void on_pointer(gui_forms::PointerEvent& event) override;
+    // The dialog's own surface ends every pointer route that reaches it, so
+    // nothing behind the dialog sees the press.
+    void on_mouse_down(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_up(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_move(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_wheel(gui_forms::MouseEventArgs& arguments) override;
     void on_key_preview(gui_forms::KeyEvent& event) override;
     gui_forms::SemanticDescriptor semantic_descriptor() const override;
     int interface_hue() const;

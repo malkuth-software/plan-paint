@@ -17,15 +17,23 @@ else()
 # Keep the explicitly selected SDK ahead of ambient /usr/local headers. Mixing
 # installed GUI.Forms headers from another SDK with these libraries breaks ABI.
 set(CMAKE_NO_SYSTEM_FROM_IMPORTED ON)
-find_package(GUIForms 0.2 CONFIG REQUIRED COMPONENTS Application Threading)
+find_package(GUIForms 0.6 CONFIG REQUIRED COMPONENTS Application Threading)
 set_property(TARGET GUIForms::Application PROPERTY IMPORTED_NO_SYSTEM TRUE)
 include(CheckCXXSourceCompiles)
 set(CMAKE_REQUIRED_LIBRARIES GUIForms::Application)
-# Plan Paint is written against the cp22 checkpoint's standard: the
-# Application-first lifecycle, property cells and the canonical ribbon.
+# Plan Paint is written against the cp22 checkpoint's standard (the
+# Application-first lifecycle, property cells and the canonical ribbon) and
+# cp29's: flat control headers and the target-phase mouse raisers that
+# replaced Control::on_pointer.
 check_cxx_source_compiles("#include <gui_forms/application.hpp>
-#include <gui_forms/controls/ribbon/ribbon.hpp>
+#include <gui_forms/controls/ribbon.hpp>
 #include <gui_forms/basic_controls.hpp>
+class Probe final : public gui_forms::Control {
+public:
+  using gui_forms::Control::Control;
+protected:
+  void on_mouse_down(gui_forms::MouseEventArgs& arguments) override { gui_forms::Control::on_mouse_down(arguments); }
+};
 int main() {
   gui_forms::ApplicationConfig config{};
   static_cast<void>(config);
@@ -35,7 +43,7 @@ int main() {
 }" PLAN_PAINT_GUI_FORMS_STANDARD)
 unset(CMAKE_REQUIRED_LIBRARIES)
 if(NOT PLAN_PAINT_GUI_FORMS_STANDARD)
-  message(FATAL_ERROR "Plan Paint requires the GUI.Forms SDK pinned in third_party/gui-forms.lock.json (checkpoint cp22 or later).")
+  message(FATAL_ERROR "Plan Paint requires the GUI.Forms SDK pinned in third_party/gui-forms.lock.json (package version 0.6: checkpoint cp29 or later).")
 endif()
 endif()
 

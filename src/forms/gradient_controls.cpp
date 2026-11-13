@@ -51,7 +51,38 @@ class GradientStrip final : public gf::Control {
         painter.draw_text_utf8({8, 76}, tr("Click to add a stop; drag its handle to move"),
                                {gf::FontRole::control, 11, 400, false}, gf::Color::rgba(55, 68, 85));
     }
-    void on_pointer(gf::PointerEvent& event) override {
+
+  protected:
+    // The mouse raisers hand the target phase to handle_pointer.
+    void on_mouse_down(gf::MouseEventArgs& arguments) override {
+        gf::PointerEvent event = gf::pointer_event_of(arguments);
+        handle_pointer(event);
+        arguments.handled = event.handled;
+        Control::on_mouse_down(arguments);
+    }
+    void on_mouse_up(gf::MouseEventArgs& arguments) override {
+        gf::PointerEvent event = gf::pointer_event_of(arguments);
+        handle_pointer(event);
+        arguments.handled = event.handled;
+        Control::on_mouse_up(arguments);
+    }
+    void on_mouse_move(gf::MouseEventArgs& arguments) override {
+        gf::PointerEvent event = gf::pointer_event_of(arguments);
+        handle_pointer(event);
+        arguments.handled = event.handled;
+        Control::on_mouse_move(arguments);
+    }
+    void on_mouse_wheel(gf::MouseEventArgs& arguments) override {
+        gf::PointerEvent event = gf::pointer_event_of(arguments);
+        handle_pointer(event);
+        arguments.handled = event.handled;
+        Control::on_mouse_wheel(arguments);
+    }
+
+  private:
+    // A primary press near the strip adds or picks a stop and captures the
+    // pointer; move and up drag it while captured.
+    void handle_pointer(gf::PointerEvent& event) {
         const std::shared_ptr<Editor> editor = editor_.lock();
         if (!editor) {
             return;

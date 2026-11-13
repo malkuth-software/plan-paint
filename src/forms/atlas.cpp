@@ -33,25 +33,48 @@ void AtlasThumbnail::clicked(gf::ButtonBase&) {
     }
     sequence_ = false;
 }
-void AtlasThumbnail::on_pointer(gf::PointerEvent& event) {
-    if (event.button == gf::PointerButton::secondary) {
-        if (event.action == gf::PointerAction::down) {
-            const std::shared_ptr<Editor> editor = editor_.lock();
-            if (editor) {
-                (*editor).set_reference_frame(index_);
-            }
+bool AtlasThumbnail::take_secondary(gf::MouseEventArgs& arguments) {
+    if (arguments.button != gf::PointerButton::secondary) {
+        sequence_ = gf::has_modifier(arguments.modifiers, gf::Modifier::control) ||
+                    gf::has_modifier(arguments.modifiers, gf::Modifier::meta);
+        return false;
+    }
+    if (arguments.action == gf::PointerAction::down) {
+        const std::shared_ptr<Editor> editor = editor_.lock();
+        if (editor) {
+            (*editor).set_reference_frame(index_);
         }
-        event.handled = true;
+    }
+    arguments.handled = true;
+    return true;
+}
+void AtlasThumbnail::on_mouse_down(gf::MouseEventArgs& arguments) {
+    if (take_secondary(arguments)) {
         return;
     }
-    sequence_ = gf::has_modifier(event.modifiers, gf::Modifier::control) ||
-                gf::has_modifier(event.modifiers, gf::Modifier::meta);
-    Button::on_pointer(event);
+    Button::on_mouse_down(arguments);
 }
-void AtlasThumbnail::on_key(gf::KeyEvent& event) {
-    sequence_ = gf::has_modifier(event.modifiers, gf::Modifier::control) ||
-                gf::has_modifier(event.modifiers, gf::Modifier::meta);
-    Button::on_key(event);
+void AtlasThumbnail::on_mouse_up(gf::MouseEventArgs& arguments) {
+    if (take_secondary(arguments)) {
+        return;
+    }
+    Button::on_mouse_up(arguments);
+}
+void AtlasThumbnail::on_mouse_move(gf::MouseEventArgs& arguments) {
+    if (take_secondary(arguments)) {
+        return;
+    }
+    Button::on_mouse_move(arguments);
+}
+void AtlasThumbnail::on_key_down(gf::KeyEventArgs& arguments) {
+    sequence_ = gf::has_modifier(arguments.modifiers, gf::Modifier::control) ||
+                gf::has_modifier(arguments.modifiers, gf::Modifier::meta);
+    Button::on_key_down(arguments);
+}
+void AtlasThumbnail::on_key_up(gf::KeyEventArgs& arguments) {
+    sequence_ = gf::has_modifier(arguments.modifiers, gf::Modifier::control) ||
+                gf::has_modifier(arguments.modifiers, gf::Modifier::meta);
+    Button::on_key_up(arguments);
 }
 void AtlasThumbnail::on_detaching_from_window(gf::SurfaceRoot& window) noexcept {
     if (image_.value) {

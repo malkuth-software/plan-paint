@@ -143,7 +143,7 @@ void ColorPlane::paint_mosaic(gf::Painter& painter, EditorDialog& dialog, gf::Re
     }
     painter.stroke_rect({0.5, 0.5, bounds.width - 1, bounds.height - 1}, gf::Color::rgba(132, 153, 176), 1);
 }
-void ColorPlane::on_pointer(gf::PointerEvent& event) {
+void ColorPlane::handle_pointer(gf::PointerEvent& event) {
     std::shared_ptr<EditorDialog> dialog = dialog_.lock();
     if (!dialog) {
         return;
@@ -165,6 +165,30 @@ void ColorPlane::on_pointer(gf::PointerEvent& event) {
         }
         event.handled = true;
     }
+}
+void ColorPlane::on_mouse_down(gf::MouseEventArgs& arguments) {
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    Control::on_mouse_down(arguments);
+}
+void ColorPlane::on_mouse_up(gf::MouseEventArgs& arguments) {
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    Control::on_mouse_up(arguments);
+}
+void ColorPlane::on_mouse_move(gf::MouseEventArgs& arguments) {
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    Control::on_mouse_move(arguments);
+}
+void ColorPlane::on_mouse_wheel(gf::MouseEventArgs& arguments) {
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    Control::on_mouse_wheel(arguments);
 }
 EditorDialog::EditorDialog(gf::StableId id, std::weak_ptr<Editor> editor, EditorDialogKind kind,
                            bool secondary)
@@ -776,8 +800,21 @@ void EditorDialog::theme_changed(double hue) {
     invalidate(gf::Dirty::paint);
     for (const std::shared_ptr<gf::Control>& child : (*editor).children()) { (*child).invalidate(gf::Dirty::paint); }
 }
-void EditorDialog::on_pointer(gf::PointerEvent& event) {
-    event.handled = true;
+void EditorDialog::on_mouse_down(gf::MouseEventArgs& arguments) {
+    Control::on_mouse_down(arguments);
+    arguments.handled = true;
+}
+void EditorDialog::on_mouse_up(gf::MouseEventArgs& arguments) {
+    Control::on_mouse_up(arguments);
+    arguments.handled = true;
+}
+void EditorDialog::on_mouse_move(gf::MouseEventArgs& arguments) {
+    Control::on_mouse_move(arguments);
+    arguments.handled = true;
+}
+void EditorDialog::on_mouse_wheel(gf::MouseEventArgs& arguments) {
+    Control::on_mouse_wheel(arguments);
+    arguments.handled = true;
 }
 void EditorDialog::on_key_preview(gf::KeyEvent& event) {
     if (event.action != gf::KeyAction::down) {

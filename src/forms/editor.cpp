@@ -94,7 +94,7 @@ PaintCanvas::PaintCanvas(gf::StableId id, std::weak_ptr<Editor> editor)
     : RasterCanvas(std::move(id)), editor_(std::move(editor)) {
     set_style(gf::ControlStyles::opaque, true);
 }
-void PaintCanvas::on_pointer(gf::PointerEvent& event) {
+void PaintCanvas::handle_pointer(gf::PointerEvent& event) {
     std::shared_ptr<Editor> editor = editor_.lock();
     if (!editor) {
         return;
@@ -107,6 +107,41 @@ void PaintCanvas::on_pointer(gf::PointerEvent& event) {
     (*editor).prepare_stamp_view();
     event.handled = event.action == gf::PointerAction::down || event.action == gf::PointerAction::up ||
                     event.action == gf::PointerAction::move || event.action == gf::PointerAction::wheel;
+}
+void PaintCanvas::on_mouse_down(gf::MouseEventArgs& arguments) {
+    last_window_position_ = arguments.window_position;
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    RasterCanvas::on_mouse_down(arguments);
+}
+void PaintCanvas::on_mouse_up(gf::MouseEventArgs& arguments) {
+    last_window_position_ = arguments.window_position;
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    RasterCanvas::on_mouse_up(arguments);
+}
+void PaintCanvas::on_mouse_move(gf::MouseEventArgs& arguments) {
+    last_window_position_ = arguments.window_position;
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    RasterCanvas::on_mouse_move(arguments);
+}
+void PaintCanvas::on_mouse_wheel(gf::MouseEventArgs& arguments) {
+    last_window_position_ = arguments.window_position;
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    RasterCanvas::on_mouse_wheel(arguments);
+}
+void PaintCanvas::on_mouse_leave() {
+    gf::PointerEvent event{};
+    event.action = gf::PointerAction::leave;
+    event.position = last_window_position_;
+    handle_pointer(event);
+    RasterCanvas::on_mouse_leave();
 }
 void PaintCanvas::on_paint_overlay(gf::Painter& painter, gf::Rect damage) {
     std::shared_ptr<Editor> editor = editor_.lock();
@@ -189,7 +224,7 @@ void Editor::initialize_control_tree() {
 gf::MenuItemSpec Editor::menu_item(const std::string& id, const std::string& text, const std::string& shortcut) {
     std::shared_ptr<gf::Command> command = std::make_shared<gf::Command>(id, text);
     // The shortcut column shows the key the editor's own key handling
-    // answers (Editor::on_key); the menu does not bind it.
+    // answers (Editor::on_key_preview); the menu does not bind it.
     if (!shortcut.empty()) (*command).set_shortcut(shortcut);
     menu_subscriptions_.push_back((*command).invoked().subscribe(
         *this, gf::Delegate<const gf::CommandInvocation&>::bind<Editor, &Editor::command_invoked>(*this)));

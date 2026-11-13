@@ -23,8 +23,8 @@
 #include <gui_forms/basic_controls.hpp>
 #include <gui_forms/canvas.hpp>
 #include <gui_forms/live_surface.hpp>
-#include <gui_forms/controls/panel/combo_box/combo_box.hpp>
-#include <gui_forms/controls/range_control/track_bar/track_bar.hpp>
+#include <gui_forms/controls/combo_box.hpp>
+#include <gui_forms/controls/track_bar.hpp>
 #include <gui_forms/delegate.hpp>
 #include <gui_forms/host.hpp>
 namespace paint::forms {
@@ -68,10 +68,16 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     gui_forms::Rect bitmap_to_client(gui_drawing::RectI pixels) const noexcept;
     gui_drawing::PointF client_to_bitmap(gui_forms::Point client) const noexcept;
     gui_drawing::PointF view_point(gui_drawing::PointF point) const noexcept;
-    void on_pointer(gui_forms::PointerEvent& event) override;
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
 
   protected:
+    // The mouse raisers hand the target phase to handle_pointer; leave comes
+    // from the hover tracking and carries the last window position seen.
+    void on_mouse_down(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_up(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_move(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_wheel(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_leave() override;
     void on_attached_to_window() override;
     void on_detaching_from_window(gui_forms::SurfaceRoot& former_window) noexcept override;
     void on_dispose() noexcept override;
@@ -84,6 +90,11 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     bool on_semantic_action(gui_forms::SemanticAction action, std::string_view value) override;
 
   private:
+    // The editor's pointer handling, in the routed form, for one event at
+    // the target: down, up, move and wheel end their route here.
+    void handle_pointer(gui_forms::PointerEvent& event);
+    // The window position of the last mouse event, for the leave event.
+    gui_forms::Point last_window_position_{};
     friend class Editor;
     std::shared_ptr<gui_forms::LiveSurface> display_surface_, viewport_surface_, viewport_source_;
     std::uint64_t viewport_generation_ = 0;

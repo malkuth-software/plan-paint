@@ -14,8 +14,8 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
-#include <gui_forms/controls/ribbon/ribbon.hpp>
-#include <gui_forms/controls/ribbon_gallery/ribbon_gallery.hpp>
+#include <gui_forms/controls/ribbon.hpp>
+#include <gui_forms/controls/ribbon_gallery.hpp>
 #include <gui_forms/diagnostics/invalidation_overlay/invalidation_overlay.hpp>
 #include <iostream>
 #include <optional>

@@ -1,7 +1,7 @@
 #pragma once
 #include "forms/business_card.hpp"
 #include <gui_forms/basic_controls.hpp>
-#include <gui_forms/controls/scrollable_control/scrollable_control.hpp>
+#include <gui_forms/controls/scrollable_control.hpp>
 namespace paint::forms {
 class HelpBook final : public gui_forms::ScrollableControl {
   public:

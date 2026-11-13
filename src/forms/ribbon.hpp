@@ -2,13 +2,13 @@
 #include "document.hpp"
 #include <gui_forms/basic_controls.hpp>
 #include <gui_forms/commands/gallery_command/gallery_command.hpp>
-#include <gui_forms/controls/panel/anchored_overlay_layer/anchored_overlay_layer.hpp>
-#include <gui_forms/controls/panel/combo_box/combo_box.hpp>
-#include <gui_forms/controls/panel/numeric_up_down/numeric_up_down.hpp>
-#include <gui_forms/controls/panel/text_box/text_box.hpp>
-#include <gui_forms/controls/quick_access_toolbar/quick_access_toolbar.hpp>
-#include <gui_forms/controls/ribbon/ribbon.hpp>
-#include <gui_forms/controls/ribbon_gallery/ribbon_gallery.hpp>
+#include <gui_forms/controls/anchored_overlay_layer.hpp>
+#include <gui_forms/controls/combo_box.hpp>
+#include <gui_forms/controls/numeric_up_down.hpp>
+#include <gui_forms/controls/text_box.hpp>
+#include <gui_forms/controls/quick_access_toolbar.hpp>
+#include <gui_forms/controls/ribbon.hpp>
+#include <gui_forms/controls/ribbon_gallery.hpp>
 #include <gui_forms/window.hpp>
 #include <map>
 namespace paint::forms {

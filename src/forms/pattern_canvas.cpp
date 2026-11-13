@@ -183,7 +183,7 @@ void PatternCanvas::pencil(Point point) {
     last_ = point;
     invalidate(gf::Dirty::paint);
 }
-void PatternCanvas::on_pointer(gf::PointerEvent& event) {
+void PatternCanvas::handle_pointer(gf::PointerEvent& event) {
     const gf::Point p = point_from_window(event.position);
     const Point cell{
         std::clamp(std::floor((p.x - origin_.x) / cell_), -1.0, static_cast<double>((*tile_).width)),
@@ -212,6 +212,30 @@ void PatternCanvas::on_pointer(gf::PointerEvent& event) {
         }
     }
     event.handled = true;
+}
+void PatternCanvas::on_mouse_down(gf::MouseEventArgs& arguments) {
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    Control::on_mouse_down(arguments);
+}
+void PatternCanvas::on_mouse_up(gf::MouseEventArgs& arguments) {
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    Control::on_mouse_up(arguments);
+}
+void PatternCanvas::on_mouse_move(gf::MouseEventArgs& arguments) {
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    Control::on_mouse_move(arguments);
+}
+void PatternCanvas::on_mouse_wheel(gf::MouseEventArgs& arguments) {
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    Control::on_mouse_wheel(arguments);
 }
 void PatternCanvas::on_key_preview(gf::KeyEvent& event) {
     if (event.action != gf::KeyAction::down) {

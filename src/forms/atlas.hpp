@@ -1,7 +1,7 @@
 #pragma once
 #include "document.hpp"
 #include <gui_forms/basic_controls.hpp>
-#include <gui_forms/controls/scrollable_control/container_control/flow_layout_panel_compat/flow_layout_panel_compat.hpp>
+#include <gui_forms/controls/flow_layout_panel_compat.hpp>
 namespace paint::forms {
 std::string icon_format_name(IconFormat format);
 class Editor;
@@ -10,11 +10,21 @@ class AtlasThumbnail final : public gui_forms::Button {
     AtlasThumbnail(gui_forms::StableId id, std::weak_ptr<Editor> editor, int index);
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
     void arrange(gui_forms::Rect bounds) override;
-    void on_pointer(gui_forms::PointerEvent& event) override;
-    void on_key(gui_forms::KeyEvent& event) override;
     void synchronize();
 
+  protected:
+    // A secondary press marks the reference frame and ends the route without
+    // the button's handling; any other press records whether Control or
+    // Command (the sequence modifier) is held, then the button handles it.
+    void on_mouse_down(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_up(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_move(gui_forms::MouseEventArgs& arguments) override;
+    void on_key_down(gui_forms::KeyEventArgs& arguments) override;
+    void on_key_up(gui_forms::KeyEventArgs& arguments) override;
+
   private:
+    // True when the secondary button's event was taken here (route ended).
+    bool take_secondary(gui_forms::MouseEventArgs& arguments);
     std::weak_ptr<Editor> editor_;
     int index_;
     bool sequence_ = false;

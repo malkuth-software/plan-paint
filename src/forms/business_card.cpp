@@ -39,25 +39,49 @@ void BusinessCard::card_clicked(gf::ButtonBase&) {
         opener(std::string(website));
     }
 }
-void BusinessCard::on_pointer(gf::PointerEvent& event) {
-    // Pointer events carry window coordinates; the band is in this control's.
-    const gf::Rect band = name_band();
-    const gf::Point local = point_from_window(event.position);
-    const bool over = event.action != gf::PointerAction::leave && band.contains(local);
+void BusinessCard::set_over_name(bool over) {
     if (over != over_name_) {
         over_name_ = over;
         invalidate(gf::Dirty::paint);
     }
-    if (event.button == gf::PointerButton::secondary) {
-        // The hidden switch. A right-click anywhere else on the card does nothing.
-        if (event.action == gf::PointerAction::down && d_held && over) {
-            gf::set_invalidation_overlay_default(true);
-            invalidate(gf::Dirty::paint);
-        }
-        event.handled = true;
+}
+bool BusinessCard::track_name(gf::MouseEventArgs& arguments) {
+    // The band is in this control's coordinates.
+    const gf::Point local = point_from_window(arguments.window_position);
+    const bool over = name_band().contains(local);
+    set_over_name(over);
+    if (arguments.button != gf::PointerButton::secondary) {
+        return false;
+    }
+    // The hidden switch. A right-click anywhere else on the card does nothing.
+    if (arguments.action == gf::PointerAction::down && d_held && over) {
+        gf::set_invalidation_overlay_default(true);
+        invalidate(gf::Dirty::paint);
+    }
+    arguments.handled = true;
+    return true;
+}
+void BusinessCard::on_mouse_down(gf::MouseEventArgs& arguments) {
+    if (track_name(arguments)) {
         return;
     }
-    Button::on_pointer(event);
+    Button::on_mouse_down(arguments);
+}
+void BusinessCard::on_mouse_up(gf::MouseEventArgs& arguments) {
+    if (track_name(arguments)) {
+        return;
+    }
+    Button::on_mouse_up(arguments);
+}
+void BusinessCard::on_mouse_move(gf::MouseEventArgs& arguments) {
+    if (track_name(arguments)) {
+        return;
+    }
+    Button::on_mouse_move(arguments);
+}
+void BusinessCard::on_mouse_leave() {
+    set_over_name(false);
+    Button::on_mouse_leave();
 }
 void BusinessCard::on_paint(gf::Painter& painter, gf::Rect) {
     const gf::Rect card = card_rectangle(client_rectangle());

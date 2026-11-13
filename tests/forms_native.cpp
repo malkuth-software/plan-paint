@@ -12,7 +12,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
-#include <gui_forms/controls/ribbon/ribbon.hpp>
+#include <gui_forms/controls/ribbon.hpp>
 #include <optional>
 #include <gui_forms/paint_framebuffer.hpp>
 #include <gui_forms/timer.hpp>

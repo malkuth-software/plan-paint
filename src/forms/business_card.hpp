@@ -33,10 +33,22 @@ class BusinessCard final : public gui_forms::Button {
     // hover there count as on the name.
     [[nodiscard]] gui_forms::Rect name_band() const;
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
-    void on_pointer(gui_forms::PointerEvent& event) override;
+
+  protected:
+    // Each tracks the hover over the name band; a secondary press on the name
+    // with D held turns the invalidation overlay on. Secondary events end the
+    // route here; the rest go on to the button.
+    void on_mouse_down(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_up(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_move(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_leave() override;
 
   private:
     bool over_name_ = false;
+    // Hover over the name band from a window position; true when the event
+    // was the secondary button's and was taken here.
+    bool track_name(gui_forms::MouseEventArgs& arguments);
+    void set_over_name(bool over);
     gui_forms::SubscriptionToken click_;
     void card_clicked(gui_forms::ButtonBase& button);
 };

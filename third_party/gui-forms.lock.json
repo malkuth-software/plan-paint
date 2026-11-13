@@ -1,4 +1,5 @@
 {
+  "conformance_placeholder": "PLACEHOLDER until the conformance rebase: commit, cache_release and the cache hashes below are still the cp22 pin. The rebase writes the GUI.Forms release that carries the conformance sequence and its 0.6 cache assets. claude/conformance-prep was adapted against GUI.Forms main 96d36969311722531a6a41828b555c2e9fa9261e and is built against a local SDK of that commit (CONFORMANCE_PREP.md).",
   "repository": "malkuth-software/gui_forms",
   "commit": "2d0f52006a5d1f8ce98a2191c841052b2dd500b7",
   "cache_release": "build-2d0f52006a5d1f8ce98a2191c841052b2dd500b7",

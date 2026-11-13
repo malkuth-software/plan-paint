@@ -1,5 +1,6 @@
 #pragma once
 #include <gui_forms/control.hpp>
+#include <gui_forms/theme.hpp>
 #include <memory>
 namespace paint::forms {
 // Authored chrome only: icons, artwork, material samples and gold selections stay intact.

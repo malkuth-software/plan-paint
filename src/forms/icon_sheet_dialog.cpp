@@ -2,7 +2,7 @@
 #include "forms/editor.hpp"
 #include "localization.hpp"
 #include <algorithm>
-#include <gui_forms/controls/scrollable_control/container_control/flow_layout_panel_compat/flow_layout_panel_compat.hpp>
+#include <gui_forms/controls/flow_layout_panel_compat.hpp>
 #include <iomanip>
 #include <sstream>
 namespace paint::forms {
