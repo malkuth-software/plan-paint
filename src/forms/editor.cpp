@@ -92,7 +92,10 @@ Image validated_clipboard_image(const gf::HostImage& source) {
 } // namespace
 PaintCanvas::PaintCanvas(gf::StableId id, std::weak_ptr<Editor> editor)
     : RasterCanvas(std::move(id)), editor_(std::move(editor)) {
-    set_style(gf::ControlStyles::opaque, true);
+    // GUI.Forms 0.6 removed ControlStyles::opaque, which the core never read.
+    // Opacity is reported from paint with report_opaque_cover after an opaque
+    // fill; this canvas paints over a transparent canvas_background, so it
+    // reports none.
 }
 void PaintCanvas::handle_pointer(gf::PointerEvent& event) {
     std::shared_ptr<Editor> editor = editor_.lock();

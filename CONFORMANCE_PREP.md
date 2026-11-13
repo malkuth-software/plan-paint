@@ -43,10 +43,30 @@ has been compiled.
    - The `_preview` overrides are unchanged; that phase still exists.
    - One behaviour change: the controls' MouseDown and MouseUp subscribers and rules now run, because each override
      calls its base raiser. Before, the window raised those separately.
-5. **API drift:** two checks found nothing else to change.
+5. **ControlStyles::opaque** (removed in cp29, audit A17: the core never read it). `PaintCanvas`'s constructor set
+   it; the call is gone, so behaviour is unchanged. The 0.6 way to declare opacity is
+   `Control::report_opaque_cover(painter, local)` from a paint callback after an opaque fill. The canvas paints
+   over a transparent `canvas_background`, so it reports none.
+6. **Removed and renamed API sweep** (static, after the opaque miss; src, tests, cmake, forms and data files):
+   - `ControlStyles`/`set_style`: the one use above. The enum members left are none, resize_redraw,
+     standard_click, selectable, standard_double_click, double_buffer and optimized_double_buffer.
+   - `set_child_index` (now `set_child_index_from_top`), `layout_direction`/`layout-direction` (now
+     `right_to_left`), `BorrowedSpan`, `c_api.h`, the controls moved to GUIForms::Lab (CorrespondenceView,
+     ReviewCard, InstrumentRack, EasingPreview, TypographySpecimen): no uses.
+   - `Application::run`: `src/forms/main.cpp` calls `application.run(std::move(window), std::move(options))` on
+     the instance from `Application::create`, which matches 96d3696; the `ApplicationWindowOptions` fields it sets
+     (title, initial_size, minimum_size, print_metrics_on_close, ready, closing) and the `ready`/`closing`
+     signatures match.
+   - Default theme and `minimum_size` default {0,0}: Plan Paint already sets `ThemeBase::gui_forms` and its own
+     minimum sizes.
+   - `&&`-deleted accessors: no call on a temporary found (`stable_id().value()` is on a const reference).
+   - The matches in `experiments/lagging-tools/snapshot` and `third_party/gui-forms-patches/*.patch` are in
+     sources no build reads.
+7. **API drift:** two earlier checks found nothing else to change.
    - Identifier check: every identifier that exists in GUI.Forms' headers at the old pin (2d0f5200, cp22) but not at
      96d3696 was searched for in Plan Paint. Apart from `on_key`/`on_pointer`, the matches were Plan Paint's own
-     names (`FrameTick`, `handle_`) or matches in vendored code.
+     names (`FrameTick`, `handle_`) or matches in vendored code. It missed `ControlStyles::opaque` because the word survives in header comments;
+     the sweep in item 6 strips comments and checks enum members.
    - Export check: the `gf::` names Plan Paint uses were compared with `cmake/exports/gui_forms_application.exports`.
      Every name missing from the list is header-only: an enumerator, a nested aggregate or a template.
    - The cp28 calls that 6909ad1 needs are on main: `Control::scroll_content`,
