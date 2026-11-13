@@ -282,7 +282,16 @@ ctest --test-dir <plan-paint>/build --output-on-failure
    menu-item recipe, as if no `ribbon::part(tab)` rule applied. Neither Plan Paint's theme package nor its tab spec
    gives the tool tab anything the Materials tab lacks (it differs only in `modes` and in being selected by
    `select_tab` from `show_tool_context`). Not found statically.
-3. **Settings dialog: OK and Cancel do not close it (open).** Both call `Editor::close_editor_dialog`, which posts
-   `DestroyDialogWindow` through `begin_invoke` while `show_modal`'s nested loop runs, itself started from posted
-   work (`ShowDialogModal`, ebfa470, never built). The modal path, and every dialog, closes this way; the close box
-   does not. Not resolved statically.
+3. **Settings dialog: OK and Cancel do not close it (GUI.Forms macOS host defect).** It fails only after the canvas
+   surround (background material) was changed. Routed to a GUI.Forms coder as a macOS host defect
+   (`claude/cp32-macos-modal-wake`): posted work, or the idle-frame tile work a material change starts, makes no
+   progress inside the modal session. OK, Cancel and Escape all close through `Editor::close_editor_dialog`, which
+   posts `DestroyDialogWindow` (`begin_invoke`) while `show_modal`'s nested loop runs.
+   Plan Paint's share, found statically: the combo applies nothing live; OK stores `settings.canvas_backing` and
+   closes. The next canvas paint then runs `PaintCanvas::update_backing` inside `on_paint`, on the UI thread:
+   `canvas_backing_texture` synchronously renders a carpet tile (`render_carpet_tile`, a procedural fibre render,
+   cached per material) and the canvas loads or replaces its image resource from within the paint, against the
+   rule `paint_rotated` states (publish replacements from input, layout or worker delivery, never from paint).
+   That is long, blocking work in a paint inside the modal loop. It does not by itself explain a loop that never
+   ends, but it is the work the material change starts; moving the tile render to a worker and the image
+   replacement out of `on_paint` (to the settings change) is the Plan Paint follow-up.
