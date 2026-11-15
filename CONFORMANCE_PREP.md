@@ -513,5 +513,10 @@ installs; the Fixture's window has neither, so it returned null. Neither test ha
 and the wheel-pan copy case were written unbuilt); this is no API change in the one-module SDK. Fix: both
 tests attach the window to one `gf::OffscreenRaster` (embedded font pack, made once per process,
 `test_raster()`), the wheel-pan test from its start so all its measurements use one set of text metrics.
-Risk: the rotated test attaches mid-way; the provider change relays the window out before the copied-pan
-half, which paints and clears damage first.
+The M4 run of 99de75e aborted in the rotated test ("mutex lock failed: Invalid argument", exit 134), after the
+raster was made lazily inside that test, mid-way, and held by a function-local static destroyed at exit. Now
+`main` owns the raster (a local `std::unique_ptr`, made on the test thread before the first test, released after
+the last, on every exit path); `test_raster()` only observes it, and both tests attach at their start, before
+anything is laid out, so the attachment (a test local) detaches before the fixture's window goes. Not proved
+without a run: if the abort repeats, it now comes at the raster's creation, before any test, which would place
+it in `OffscreenRaster::create` (the process's bundled font set) and make it a GUI.Forms report.

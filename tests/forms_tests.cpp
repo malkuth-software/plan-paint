@@ -137,18 +137,23 @@ std::shared_ptr<paint::forms::Ribbon> plan_ribbon(gf::Window& window) {
 // The CPU raster a test window borrows for framebuffers (an
 // OffscreenAttachment): only a host or an attachment gives a window a
 // framebuffer painter, so a window without one makes no framebuffer
-// (Window::create_framebuffer returns null). Made once on the test thread
-// with the embedded font pack; destroyed at exit, after every attachment.
+// (Window::create_framebuffer returns null). main owns the raster: it makes
+// it on the test thread before the first test, and releases it after the
+// last, once every attachment (a local of a test, ended before its fixture's
+// window goes) has detached. This observes it; null outside main's run.
+gf::OffscreenRaster* test_raster_owner = nullptr;
 gf::OffscreenRaster& test_raster() {
-    static std::unique_ptr<gf::OffscreenRaster> raster;
-    if (!raster) {
-        gf::OffscreenRasterCreateResult created = gf::OffscreenRaster::create();
-        if (!created.succeeded()) {
-            throw std::runtime_error("the offscreen test raster: " + created.detail());
-        }
-        raster = created.take_raster();
+    if (test_raster_owner == nullptr) {
+        throw std::runtime_error("the offscreen test raster is made by main before the tests");
     }
-    return *raster;
+    return *test_raster_owner;
+}
+std::unique_ptr<gf::OffscreenRaster> make_test_raster() {
+    gf::OffscreenRasterCreateResult created = gf::OffscreenRaster::create();
+    if (!created.succeeded()) {
+        throw std::runtime_error("the offscreen test raster: " + created.detail());
+    }
+    return created.take_raster();
 }
 // A control by ID, or the ribbon's hosted control for the command `id`
 // (hosted controls are named "ribbon-bar.<id>").
@@ -5763,6 +5768,9 @@ void rotated_pan_shifts_the_frame_and_damages_the_handle() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
     gf::Window& window = *fixture.window;
+    // Attached before anything is laid out or rendered, so the whole test
+    // uses one text metrics provider; it detaches before the fixture goes.
+    const gf::OffscreenAttachment attachment(test_raster(), window);
     editor.settings.rotate_view = true;
     editor.document.image.set(35, 35, {20, 70, 110, 255});
     editor.rotate_view(0.35);
@@ -5794,7 +5802,6 @@ void rotated_pan_shifts_the_frame_and_damages_the_handle() {
     // A copied pan: the handle keeps to the viewport's edge, so the copy's
     // stale pixels of it and its new place are both damaged.
     window.set_scroll_copies_supported(true);
-    const gf::OffscreenAttachment attachment(test_raster(), window);
     const gf::Size client = window.client_size();
     std::unique_ptr<gf::PaintFramebuffer> framebuffer = window.create_framebuffer(client, 1.0);
     const gf::Rect all{0, 0, client.width, client.height};
@@ -7213,10 +7220,17 @@ void superimpose_paste_tab_drawing_and_removal() {
     fixture.window.reset();
 }
 int main(int argc, char** argv) {
+    // The framebuffer tests' raster (test_raster): owned here, made before
+    // any window and released after every test, never by static destruction.
+    std::unique_ptr<gf::OffscreenRaster> raster;
     try {
+        raster = make_test_raster();
+        test_raster_owner = raster.get();
         if (argc == 2 && std::string(argv[1]) == "--icon-production") {
             icon_production_contracts();
             std::cout << "Icon production forms contracts passed\n";
+            test_raster_owner = nullptr;
+            raster.reset();
             return 0;
         }
         if (argc > 2 || (argc == 2 && std::string(argv[1]) != "--general")) {
@@ -7339,9 +7353,13 @@ int main(int argc, char** argv) {
         dialog_overlay_without_runtime_windows();
         std::cout << "GUI.Forms: RGBA, routed capture, undo, material strokes, curves/save, selections, "
                      "path, stamp and anchored zoom passed\n";
+        test_raster_owner = nullptr;
+        raster.reset();
         return 0;
     } catch (const std::exception& exception) {
         std::cerr << exception.what() << '\n';
+        test_raster_owner = nullptr;
+        raster.reset();
         return 1;
     }
 }
