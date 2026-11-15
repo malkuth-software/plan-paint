@@ -20,6 +20,8 @@
 #include <gui_forms/controls/ribbon.hpp>
 #include <gui_forms/controls/ribbon_gallery.hpp>
 #include <gui_forms/theme/theme_compiler/theme_compiler.hpp>
+#include <gui_forms/theme/stock_anatomies/stock_anatomies.hpp>
+#include <gui_forms/engine/effect_registry/effect_registry.hpp>
 #include <gui_forms/capture/offscreen_raster/offscreen_raster.hpp>
 #include <gui_forms/text/text_store/text_store.hpp>
 #include <gui_forms/diagnostics/invalidation_overlay/invalidation_overlay.hpp>
@@ -7027,7 +7029,12 @@ bool near_channel(int value, double expected) {
 // finding at all: its edge and text colours are application roles, so none
 // warns W201 (a literal colour forced high contrast cannot remap).
 void theme_package_compiles_without_warnings() {
+    // As the application and the build-time check (GUIForms::theme_check)
+    // compile it: the stock control anatomies, so the stock types' names
+    // and parts are known selectors, and the built-in effects.
     gf::ThemeCompileOptions options{};
+    options.controls = gf::stock_control_anatomies();
+    options.effects = &gf::built_in_effect_registry();
     options.base = gf::ThemeBase::gui_forms;
     const gf::ThemePackage packages[] = {paint::plan_paint_theme()};
     const gf::ThemeValidation validation = gf::validate_theme_packages(packages, gf::ThemeLibrary{}, options);

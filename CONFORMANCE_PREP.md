@@ -499,7 +499,9 @@ now follows the icon tab, in the declared order (text, spirograph, gradient, ico
 tab, comes after the core tabs and keeps the order. The 18 W201 warnings from `plan-paint.theme.css` are gone:
 the edge, keyline, taper, edge-shadow, swatch and dialog-text colours are application roles (`color-roles` in
 `:root`, values unchanged), and zero-width transparent borders are `border: none`;
-`theme_package_compiles_without_warnings` requires a finding-free compile. Risk (unbuilt): an application role
+`theme_package_compiles_without_warnings` requires a finding-free compile, with the stock control anatomies
+and the built-in effects as GUIForms::theme_check compiles it (without the anatomies every stock type name was
+W106 unknown_selector_name: 51 findings on the M4, fixed in the follow-up commit). Risk (unbuilt): an application role
 read in `taper`, `edge-shadow` or `keylines`, or an alpha role colour, if the compiler refuses either there.
 
 ## Test framebuffers (M4 run of 27ec4cc)
