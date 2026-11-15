@@ -534,3 +534,9 @@ is no longer on that grid, so the synthetic drag mapped back up to about 1e-4 pi
 is not implicated (the spiro up path releases it). Fix: `PaintCanvas::bitmap_point_to_client`, the exact inverse
 of `client_to_bitmap` (from the placed origin, `RasterCanvas::client_to_bitmap({0, 0})`); `Editor::screen` and
 the Fixture use it, so overlays and test pointers land where input maps. Not a GUI.Forms gap.
+Next (8bb046a): `business_card_and_hidden_overlay_switch` threw from `press_at` without naming the press.
+GUI.Forms' `BusinessCard::on_mouse_down` handles a secondary press on the vendor name only while D is held, so
+the plain right-click on the name is legitimately unhandled: the test now expects it not consumed
+(`press_unhandled_at`). Every press names itself, and a failure says where it landed (the window's `hit_test`
+target and, for a primary press, `last_press_trace`). Not a GUI.Forms gap (the old Plan Paint card consumed
+it; GUI.Forms' does not, by design).

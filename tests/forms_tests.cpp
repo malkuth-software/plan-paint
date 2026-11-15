@@ -344,13 +344,41 @@ std::optional<RibbonTarget> ribbon_target(gf::Window& window, const std::string&
     }
     return std::nullopt;
 }
+// Where a press at `point` lands, for a failure message: the control the
+// window hits there and, for a primary press, the window's press trace
+// (SurfaceRoot::last_press_trace: the routed target and its outcome).
+std::string press_landing(gf::Window& window, gf::Point point, gf::PointerButton mouse) {
+    std::string text = " at " + std::to_string(point.x) + "," + std::to_string(point.y);
+    const gf::Control::Ptr hit = window.hit_test(point);
+    text += hit ? "; hits " + std::string((*hit).stable_id().value()) : "; hits nothing";
+    if (mouse == gf::PointerButton::primary) {
+        const gf::PressTrace& trace = window.last_press_trace();
+        text += "; press trace target " + trace.target_stable_id + " (" + trace.target_control_id + "), outcome " +
+                std::to_string(static_cast<int>(trace.outcome));
+        if (!trace.handled_by.empty()) {
+            text += ", handled by " + trace.handled_by;
+        }
+    }
+    return text;
+}
+// Presses and releases at `point`; the press must be consumed. `id` names
+// the press in a failure, with where it landed.
 void press_at(gf::Window& window, const std::string& id, gf::Point point, gf::PointerButton mouse) {
     if (!window.dispatch_pointer({gf::PointerAction::down, mouse, point})) {
-        throw std::runtime_error("button consumes routed pointer down: " + id + " at " + std::to_string(point.x) +
-                                 "," + std::to_string(point.y));
+        throw std::runtime_error("button consumes routed pointer down: " + id + press_landing(window, point, mouse));
     }
     // A ribbon tab acts on the press and leaves the release unhandled, so
     // only the press must be consumed.
+    static_cast<void>(window.dispatch_pointer({gf::PointerAction::up, mouse, point}));
+}
+// Presses and releases at `point`; the press must be left unhandled (a
+// press that changes nothing, such as a right-click on the business card's
+// name without D held).
+void press_unhandled_at(gf::Window& window, const std::string& id, gf::Point point, gf::PointerButton mouse) {
+    if (window.dispatch_pointer({gf::PointerAction::down, mouse, point})) {
+        throw std::runtime_error("a press that changes nothing is left unhandled: " + id +
+                                 press_landing(window, point, mouse));
+    }
     static_cast<void>(window.dispatch_pointer({gf::PointerAction::up, mouse, point}));
 }
 // Clicks a button control, or else the ribbon element `id`: a command, a
@@ -1103,16 +1131,20 @@ void business_card_and_hidden_overlay_switch() {
     (*std::static_pointer_cast<gf::ScrollableControl>(book)).scroll_control_into_view(card);
     window.perform_layout();
     const gf::Rect band = window_rect(*card, (*card).vendor_name_band());
-    press_at(window, "business-card", centre(band), gf::PointerButton::secondary);
+    // GUI.Forms' card handles a secondary press on the name only with D held
+    // (BusinessCard::on_mouse_down); without D the press changes nothing and
+    // is left unhandled.
+    press_unhandled_at(window, "business-card name, right-click without D", centre(band),
+                       gf::PointerButton::secondary);
     require(!gf::diagnostic_overlay(), "a right-click on the name alone changes nothing");
     static_cast<void>(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::d}));
-    press_at(window, "business-card", centre(band), gf::PointerButton::secondary);
+    press_at(window, "business-card name, right-click with D (on)", centre(band), gf::PointerButton::secondary);
     require(gf::diagnostic_overlay(), "holding D while right-clicking the name switches the overlay on");
     editor.execute("settings");
     window.perform_layout();
     require(shown(window, "settings-invalidation-overlay"), "Settings shows the overlay is on, read-only");
     routed_button(window, "dialog-cancel");
-    press_at(window, "business-card", centre(band), gf::PointerButton::secondary);
+    press_at(window, "business-card name, right-click with D (off)", centre(band), gf::PointerButton::secondary);
     require(!gf::diagnostic_overlay(), "the same gesture turns the overlay off again");
     static_cast<void>(window.dispatch_key({gf::KeyAction::up, gf::PhysicalKey::d}));
     editor.execute("settings");
@@ -1121,7 +1153,7 @@ void business_card_and_hidden_overlay_switch() {
     routed_button(window, "dialog-cancel");
     // A click on the page card opens the window's card in the hand.
     const gf::Rect card_bounds = window_rect(*card, (*card).card_bounds());
-    press_at(window, "business-card", {card_bounds.x + card_bounds.width / 2, card_bounds.bottom() - 12},
+    press_at(window, "business-card foot, primary click", {card_bounds.x + card_bounds.width / 2, card_bounds.bottom() - 12},
              gf::PointerButton::primary);
     window.perform_layout();
     const std::shared_ptr<gf::BusinessCard> hand = gf::shown_business_card(window);
