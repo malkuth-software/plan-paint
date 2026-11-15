@@ -79,24 +79,23 @@ set_target_properties(plan-paint PROPERTIES
   MACOSX_BUNDLE_GUI_IDENTIFIER "com.malkuthsoft.planpaint"
   MACOSX_BUNDLE_BUNDLE_VERSION "${PAINT_RELEASE_VERSION}"
   MACOSX_BUNDLE_SHORT_VERSION_STRING "${PAINT_RELEASE_VERSION}")
-# The consumer selects its font pack; optional CJK/emoji and extra mono faces
-# remain available in the SDK without being bundled into Paint.
-file(STRINGS "${PROJECT_SOURCE_DIR}/packaging/fonts.txt" paint_font_names)
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/packaging/fonts.txt")
-set(toolkit_fonts)
-foreach(name IN LISTS paint_font_names)
-  list(APPEND toolkit_fonts "${GUIForms_FONT_DIR}/${name}")
-endforeach()
+# The interface faces are compiled into GUI.Forms (font pack stage 4):
+# GUIForms_FONT_DIR holds only their licences and attribution, which Plan
+# Paint carries in licenses/fonts. The canvas text tool's faces are Plan
+# Paint's own content faces (the interface/content split), shipped in fonts.
+file(GLOB toolkit_font_notices CONFIGURE_DEPENDS "${GUIForms_FONT_DIR}/OFL-*.txt"
+     "${GUIForms_FONT_DIR}/LICENSE-*.txt" "${GUIForms_FONT_DIR}/ATTRIBUTION.md")
 file(GLOB cairo_files CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/assets/fonts/cairo-unicode/*")
 file(GLOB poster_files CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/assets/fonts/poster/*")
-list(APPEND toolkit_fonts ${cairo_files} ${poster_files})
+set(canvas_fonts ${cairo_files} ${poster_files})
 if(APPLE)
   enable_language(OBJCXX)
   target_sources(paint_forms PRIVATE src/platform_mac.mm src/file_reveal_mac.mm)
   target_link_libraries(paint_forms PRIVATE "-framework Cocoa" "-framework UniformTypeIdentifiers")
   target_compile_definitions(paint_forms PRIVATE RAINSTAR_FORMS_NATIVE_PRINT=1)
-  set_source_files_properties(${toolkit_fonts} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/fonts")
-  target_sources(plan-paint PRIVATE ${toolkit_fonts} assets/app-icon.icns)
+  set_source_files_properties(${canvas_fonts} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/fonts")
+  set_source_files_properties(${toolkit_font_notices} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/licenses/fonts")
+  target_sources(plan-paint PRIVATE ${canvas_fonts} ${toolkit_font_notices} assets/app-icon.icns)
   set_source_files_properties(assets/app-icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   set_target_properties(plan-paint PROPERTIES MACOSX_BUNDLE_ICON_FILE app-icon.icns)
 endif()
@@ -148,13 +147,16 @@ gui_forms_add_theme(paint-forms-tests themes/plan-paint FUNCTION plan_paint_them
 add_test(NAME paint-forms COMMAND paint-forms-tests --general)
 add_test(NAME paint-icon-production-forms COMMAND paint-forms-tests --icon-production)
 install(TARGETS plan-paint BUNDLE DESTINATION . RUNTIME DESTINATION .)
+if(NOT APPLE)
+  install(FILES ${toolkit_font_notices} DESTINATION licenses/fonts)
+endif()
 if(APPLE OR WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_executable(paint-forms-native-tests MACOSX_BUNDLE tests/forms_native.cpp)
   target_link_libraries(paint-forms-native-tests PRIVATE paint_forms)
   # The native exercise runs Application-first with Plan Paint's package, as main.cpp.
   gui_forms_add_theme(paint-forms-native-tests themes/plan-paint FUNCTION plan_paint_theme NAMESPACE paint)
   if(APPLE)
-    target_sources(paint-forms-native-tests PRIVATE ${toolkit_fonts})
+    target_sources(paint-forms-native-tests PRIVATE ${canvas_fonts})
     set_target_properties(paint-forms-native-tests PROPERTIES
       MACOSX_BUNDLE_GUI_IDENTIFIER "com.malkuthsoft.planpaint.forms.validation")
   endif()
@@ -163,22 +165,24 @@ if(APPLE OR WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # One producer owns these shared resources even under parallel builds.
     set(forms_runtime_directory "$<TARGET_FILE_DIR:plan-paint>")
     set(forms_runtime_stamp "${CMAKE_CURRENT_BINARY_DIR}/forms-runtime-$<CONFIG>.stamp")
-    set(forms_runtime_fonts ${toolkit_fonts})
     set(runtime_font_commands)
-    foreach(font IN LISTS forms_runtime_fonts)
+    foreach(font IN LISTS canvas_fonts)
       list(APPEND runtime_font_commands COMMAND ${CMAKE_COMMAND} -E copy_if_different "${font}" "${forms_runtime_directory}/fonts")
     endforeach()
     add_custom_command(OUTPUT "${forms_runtime_stamp}"
       COMMAND ${CMAKE_COMMAND} -E make_directory "${forms_runtime_directory}/fonts"
       ${runtime_font_commands}
       COMMAND ${CMAKE_COMMAND} -E touch "${forms_runtime_stamp}"
-      DEPENDS ${forms_runtime_fonts}
+      DEPENDS ${canvas_fonts}
       VERBATIM)
     add_custom_target(paint-forms-runtime DEPENDS "${forms_runtime_stamp}")
     if(WIN32)
-      add_dependencies(paint-forms-runtime GUIForms::Application GUIForms::Threading)
+      # STXlib's shared state (one allocator, identity issuer and SIMD level per
+      # process) is in GUI.Forms' link interface and loads beside its DLLs.
+      add_dependencies(paint-forms-runtime GUIForms::Application GUIForms::Threading stxlib::state)
       add_custom_command(TARGET paint-forms-runtime POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:GUIForms::Application>" "$<TARGET_FILE:GUIForms::Threading>" "${forms_runtime_directory}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:GUIForms::Application>" "$<TARGET_FILE:GUIForms::Threading>"
+          "$<TARGET_FILE:stxlib::state>" "${forms_runtime_directory}"
         VERBATIM)
     endif()
     foreach(forms_target IN ITEMS plan-paint paint-forms-native-tests paint-forms-tests)

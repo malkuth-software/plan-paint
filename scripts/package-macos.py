@@ -65,7 +65,7 @@ def main():
         if not args.gui_forms_sdk:
             raise RuntimeError("The GUI.Forms package requires --gui-forms-sdk for license provenance.")
         sdk = args.gui_forms_sdk.resolve()
-        copy_fonts(sdk, resources / "fonts")
+        copy_fonts(sdk, resources / "fonts", notices / "fonts")
         # The installed dependency and its license accompany the standalone app.
         license_candidates = [sdk / "share/licenses/GUIForms/LICENSE", sdk / "LICENSE"]
         toolkit_license = next((path for path in license_candidates if path.exists()), None)

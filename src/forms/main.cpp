@@ -5,6 +5,7 @@
 #include "localization.hpp"
 #include "plan_paint_theme.hpp"
 #include <gui_forms/application.hpp>
+#include <clocale>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
@@ -37,6 +38,14 @@ gui_forms::ApplicationCreateResult create_application() {
 }
 } // namespace
 int main(int argc, char** argv) {
+#ifdef __linux__
+    // The process locale is the program's: GUI.Forms' Linux host no longer
+    // sets it (D15), and its X input method follows LC_CTYPE, so input methods
+    // and compose sequences need the environment's character type. Only
+    // LC_CTYPE: numbers in documents and settings stay locale-independent.
+    // std-rules: allow(locale-change) the program, not the library, chooses its locale
+    std::setlocale(LC_CTYPE, "");
+#endif
     try {
         paint::EditorSettings startup_settings;
         try {

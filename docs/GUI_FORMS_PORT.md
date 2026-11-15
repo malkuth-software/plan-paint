@@ -97,8 +97,10 @@ do not rebuild its gallery or proving tests. Toolkit tests are the provider's
 responsibility; Paint's editing, numerical and native-host tests are consumer gates.
 
 Windows build outputs stage both toolkit DLLs beside Paint and its UI tests.
-Packaging computes the transitive runtime closure. Fonts are selected from
-`packaging/fonts.txt`, with their notices, from either toolkit source or SDK.
+Packaging computes the transitive runtime closure. The interface faces are
+compiled into GUI.Forms (font pack stage 4), so packages carry only their
+licences, in `licenses/fonts`. The canvas text tool's faces are Plan Paint's
+own (`assets/fonts/cairo-unicode`, `assets/fonts/poster`), shipped in `fonts`.
 `RAINSTAR_LEGACY_UI=ON` retains the deprecated SDL/ImGui frontend for historical
 comparison; it is excluded from release packages.
 

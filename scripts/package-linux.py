@@ -61,7 +61,7 @@ def main():
         subprocess.run(["patchelf", "--set-rpath", "$ORIGIN", str(library)], check=True)
     for binary in [executable] + sorted((bundle / "lib").iterdir()):
         subprocess.run([args.strip, "--strip-unneeded", str(binary)], check=True)
-    copy_fonts(sdk, bundle / "bin/fonts")
+    copy_fonts(sdk, bundle / "bin/fonts", bundle / "licenses/fonts")
     shutil.copytree(ROOT / "languages", bundle / "bin/languages", ignore=shutil.ignore_patterns("*.md"))
     locale = Path("/usr/share/X11/locale")
     if not locale.is_dir():
@@ -72,14 +72,13 @@ def main():
         '#!/bin/sh\nset -eu\n'
         'app_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\n'
         'export XLOCALEDIR="$app_dir/share/X11/locale"\n'
-        'export GUI_FORMS_FONT_DIR="$app_dir/bin/fonts"\n'
         + ('exec "$app_dir/lib/' + loader.name + '" --library-path "$app_dir/lib" "$app_dir/bin/plan-paint" "$@"\n'
            if loader else 'exec "$app_dir/bin/plan-paint" "$@"\n'))
     launcher.chmod(0o755)
     for name in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
         shutil.copy2(ROOT / name, bundle)
     shutil.copy2(ROOT / "packaging/README.txt", bundle / "README.txt")
-    shutil.copytree(ROOT / "packaging/licenses", bundle / "licenses")
+    shutil.copytree(ROOT / "packaging/licenses", bundle / "licenses", dirs_exist_ok=True)
     copy_toolkit_notices(sdk, bundle / "licenses/GUIForms")
     # Every loader-resolved dependency must come from this folder, including libc.
     resolved = subprocess.check_output([str(bundle / "lib" / loader.name), "--library-path", str(bundle / "lib"), "--list", str(executable)]

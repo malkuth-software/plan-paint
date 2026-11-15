@@ -59,11 +59,11 @@ def main():
             pending.append(destination)
     for binary in [executable] + sorted(bundle.glob("*.dll")):
         subprocess.run([args.strip, "--strip-unneeded", str(binary)], check=True)
-    copy_fonts(args.gui_forms_sdk, bundle / "fonts")
+    copy_fonts(args.gui_forms_sdk, bundle / "fonts", bundle / "licenses/fonts")
     shutil.copytree(ROOT / "languages", bundle / "languages", ignore=shutil.ignore_patterns("*.md"))
     for name in ("LICENSE", "THIRD_PARTY_NOTICES.md"): shutil.copy2(ROOT / name, bundle)
     shutil.copy2(ROOT / "packaging/README.txt", bundle / "README.txt")
-    shutil.copytree(ROOT / "packaging/licenses", bundle / "licenses")
+    shutil.copytree(ROOT / "packaging/licenses", bundle / "licenses", dirs_exist_ok=True)
     copy_toolkit_notices(args.gui_forms_sdk, bundle / "licenses/GUIForms")
     manifest = {"version": args.version, "architecture": "x64", "frontend": "GUI.Forms",
                 "files": {str(path.relative_to(bundle)): hashlib.sha256(path.read_bytes()).hexdigest()
