@@ -19,10 +19,12 @@
 #include <filesystem>
 #include <gui_forms/controls/ribbon.hpp>
 #include <gui_forms/controls/ribbon_gallery.hpp>
+#include <gui_forms/theme/theme_compiler/theme_compiler.hpp>
 #include <gui_forms/text/text_store/text_store.hpp>
 #include <gui_forms/diagnostics/invalidation_overlay/invalidation_overlay.hpp>
 #include <iostream>
 #include <optional>
+#include <iterator>
 #include <span>
 #include <stdexcept>
 #include <thread>
@@ -7000,6 +7002,61 @@ bool near_channel(int value, double expected) {
 // Superimpose: the paste option lays the image over the work in the view
 // only; the tab adjusts how it is drawn; a right-click on it, or Escape from
 // a context with nothing selected, removes it.
+// Plan Paint's theme package compiles onto the GUI.Forms base with no
+// finding at all: its edge and text colours are application roles, so none
+// warns W201 (a literal colour forced high contrast cannot remap).
+void theme_package_compiles_without_warnings() {
+    gf::ThemeCompileOptions options{};
+    options.base = gf::ThemeBase::gui_forms;
+    const gf::ThemePackage packages[] = {paint::plan_paint_theme()};
+    const gf::ThemeValidation validation = gf::validate_theme_packages(packages, gf::ThemeLibrary{}, options);
+    for (const gf::ThemeCompileDiagnostic& diagnostic : validation.diagnostics) {
+        std::cerr << gf::format_theme_diagnostic(diagnostic) << "\n";
+    }
+    require(validation.valid, "Plan Paint's theme package is valid");
+    require(validation.diagnostics.empty(), "Plan Paint's theme package compiles without warnings");
+}
+
+// The whole ribbon, with every contextual tab set, is accepted by
+// gf::Ribbon::set_tabs: core tabs first, then each set's tabs together in
+// the declared sets' order, and every declared set has a tab.
+void ribbon_accepts_every_contextual_tab_set() {
+    Fixture fixture{Fixture::Themed{}};
+    TestServices services;
+    gf::HostSession session(*fixture.window, service_capabilities(), &services);
+    require(session.dispatch({1, 0, gf::HostAttachEvent{{1280, 820}, 1}}).accepted(), "ribbon host attaches");
+    gf::Ribbon& bar = *ribbon_bar(*fixture.window);
+    const std::span<const gf::RibbonTabSetSpec> sets = bar.tab_sets();
+    const char* const expected[] = {"text-tools", "spiro-tools", "gradient-tools", "icon-tools", "superimpose-tools"};
+    require(sets.size() == std::size(expected), "the ribbon declares every contextual tab set");
+    for (std::size_t index = 0; index < sets.size(); ++index) {
+        require(sets[index].stable_id == expected[index], "the contextual tab sets keep their order");
+    }
+    const std::span<const gf::RibbonTabSpec> tabs = bar.tabs();
+    std::size_t next_set = 0;
+    bool contextual = false;
+    std::vector<int> tab_counts(sets.size(), 0);
+    for (const gf::RibbonTabSpec& tab : tabs) {
+        if (tab.tab_set.empty()) {
+            require(!contextual, "core tabs come before every contextual tab");
+            continue;
+        }
+        contextual = true;
+        while (next_set < sets.size() && sets[next_set].stable_id != tab.tab_set) {
+            ++next_set;
+        }
+        require(next_set < sets.size(), "contextual tabs come together, in their sets' order");
+        ++tab_counts[next_set];
+    }
+    for (std::size_t index = 0; index < sets.size(); ++index) {
+        require(tab_counts[index] > 0, "every contextual tab set has a tab");
+        bar.set_tab_set_availability(sets[index].stable_id, gf::RibbonTabSetAvailability::available);
+        require(bar.tab_set_availability(sets[index].stable_id) == gf::RibbonTabSetAvailability::available,
+                "each contextual tab set can be shown");
+        bar.set_tab_set_availability(sets[index].stable_id, gf::RibbonTabSetAvailability::not_available);
+    }
+}
+
 void superimpose_paste_tab_drawing_and_removal() {
     Fixture fixture;
     TestServices services;
@@ -7156,6 +7213,8 @@ int main(int argc, char** argv) {
         selection_skew_handles();
         text_caret_deadlines_damage_only_the_transformed_caret();
         canvas_text_content_layout();
+        theme_package_compiles_without_warnings();
+        ribbon_accepts_every_contextual_tab_set();
         superimpose_paste_tab_drawing_and_removal();
         pencil_is_independent_of_brush_material();
         backward_path_and_guide_connections();

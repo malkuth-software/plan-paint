@@ -852,12 +852,15 @@ std::vector<gf::RibbonTabSpec> Ribbon::build_tabs() {
     tabs.push_back(text_tab());
     tabs.push_back(spiro_tab());
     tabs.push_back(gradient_tab());
-    tabs.push_back(superimpose_tab());
     gf::RibbonTabSpec icon_tab;
     icon_tab.stable_id = "icon-tab";
     icon_tab.text = tr("Icon");
     icon_tab.tab_set = "icon-tools";
     tabs.push_back(std::move(icon_tab));
+    // Contextual tabs come after the core tabs, together and in the order
+    // apply_tabs declares their sets (gf::Ribbon::set_tabs refuses others):
+    // text, spirograph, gradient, icon, superimpose.
+    tabs.push_back(superimpose_tab());
     // The original tab row's widths (the earlier strip's tab buttons); the
     // contextual text and spirograph tabs keep their labels' widths.
     const std::pair<const char*, double> widths[] = {{"home-tab", 61},  {"view-tab", 63},   {"patterns-tab", 100},
@@ -894,6 +897,7 @@ void Ribbon::apply_tabs() {
     if (signature == tabs_signature_) {
         return;
     }
+    // The sets' order is the contextual tabs' order in build_tabs.
     std::vector<gf::RibbonTabSetSpec> sets = {{"text-tools", tr("Text tools")},
                                               {"spiro-tools", tr("Spirograph tools")},
                                               {"gradient-tools", tr("Gradient tools")},

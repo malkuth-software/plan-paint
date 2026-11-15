@@ -489,3 +489,15 @@ Earlier:
    ends, but it is the work the material change starts; moving the tile render to a worker and the image
    replacement out of `on_paint` (to the settings change) is done in 3eac5ec: `request_backing` renders on a
    worker, `deliver_backing` loads the image outside paint, and paint shows the plain colour until then.
+
+## Dogfood start fix (owner report on 3df9631)
+
+The dogfood build exited at start with "Ribbon contextual tabs come together, in their sets' order": the
+Superimpose tab stood between the gradient and icon tabs while its set was declared after icon-tools. The tab
+now follows the icon tab, in the declared order (text, spirograph, gradient, icon, superimpose);
+`ribbon_accepts_every_contextual_tab_set` builds the themed ribbon and checks every set is declared, has a
+tab, comes after the core tabs and keeps the order. The 18 W201 warnings from `plan-paint.theme.css` are gone:
+the edge, keyline, taper, edge-shadow, swatch and dialog-text colours are application roles (`color-roles` in
+`:root`, values unchanged), and zero-width transparent borders are `border: none`;
+`theme_package_compiles_without_warnings` requires a finding-free compile. Risk (unbuilt): an application role
+read in `taper`, `edge-shadow` or `keylines`, or an alpha role colour, if the compiler refuses either there.
