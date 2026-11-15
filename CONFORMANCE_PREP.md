@@ -540,3 +540,45 @@ the plain right-click on the name is legitimately unhandled: the test now expect
 (`press_unhandled_at`). Every press names itself, and a failure says where it landed (the window's `hit_test`
 target and, for a primary press, `last_press_trace`). Not a GUI.Forms gap (the old Plan Paint card consumed
 it; GUI.Forms' does not, by design).
+
+## One module: static codecs and the package check (claude/static-codecs)
+
+The owner's rule: a shipped program has no native library dependencies and is one module. The dogfood build
+3df9631 linked Homebrew's libtiff, libwebp and dav1d dynamically; that copy stays as it is on this Mac.
+
+**Choice.** No first-party decoder exists for TIFF, WebP or AVIF (GUI.Forms owns only PNG, through stx_png), so
+the codecs are linked statically from pinned sources by the product's own CMake (`cmake/ImportFormats.cmake`):
+
+- libtiff 4.7.2 at commit d01a94be (the tag's commit), the existing reduced profile, `tiff-static`;
+- libwebp 1.6.0 at commit 4fa21912 (the revision the removed `scripts/build-macos-codecs.sh` built shared),
+  decoder target `webp`, every tool off;
+- dav1d through libavif 1.4.2's `AVIF_CODEC_DAV1D=LOCAL`, at libavif's own pin, as a static archive built by
+  meson during configure (`MACOSX_DEPLOYMENT_TARGET` carries 14.0 to it).
+
+`RAINSTAR_SYSTEM_CODECS` (default OFF) replaces `RAINSTAR_BUNDLED_TIFF`; ON links installed copies for a quick
+development tree and warns that the result is not shippable. `native-build.sh` no longer builds the shared
+macOS codec prefix, and CI no longer installs codec packages (Windows installs meson and nasm instead).
+
+**Package check.** `scripts/check_system_libraries.py` refuses any import that is not the system's: `otool -L`
+only `/System/` and `/usr/lib/`; ELF `NEEDED` only the C library, its loader, libgcc_s and the X11, ATK and
+GLib libraries GUI.Forms' Linux host links, with every `ldd` line resolved in a system directory; PE only
+Windows system DLLs. Each package script runs it on the program before bundling (macOS also on the bundled
+closure); `tests/test_system_libraries.py` covers the classification, run by `native-build.sh test`.
+
+**Open, for the coordinator.**
+
+1. macOS still links the shared libc++, libc++abi and libunwind of GUI.Forms' matched runtime (the harness
+   `llvm22.cmake` macOS branch), so the macOS check passes `--allow-shared-cxx-runtime` and the package
+   bundles those three. Options: (a) port GUI.Forms' `llvm22.cmake` archive selection (libc++.a when the runtime
+   tree has it) into template_harness, so Plan Paint is one module on macOS too; (b) keep the admission until
+   the runtime tree ships archives. Recommendation: (a), as one harness change for every product.
+2. `package-linux.py` still copies the glibc-ABI closure of system libraries (libX11, ATK, GLib and their
+   dependencies) into `lib/`. Options: (a) stop copying and rely on the distribution's system libraries, as
+   the check already requires; (b) keep the copies as a portability aid. Recommendation: (a), which is what
+   "one module" says; it needs the owner's word because it changes which distributions the archive runs on.
+
+**Risks not checked without a build.** libavif's LocalDav1d needs meson and ninja (and nasm on x86-64; without
+it dav1d may build without assembly or fail); its dav1d revision differs from the 54706fc6 the old script
+built. libwebp and libtiff are first configured as subprojects here; target or option collisions would show at
+configure. The Windows check refuses `libwinpthread-1.dll`, as GUI.Forms does; if the harness still links
+winpthreads shared, the Windows package fails until it links it statically.

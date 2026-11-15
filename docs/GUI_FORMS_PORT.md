@@ -9,13 +9,23 @@ Drawing into the native application.
 
 ## Toolchain and source
 
-Use CMake 3.25+, Ninja, Python 3.11+ and LLVM **22.1.8**. Install libtiff,
-libwebp and dav1d development packages for the same toolchain. Paint builds
-pinned libavif, LunaSVG/PlutoVG and TinyXML-2 from source. The native scripts
-also build the reduced TIFF codec profile from source. On macOS install Meson;
-the recipe builds pinned libwebp 1.6.0 and dav1d 1.5.4 for macOS 14 into
-`.build/codecs-macos14`, ahead of Homebrew's libraries. CI caches that audited
-prefix by compiler/runtime environment and recipe content.
+Use CMake 3.25+, Ninja, Meson, Python 3.11+ and LLVM **22.1.8** (and NASM
+on x86-64 hosts, for dav1d's assembly). A shipped program is one module that
+imports only system libraries, so every codec is a static archive built from
+pinned source by the product's own CMake (`cmake/ImportFormats.cmake`): the
+reduced libtiff 4.7.2 profile and libwebp 1.6.0 at pinned commits, dav1d
+through libavif 1.4.2's `AVIF_CODEC_DAV1D=LOCAL` at libavif's own pin, and
+libavif, LunaSVG/PlutoVG and TinyXML-2 by archive hash. No codec package is
+installed. `-DRAINSTAR_SYSTEM_CODECS=ON` links installed libtiff, libwebp and
+dav1d for a quick development tree; that program is not shippable.
+
+Every package script runs `scripts/check_system_libraries.py` on the program
+first: `otool -L` on macOS must show only `/System/` and `/usr/lib/`, the
+ELF `NEEDED` entries must be the C library and the X11, ATK and GLib
+libraries GUI.Forms' Linux host uses (and `ldd` must resolve each one in a
+system directory), and the Windows imports must be system DLLs. macOS still
+admits the shared libc++, libc++abi and libunwind of GUI.Forms' matched
+runtime until the harness links its archives, as Linux and Windows already do.
 
 | Platform | Compiler distribution | Build/runtime contract |
 | --- | --- | --- |

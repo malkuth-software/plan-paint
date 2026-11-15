@@ -197,8 +197,9 @@ Reshape uses a triangle mesh and rejects folds. Final antialiasing uses bounded 
 Development builds use **C++20**, **LLVM 22.1.8**, **CMake 3.25+**, Ninja and
 Python 3.11+. The standalone GUI.Forms source and its published compiler caches
 are pinned in `third_party/gui-forms.lock.json`. Paint consumes the standard
-`GUIForms::Application` and shared `Threading` targets. libtiff, libwebp and
-dav1d supply image codecs; CMake fetches the other pinned import dependencies.
+`GUIForms::Application` and shared `Threading` targets. The image codecs
+(libtiff, libwebp, dav1d under libavif) are built statically from pinned
+sources, so the program imports only system libraries.
 
 See [Native build and platform notes](docs/GUI_FORMS_PORT.md) for prerequisites,
 cache imports, macOS runtime handling and the complete platform commands.

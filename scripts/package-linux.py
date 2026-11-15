@@ -4,6 +4,7 @@ from pathlib import Path
 from release_version import project_version
 from font_pack import copy_fonts
 from toolkit_resources import copy_toolkit_notices
+from check_system_libraries import require_system_libraries
 import argparse
 import hashlib
 import json
@@ -26,6 +27,9 @@ def main():
     build = (ROOT / args.build).resolve()
     sdk = args.gui_forms_sdk.resolve()
     source = build / "plan-paint"
+    # One module: NEEDED names only the C library and GUI.Forms' X11, ATK and
+    # GLib host libraries, and ldd resolves the closure in system directories.
+    require_system_libraries([source])
     dependencies = subprocess.check_output(["ldd", str(source)], text=True)
     if "not found" in dependencies or "Error" in dependencies:
         raise RuntimeError(dependencies)

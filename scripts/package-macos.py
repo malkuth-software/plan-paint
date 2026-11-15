@@ -4,6 +4,7 @@ from pathlib import Path
 from release_version import project_version
 from font_pack import copy_fonts
 from toolkit_resources import copy_toolkit_notices
+from check_system_libraries import require_system_libraries
 import argparse
 import json
 import plistlib
@@ -43,6 +44,10 @@ def main():
         shutil.rmtree(app)
     binary_name = "plan-paint" if forms else "plan-paint-legacy"
     source_app = ROOT / build / (binary_name + ".app")
+    # One module: the program imports only /System and /usr/lib, besides the
+    # matched LLVM runtime's shared libc++ the macOS harness still links (it
+    # is bundled below; nothing else may be).
+    require_system_libraries([source_app / "Contents/MacOS" / binary_name], allow_shared_cxx_runtime=True)
     shutil.copytree(source_app, app)
     executable = app / "Contents/MacOS" / binary_name
     subprocess.check_call(["strip", "-S", "-x", str(executable)])
@@ -139,6 +144,7 @@ def main():
         runtime_path = "@executable_path/../Frameworks" if target == executable else "@loader_path"
         if runtime_path not in rpaths(target):
             run(["install_name_tool", "-add_rpath", runtime_path, str(target)])
+    require_system_libraries(sorted(seen), allow_shared_cxx_runtime=True)
     if args.runtime:
         audit = ROOT / "template_harness/harness/audit_macos_minimum.py"
         subprocess.run([__import__("sys").executable, str(audit), str(app)], check=True)

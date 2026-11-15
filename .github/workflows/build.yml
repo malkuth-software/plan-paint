@@ -123,9 +123,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TOOLCHAIN_PYTHON: ${{ steps.toolchain-python.outputs.python-path }}
         run: '"$TOOLCHAIN_PYTHON" template_harness/harness/windows_toolchain.py restore'
-      - name: Install Windows codecs without upgrading the compiler
+      # The codecs build statically from pinned sources; dav1d's local build
+      # (libavif AVIF_CODEC_DAV1D=LOCAL) needs Meson and, on x86-64, NASM.
+      - name: Install Windows codec build tools without upgrading the compiler
         if: runner.os == 'Windows'
-        run: pacman -Sy --needed --noconfirm mingw-w64-clang-x86_64-pkgconf mingw-w64-clang-x86_64-libwebp mingw-w64-clang-x86_64-dav1d
+        run: pacman -Sy --needed --noconfirm mingw-w64-clang-x86_64-pkgconf mingw-w64-clang-x86_64-meson mingw-w64-clang-x86_64-nasm
       - name: Install macOS compiler and codecs
         if: runner.os == 'macOS'
         env:
@@ -210,20 +212,6 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a') as output:
               output.write('PAINT_RENDERER_ENV=' + hashlib.sha256(identity).hexdigest() + '\n')
           PYTHON
-      - uses: actions/cache/restore@v4
-        id: codecs-cache
-        if: runner.os == 'macOS'
-        with:
-          path: .build/codecs-macos14
-          key: plan-paint-codecs-macos14-v1-${{ env.PAINT_RENDERER_ENV }}-${{ hashFiles('scripts/build-macos-codecs.sh') }}
-      - name: Build macOS 14 codecs
-        if: runner.os == 'macOS'
-        run: sh scripts/build-macos-codecs.sh
-      - uses: actions/cache/save@v4
-        if: runner.os == 'macOS' && steps.codecs-cache.outputs.cache-hit != 'true'
-        with:
-          path: .build/codecs-macos14
-          key: ${{ steps.codecs-cache.outputs.cache-primary-key }}
       # Since GUI.Forms cp22 the toolkit builds Skia (stx_skia) from its pinned stx
       # source during configure; the object cache below carries it between runs.
       - name: Configure application

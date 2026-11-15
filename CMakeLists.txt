@@ -40,37 +40,12 @@ if(RAINSTAR_LEGACY_UI)
     FetchContent_MakeAvailable(SDL3)
   endif()
 endif()
-option(RAINSTAR_BUNDLED_TIFF "Build the pinned TIFF library with the reduced import codec surface" OFF)
-if(RAINSTAR_BUNDLED_TIFF)
-  # win32-io would make libtiff's own sources see thandle_t as a Win32
-  # HANDLE while our TIFFClientOpen callbacks see void*: a call through
-  # a mismatched function type. Plan Paint opens TIFF only from memory.
-  foreach(option tiff-tools tiff-tests tiff-contrib tiff-docs tiff-cxx tiff-install
-                 tiff-opengl win32-io
-                 ccitt packbits lzw thunder next logluv mdi zlib libdeflate pixarlog jpeg old-jpeg jpeg12
-                 jbig lerc lzma zstd webp)
-    set(${option} OFF CACHE BOOL "" FORCE)
-  endforeach()
-  set(CMAKE_DISABLE_FIND_PACKAGE_Deflate ON CACHE BOOL "" FORCE)
-  set(HAVE_JPEGTURBO_DUAL_MODE_8_12 OFF CACHE INTERNAL "" FORCE)
-  set(JPEG_DUAL_MODE_8_12 OFF CACHE INTERNAL "" FORCE)
-  set(tiff-static ON CACHE BOOL "" FORCE)
-  FetchContent_Declare(tiff GIT_REPOSITORY https://gitlab.com/libtiff/libtiff.git GIT_TAG v4.7.2 GIT_SHALLOW TRUE)
-  FetchContent_MakeAvailable(tiff)
-  set(RAINSTAR_TIFF_TARGET TIFF::tiff)
-else()
-  find_package(TIFF REQUIRED)
-  set(RAINSTAR_TIFF_TARGET TIFF::TIFF)
-endif()
-find_package(PkgConfig QUIET)
-find_package(WebP CONFIG QUIET)
-if(TARGET WebP::webp)
-  set(RAINSTAR_WEBP_TARGET WebP::webp)
-else()
-  find_path(WEBP_INCLUDE_DIR webp/decode.h REQUIRED)
-  find_library(WEBP_LIBRARY NAMES webp REQUIRED)
-  set(RAINSTAR_WEBP_TARGET ${WEBP_LIBRARY})
-endif()
+# A shipped program is one module that imports only system libraries (owner
+# rule, 2026-11-15), so the import codecs (libtiff, libwebp, dav1d under
+# libavif) are built statically from pinned sources by default. The system
+# option links installed copies for a quick development tree; its program is
+# not shippable, and scripts/check_system_libraries.py refuses its package.
+option(RAINSTAR_SYSTEM_CODECS "Link installed libtiff, libwebp and dav1d (development only; not shippable)" OFF)
 include(cmake/ImportFormats.cmake)
 add_library(paint_core src/sticky_note.cpp vendor/playsuite-paper/paper.cpp src/localization.cpp src/localization_platform.cpp src/gradient.cpp src/recovery.cpp src/dither.cpp src/spirograph.cpp src/carpet.cpp src/canvas_backing.cpp src/desktop.cpp src/safe_file.cpp src/warp_session.cpp src/text.cpp src/embedded_font.cpp src/text_session.cpp src/font_inventory.cpp src/image.cpp src/color_palette.cpp src/color_tools.cpp src/paint_tools.cpp src/guide.cpp src/conv.cpp src/raster.cpp src/material.cpp src/atlas.cpp src/icon_validation.cpp src/icon_sheet.cpp src/toolbar_strip.cpp src/icon_export.cpp src/asset_browser.cpp src/file_change.cpp src/file_reveal.cpp src/alpha_tools.cpp src/icon_effects.cpp src/numeric_transform.cpp src/icon_palette.cpp src/icon_palette_file.cpp src/icon_generation.cpp src/icon_states.cpp src/icon_batch.cpp src/icon_stamp.cpp src/document.cpp src/document_atlas.cpp src/curve.cpp src/document_curve.cpp src/document_path.cpp src/superimpose.cpp src/file_type.cpp src/command_line.cpp src/codecs.cpp src/icon_codec.cpp src/import_codecs.cpp src/warp.cpp)
 target_sources(paint_core PRIVATE src/geometry_style.cpp src/geometry_organic.cpp src/geometry_markers.cpp)
