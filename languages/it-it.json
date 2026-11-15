@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "Imposta come sfondo del desktop (al centro)",
   "Set as desktop background (fill)": "Imposta come sfondo del desktop (riempi)",
   "Set as desktop background (tile)": "Imposta come sfondo del desktop (affianca)",
-  "Diagnostic overlay: on": "Sovrapposizione di invalidazione: attiva"
+  "Diagnostic overlay: on": "Sovrapposizione di invalidazione: attiva",
+  "Superimpose": "Sovrapponi",
+  "Brightness": "Luminosità"
 }

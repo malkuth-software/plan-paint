@@ -53,8 +53,44 @@ void publish_image(const Image& source, gui_forms::RasterCanvas& canvas, Rect da
     publish_pixels(source, canvas, damage);
 }
 void publish_image(const Image& source, PaintCanvas& canvas, Rect damage) {
-    canvas.publish_pixels(source, damage);
-    canvas.publish_source(source, damage);
+    const Image& shown = canvas.superimposed_source(source, damage);
+    canvas.publish_pixels(shown, damage);
+    canvas.publish_source(shown, damage);
+}
+const Image& PaintCanvas::superimposed_source(const Image& source, Rect damage) {
+    const std::shared_ptr<Editor> editor = editor_.lock();
+    if (!editor) {
+        return source;
+    }
+    const Document& document = (*editor).document;
+    const bool placing = document.selection.active && document.selection.superimpose;
+    if (!placing && !document.superimposed.active) {
+        return source;
+    }
+    const Image& overlay = placing ? document.selection.image : document.superimposed.image;
+    const int overlay_x = placing ? document.selection.x : document.superimposed.x;
+    const int overlay_y = placing ? document.selection.y : document.superimposed.y;
+    Rect area{0, 0, source.width, source.height};
+    const bool whole = damage.w <= 0 || damage.h <= 0 || superimposed_view_.width != source.width ||
+                       superimposed_view_.height != source.height;
+    if (whole) {
+        superimposed_view_ = source;
+    } else {
+        const int right = std::clamp(damage.x + damage.w, 0, source.width);
+        const int bottom = std::clamp(damage.y + damage.h, 0, source.height);
+        area.x = std::clamp(damage.x, 0, source.width);
+        area.y = std::clamp(damage.y, 0, source.height);
+        area.w = right - area.x;
+        area.h = bottom - area.y;
+        for (int y = area.y; y < bottom; ++y) {
+            const std::size_t row = static_cast<std::size_t>(y) * static_cast<std::size_t>(source.width);
+            std::copy(source.pixels.begin() + static_cast<std::ptrdiff_t>(row + area.x),
+                      source.pixels.begin() + static_cast<std::ptrdiff_t>(row + right),
+                      superimposed_view_.pixels.begin() + static_cast<std::ptrdiff_t>(row + area.x));
+        }
+    }
+    superimpose_onto(superimposed_view_, overlay, overlay_x, overlay_y, (*editor).superimpose_look, area);
+    return superimposed_view_;
 }
 void PaintCanvas::publish_pixels(const Image& source, Rect damage) {
     if (source.width <= 0 || source.height <= 0) { return; }

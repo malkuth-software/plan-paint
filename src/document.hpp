@@ -1,4 +1,5 @@
 #pragma once
+#include "superimpose.hpp"
 #include "atlas.hpp"
 #include "curve.hpp"
 #include "guide.hpp"
@@ -41,6 +42,10 @@ struct FloatingSelection {
     // Canvas selections become persistent masks while painting. Pasted pixels
     // remain floating and never restrict edits underneath them.
     bool canvas_selection = false, on_canvas = false;
+    // A paste made with the Superimpose option: placed (moved and scaled)
+    // like any paste, but committing it makes Document::superimposed of it
+    // instead of merging it into the picture.
+    bool superimpose = false;
     bool contains(int px, int py) const;
     std::vector<std::uint8_t> transformed_mask(const AffineMap& map, Rect bounds) const;
     void composite_onto(Image& target) const;
@@ -100,6 +105,10 @@ struct Document {
     AtlasState atlas;
     std::uint64_t atlas_epoch = 0;
     FloatingSelection selection;
+    // The superimposed image (superimpose.hpp): view state, not part of the
+    // picture. It is in no undo snapshot, is not saved or exported, and stays
+    // across picture edits until it is removed.
+    SuperimposedImage superimposed;
     Image stamp;
     Ink ink, alt_ink;
     Ink primary_ink() const;
@@ -146,7 +155,10 @@ struct Document {
     void redo();
     void replace(Image replacement, const std::string& path);
     void new_image(int width = 960, int height = 640);
-    void paste(const Image& pasted, int x = 0, int y = 0);
+    // A paste: a floating selection at (x, y). With `superimpose` it records
+    // no undo step and never enlarges the canvas, since committing it only
+    // sets `superimposed` (it replaces any earlier superimposed image).
+    void paste(const Image& pasted, int x = 0, int y = 0, bool superimpose = false);
     void select(Rect bounds, const std::vector<Point>& lasso = {});
     void select_mask(const SelectionMask& mask);
     void edit_selection(const std::vector<Point>& polygon, bool subtract);

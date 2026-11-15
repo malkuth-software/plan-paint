@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "Weka kama mandharinyuma ya eneo-kazi (katikati)",
   "Set as desktop background (fill)": "Weka kama mandharinyuma ya eneo-kazi (jaza)",
   "Set as desktop background (tile)": "Weka kama mandharinyuma ya eneo-kazi (vigae)",
-  "Diagnostic overlay: on": "Tabaka la ubatilishaji: limewashwa"
+  "Diagnostic overlay: on": "Tabaka la ubatilishaji: limewashwa",
+  "Superimpose": "Weka juu",
+  "Brightness": "Mwangaza"
 }

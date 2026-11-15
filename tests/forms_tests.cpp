@@ -6983,6 +6983,131 @@ void canvas_text_content_layout() {
     const gf::ContentTextLayout foreign = paint::forms::content_layout(session, "BOX", 7, gf::ContentLayoutTransform{});
     require(foreign.lines.empty(), "a layout of another text yields no lines");
 }
+// The colour the canvas shows at document pixel (x, y): the published frame,
+// straight RGB (every test frame here is opaque).
+paint::Color displayed(paint::forms::Editor& editor, int x, int y) {
+    const gf::LiveSurfaceFrame frame = (*editor.canvas().display_surface()).acquire_latest();
+    const std::byte* pixel = frame.pixels().data() + static_cast<std::size_t>(y) * frame.row_bytes() +
+                             static_cast<std::size_t>(x) * 4;
+    const bool bgra = frame.pixel_format() == gf::LiveSurfacePixelFormat::bgra32_premultiplied_srgb;
+    const paint::Color result{static_cast<std::uint8_t>(pixel[bgra ? 2 : 0]), static_cast<std::uint8_t>(pixel[1]),
+                              static_cast<std::uint8_t>(pixel[bgra ? 0 : 2]), static_cast<std::uint8_t>(pixel[3])};
+    return result;
+}
+bool near_channel(int value, double expected) {
+    return std::abs(value - expected) <= 1.5;
+}
+// Superimpose: the paste option lays the image over the work in the view
+// only; the tab adjusts how it is drawn; a right-click on it, or Escape from
+// a context with nothing selected, removes it.
+void superimpose_paste_tab_drawing_and_removal() {
+    Fixture fixture;
+    TestServices services;
+    gf::HostSession session(*fixture.window, service_capabilities(), &services);
+    require(session.dispatch({1, 0, gf::HostAttachEvent{{1280, 820}, 1}}).accepted(), "superimpose host attaches");
+    gf::Window& window = *fixture.window;
+    paint::forms::Editor& editor = *fixture.editor;
+    // A red picture on the clipboard, then a white canvas to trace on.
+    editor.document.image.reset(128, 96, {220, 30, 30, 255});
+    editor.refresh();
+    editor.execute("copy");
+    editor.document.image.reset(128, 96, {255, 255, 255, 255});
+    editor.refresh();
+    const std::size_t history = editor.document.undo_history.size();
+    editor.execute("superimpose-paste");
+    require(editor.superimpose_paste, "Paste's drop-down turns Superimpose on");
+    editor.execute("paste");
+    window.perform_layout();
+    require(editor.document.selection.active && editor.document.selection.superimpose &&
+                editor.document.undo_history.size() == history,
+            "a superimposed paste is placed like a paste, with no undo step");
+    require(shown(window, "superimpose-tab") && shown(window, "superimpose-transparency") &&
+                shown(window, "superimpose-brightness"),
+            "the Superimpose tab appears when the image is pasted");
+    const int left = editor.document.selection.x;
+    const int top = editor.document.selection.y;
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                !editor.document.selection.active && editor.document.superimposed.active &&
+                editor.document.superimposed.x == left && editor.document.superimposed.y == top,
+            "the first Escape ends the placement and keeps the image superimposed");
+    require(white(editor.document.image.get(left + 10, top + 10)) && editor.document.undo_history.size() == history,
+            "the superimposed image never joins the picture");
+    {
+        const paint::Color shown_pixel = displayed(editor, left + 10, top + 10);
+        require(near_channel(shown_pixel.r, 0.5 * 220 + 0.5 * 255) && near_channel(shown_pixel.g, 0.5 * 30 + 0.5 * 255),
+                "the image blends down over the work at the default transparency");
+    }
+    // Drawing goes to the work underneath and shows through the image.
+    editor.choose_tool(paint::Tool::Pencil);
+    fixture.drag(left + 20, top + 40, left + 60, top + 40);
+    const paint::Color drawn = editor.document.image.get(left + 40, top + 40);
+    require(!white(drawn) && editor.document.superimposed.active, "the pencil draws under the superimposed image");
+    {
+        const paint::Color shown_pixel = displayed(editor, left + 40, top + 40);
+        require(near_channel(shown_pixel.r, 0.5 * 220 + 0.5 * drawn.r) &&
+                    near_channel(shown_pixel.g, 0.5 * 30 + 0.5 * drawn.g),
+                "the stroke shows through the superimposed image");
+    }
+    // The controls change the composite only.
+    const paint::Image before = editor.document.image;
+    const std::shared_ptr<gf::NumericUpDown> transparency =
+        std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "superimpose-transparency"));
+    const std::shared_ptr<gf::NumericUpDown> brightness =
+        std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "superimpose-brightness"));
+    require(transparency && brightness, "the Superimpose tab hosts Transparency and Brightness");
+    (*transparency).value = 95;
+    (*brightness).value = 100;
+    require(editor.superimpose_look.transparency == 95 && editor.superimpose_look.brightness == 100,
+            "the tab's controls set the look");
+    require(std::memcmp(before.pixels.data(), editor.document.image.pixels.data(),
+                        before.pixels.size() * sizeof(paint::Color)) == 0,
+            "transparency and brightness leave the picture alone");
+    {
+        // Brightness +100 lifts the image to white; 95% transparency leaves 5% of it.
+        const paint::Color shown_pixel = displayed(editor, left + 40, top + 40);
+        require(near_channel(shown_pixel.r, 0.05 * 255 + 0.95 * drawn.r) &&
+                    near_channel(shown_pixel.g, 0.05 * 255 + 0.95 * drawn.g),
+                "the composite follows the transparency and brightness");
+    }
+    // A right-click on it removes it, and draws nothing.
+    fixture.pointer(gf::PointerAction::down, left + 30, top + 70, gf::PointerButton::secondary);
+    fixture.pointer(gf::PointerAction::up, left + 30, top + 70, gf::PointerButton::secondary);
+    window.perform_layout();
+    require(!editor.document.superimposed.active && !shown(window, "superimpose-tab"),
+            "a right-click removes the superimposed image and its tab");
+    require(std::memcmp(before.pixels.data(), editor.document.image.pixels.data(),
+                        before.pixels.size() * sizeof(paint::Color)) == 0 &&
+                paint::equal(displayed(editor, left + 40, top + 40), drawn),
+            "removing it restores the plain view of the unchanged picture");
+    // Two Escapes with nothing else selected: placement, then removal.
+    editor.execute("paste");
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                editor.document.superimposed.active,
+            "the first Escape keeps the image");
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                !editor.document.superimposed.active,
+            "the second Escape, from a context with nothing selected, removes it");
+    // With a canvas selection: the first Escape only deselects.
+    editor.execute("paste");
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                editor.document.superimposed.active,
+            "the placement ends first");
+    editor.document.select({0, 0, 20, 20});
+    editor.refresh();
+    require(editor.document.selection.active, "a canvas selection is active");
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                !editor.document.selection.active && editor.document.superimposed.active,
+            "Escape with a selection clears the selection and keeps the superimposed image");
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                !editor.document.superimposed.active,
+            "the next Escape removes it");
+    // The option off: an ordinary paste again.
+    editor.execute("superimpose-paste");
+    editor.execute("paste");
+    require(editor.document.selection.active && !editor.document.selection.superimpose,
+            "with Superimpose off, Paste makes an ordinary floating selection");
+    fixture.window.reset();
+}
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "--icon-production") {
@@ -7012,6 +7137,7 @@ int main(int argc, char** argv) {
         selection_skew_handles();
         text_caret_deadlines_damage_only_the_transformed_caret();
         canvas_text_content_layout();
+        superimpose_paste_tab_drawing_and_removal();
         pencil_is_independent_of_brush_material();
         backward_path_and_guide_connections();
         cancel_pending_lines_and_guide_preview();

@@ -150,6 +150,62 @@ has been compiled.
      `GUIForms::Application` privately and compiles with `RAINSTAR_GUI_DRAWING=1` (`cmake/GUIFormsFrontend.cmake`);
      the frontend-free build keeps its own flattening. `execute_recorder` is not adopted (decision D1 below, option 1).
 
+## Superimpose (claude/superimpose, stacked on 2a1182c)
+
+The owner's new feature: an image laid over the work as a tracing aid, so the picture can be drawn underneath it.
+Code only, not compiled.
+
+- **The option:** Paste's drop-down gains a check row, Superimpose (`superimpose-paste`). It is a mode of Paste:
+  a clipboard paste, a clipboard file and an image file dropped on the window all follow it.
+- **Placing it:** with the option on, `Document::paste(..., superimpose = true)` makes a floating selection marked
+  `superimpose`, moved and scaled like any paste. It records no undo step and never enlarges the canvas.
+  Committing it (`Document::commit_selection`, so Escape or anything else that commits a paste) makes
+  `Document::superimposed` of it instead of merging it. `FloatingSelection::composite_onto` never draws a
+  superimposed paste into a picture.
+- **Drawing:** the view draws it. `publish_image` for the canvas goes through `PaintCanvas::superimposed_source`,
+  which blends the image (or the paste being placed) over the composed picture in a scratch image the canvas owns.
+  That covers only the published damage when it is partial, so a brush stroke recomposes only its own pixels. It
+  lies in document pixels, so it pans, zooms and tilts with the canvas. Tools draw on the picture underneath.
+  `superimpose_onto` (`src/superimpose.*`, in paint_core) blends source over destination: the image's colour,
+  adjusted by the brightness, at its alpha times (1 - transparency), over the work.
+- **The tab:** a contextual tab set, `superimpose-tools` (tab `superimpose-tab`, "Superimpose"). It is available
+  while an image is superimposed or being placed, and selected after a superimposed paste or drop
+  (`Ribbon::show_superimpose`). It holds Transparency (0 to 95), Brightness (-100 to +100) and Remove. The
+  numbers change only `Editor::superimpose_look`, then the view.
+- **Removing it:** a right-click on it (or on the paste being placed); Escape when nothing else is in progress
+  (`escape_reaches_superimposed`: no selection, text, stamp, warp, path or curve); and the tab's Remove. With a
+  selection active, the first Escape ends the selection and the second removes the image. A superimposed paste
+  still being placed is a selection, so a paste needs two Escapes as well.
+- **Strings:** "Superimpose" and "Brightness" are new in the 22 language packs. "Transparency" and "Remove"
+  already existed.
+- **GUI.Forms seams:** the ribbon's contextual tab sets and hosted numbers, a check row in a split button's
+  drop-down (`MenuItemKind::check` with the row's Command), drag and drop, and the clipboard. No GUI.Forms gap
+  found. Plan Paint composes all the pixels.
+- **Defaults chosen, open owner questions:**
+  1. one superimposed image at a time (a new superimposed paste replaces it);
+  2. it is placed with the normal paste placement (move and scale) before it is committed. While placed it is
+     already drawn see-through, at the tab's look;
+  3. it is a view aid: not saved, not exported, not on the undo stack, and kept across picture edits, new pictures
+     and opened files until removed;
+  4. brightness from -100% to +100%, transparency from 0 to 95% (default 50%), so it never vanishes;
+  5. the option and the look last for the session and are not saved in the settings;
+  6. a right-click anywhere on its rectangle removes it, so right-button drawing (Alt colour) is not possible
+     over it;
+  7. the help pages do not describe it yet.
+- **Tests:**
+  - `paint-forms` `superimpose_paste_tab_drawing_and_removal`: the option and the tab, no undo step, the first
+    Escape placing it, the composite at the default look, the pencil drawing under it and showing through, the
+    controls changing the composite and not the picture, the right-click, the two-Escape rule with and without a
+    selection, and Paste with the option off;
+  - `paint-core` `test_superimpose`: the paste and commit in Document, and the blend arithmetic (50%, the 95% cap,
+    brightness -100%).
+- **Risks (not checked without a build):**
+  - whether a ribbon drop-down shows a check row's mark from its Command;
+  - the pencil pixel the test reads (a one-pixel stroke from a drag along a row);
+  - a damage-limited publish after the image moved without a full refresh would leave stale composite pixels
+    outside the damage. Every placement change refreshes in full today;
+  - an undo during placement restores the selection from its snapshot and drops the paste being placed.
+
 ## Tests that should cover it
 
 - The full Plan Paint suite (68 tests at 33c065d), in particular:

@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "Définir comme fond d’écran (centré)",
   "Set as desktop background (fill)": "Définir comme fond d’écran (remplir)",
   "Set as desktop background (tile)": "Définir comme fond d’écran (mosaïque)",
-  "Diagnostic overlay: on": "Surcouche d’invalidation : active"
+  "Diagnostic overlay: on": "Surcouche d’invalidation : active",
+  "Superimpose": "Superposer",
+  "Brightness": "Luminosité"
 }

@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "Jadikan latar desktop (tengah)",
   "Set as desktop background (fill)": "Jadikan latar desktop (isi)",
   "Set as desktop background (tile)": "Jadikan latar desktop (ubin)",
-  "Diagnostic overlay: on": "Lapisan invalidasi: aktif"
+  "Diagnostic overlay: on": "Lapisan invalidasi: aktif",
+  "Superimpose": "Tumpangkan",
+  "Brightness": "Kecerahan"
 }

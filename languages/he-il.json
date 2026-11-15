@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "הגדרה כרקע שולחן העבודה (מרכוז)",
   "Set as desktop background (fill)": "הגדרה כרקע שולחן העבודה (מילוי)",
   "Set as desktop background (tile)": "הגדרה כרקע שולחן העבודה (פריסה)",
-  "Diagnostic overlay: on": "שכבת סימון פסילה: פעילה"
+  "Diagnostic overlay: on": "שכבת סימון פסילה: פעילה",
+  "Superimpose": "שכבת־על",
+  "Brightness": "בהירות"
 }

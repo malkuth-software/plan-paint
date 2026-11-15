@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "ডেস্কটপের পটভূমি করুন (মাঝখানে)",
   "Set as desktop background (fill)": "ডেস্কটপের পটভূমি করুন (পূরণ)",
   "Set as desktop background (tile)": "ডেস্কটপের পটভূমি করুন (টাইল)",
-  "Diagnostic overlay: on": "অবৈধকরণ ওভারলে: চালু"
+  "Diagnostic overlay: on": "অবৈধকরণ ওভারলে: চালু",
+  "Superimpose": "উপরিপাত",
+  "Brightness": "উজ্জ্বলতা"
 }

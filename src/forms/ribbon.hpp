@@ -74,6 +74,9 @@ class Ribbon final : public gui_forms::Control {
     void synchronize();
     void close_popup();
     void show_tool_context();
+    // Selects the Superimpose tab (after a superimposed paste or drop); the
+    // tab is available while an image is superimposed or being placed.
+    void show_superimpose();
     void cancel_spiro_drag();
     void show_transforms();
     void show_atlas();
@@ -166,6 +169,7 @@ class Ribbon final : public gui_forms::Control {
     std::shared_ptr<gui_forms::NumericUpDown> spiro_scale_;
     std::shared_ptr<gui_forms::NumericUpDown> sticky_padding_, sticky_width_, sticky_height_;
     std::shared_ptr<gui_forms::NumericUpDown> gradient_angle_, gradient_position_;
+    std::shared_ptr<gui_forms::NumericUpDown> superimpose_transparency_, superimpose_brightness_;
     std::shared_ptr<gui_forms::ComboBox> geometry_stroke_, geometry_start_, geometry_end_;
     std::shared_ptr<gui_forms::ComboBox> font_, word_art_, picker_mode_, mix_effect_, render_quality_;
     std::shared_ptr<gui_forms::ComboBox> sticky_paper_, gradient_stops_;
@@ -180,10 +184,14 @@ class Ribbon final : public gui_forms::Control {
     gui_forms::RibbonTabSpec text_tab();
     gui_forms::RibbonTabSpec spiro_tab();
     gui_forms::RibbonTabSpec gradient_tab();
+    gui_forms::RibbonTabSpec superimpose_tab();
     void apply_tabs();
     void bind_hosted();
     std::shared_ptr<gui_forms::Command> command(const std::string& id, const std::string& text);
     gui_forms::MenuItemSpec menu_item(const std::string& id, const std::string& text);
+    // A check row of a drop-down menu, its mark following set_menu_checked.
+    gui_forms::MenuItemSpec menu_check(const std::string& id, const std::string& text);
+    void set_menu_checked(const std::string& id, bool checked);
     gui_forms::RibbonCommandSpec button(const std::string& id, const std::string& text, int icon,
                                         gui_forms::RibbonCommandSize size,
                                         gui_forms::RibbonCommandKind kind = gui_forms::RibbonCommandKind::button);
@@ -217,6 +225,8 @@ class Ribbon final : public gui_forms::Control {
     // -- behaviour (ribbon.cpp) -----------------------------------------------
     void command_invoked(const gui_forms::CommandInvocation& invocation);
     void drop_down_chosen(const gui_forms::RibbonDropDownInvocation& invocation);
+    // The Superimpose tab's Transparency or Brightness changed.
+    void superimpose_number_changed(double);
     void recent_chosen(const gui_forms::RibbonRecentItemInvocation& invocation);
     void help_clicked(gui_forms::ButtonBase& button);
     void activate(const std::string& id);

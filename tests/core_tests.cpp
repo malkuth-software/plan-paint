@@ -1676,6 +1676,44 @@ void test_file_security() {
     std::filesystem::remove_all(directory);
 }
 } // namespace
+// Superimpose in paint_core: a superimposed paste commits to
+// Document::superimposed, never to the picture, and records no undo step;
+// superimpose_onto blends it down within the stated area only.
+void test_superimpose() {
+    paint::Document document;
+    document.new_image(16, 8);
+    document.image.reset(16, 8, {255, 255, 255, 255});
+    paint::Image overlay;
+    overlay.reset(4, 4, {200, 0, 0, 255});
+    const std::size_t history = document.undo_history.size();
+    document.paste(overlay, 2, 1, true);
+    require(document.selection.active && document.selection.superimpose && document.undo_history.size() == history,
+            "a superimposed paste floats without an undo step");
+    paint::Image shown = document.image;
+    document.selection.composite_onto(shown);
+    require(paint::equal(shown.get(3, 2), {255, 255, 255, 255}), "a superimposed paste never composites into a picture");
+    document.commit_selection();
+    require(!document.selection.active && document.superimposed.active && document.superimposed.x == 2 &&
+                document.superimposed.y == 1 && paint::equal(document.image.get(3, 2), {255, 255, 255, 255}),
+            "committing a superimposed paste superimposes it and leaves the picture");
+    require(document.superimposed.contains({5.5, 4.5}) && !document.superimposed.contains({6.0, 2.0}),
+            "the superimposed image covers its own rectangle");
+    paint::Image view = document.image;
+    paint::SuperimposeLook look;
+    look.transparency = 50;
+    paint::superimpose_onto(view, document.superimposed.image, 2, 1, look, {0, 0, 4, 8});
+    const paint::Color half = view.get(3, 2);
+    require(half.r == 228 && half.g == 128 && half.b == 128 && half.a == 255,
+            "50% transparency blends the image halfway over the work");
+    require(paint::equal(view.get(4, 2), {255, 255, 255, 255}), "pixels outside the area are untouched");
+    look.transparency = 400;
+    look.brightness = -100;
+    view = document.image;
+    paint::superimpose_onto(view, document.superimposed.image, 2, 1, look, {0, 0, 16, 8});
+    const paint::Color faint = view.get(3, 2);
+    require(faint.r == 242 && faint.g == 242 && faint.b == 242,
+            "transparency stops at 95% and brightness -100% draws the image black");
+}
 int main() {
     try {
         test_icon_size_production();
@@ -1689,6 +1727,7 @@ int main() {
         test_conv_reference();
         test_conv_area();
         test_editing();
+        test_superimpose();
         test_materials_and_shapes();
         test_eraser_and_pixel_target();
         test_continuous_geometry_coverage();
