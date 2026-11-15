@@ -177,12 +177,12 @@ if(APPLE OR WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
       VERBATIM)
     add_custom_target(paint-forms-runtime DEPENDS "${forms_runtime_stamp}")
     if(WIN32)
-      # STXlib's shared state (one allocator, identity issuer and SIMD level per
-      # process) is in GUI.Forms' link interface and loads beside its DLLs.
-      add_dependencies(paint-forms-runtime GUIForms::Application GUIForms::Threading stxlib::state)
+      # Waits on GUI.Forms' one-module change: every delivered program is one
+      # module, with GUI.Forms and libc++ linked statically into the
+      # executable. This copy goes when it lands; nothing more is copied.
+      add_dependencies(paint-forms-runtime GUIForms::Application GUIForms::Threading)
       add_custom_command(TARGET paint-forms-runtime POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:GUIForms::Application>" "$<TARGET_FILE:GUIForms::Threading>"
-          "$<TARGET_FILE:stxlib::state>" "${forms_runtime_directory}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:GUIForms::Application>" "$<TARGET_FILE:GUIForms::Threading>" "${forms_runtime_directory}"
         VERBATIM)
     endif()
     foreach(forms_target IN ITEMS plan-paint paint-forms-native-tests paint-forms-tests)
