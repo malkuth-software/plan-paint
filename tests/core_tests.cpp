@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <numbers>
 #include <set>
 #include <stdexcept>
@@ -1075,6 +1076,32 @@ void test_curves() {
         right = std::max(right, point.x);
     }
     require(left < -40 && right > 140, "Bézier flattening discarded collinear control reversals");
+    // Every point of the cubic lies within the tolerance of the polyline that
+    // replaces it, with the exact end points kept (GUI.Drawing's flattening in
+    // the GUI.Forms build, the recursive one otherwise).
+    curve.set_line({10, 10}, {210, 40});
+    curve.move_handle(0, {-40, 180});
+    curve.move_handle(1, {260, -120});
+    for (double tolerance : {0.125, 0.03125, 2.0}) {
+        samples = curve.samples(tolerance);
+        require(samples.size() >= 2 && samples.front().x == 10 && samples.front().y == 10 &&
+                    samples.back().x == 210 && samples.back().y == 40,
+                "Bézier flattening moved the curve's end points");
+        for (int step = 0; step <= 4096; ++step) {
+            paint::Point point = curve.at(step / 4096.0);
+            double nearest = std::numeric_limits<double>::infinity();
+            for (std::size_t i = 1; i < samples.size(); ++i) {
+                paint::Point first = samples[i - 1], last = samples[i];
+                double dx = last.x - first.x, dy = last.y - first.y, length_squared = dx * dx + dy * dy;
+                double t = length_squared == 0 ? 0
+                                               : std::clamp(((point.x - first.x) * dx + (point.y - first.y) * dy) /
+                                                                length_squared,
+                                                            0.0, 1.0);
+                nearest = std::min(nearest, std::hypot(point.x - (first.x + dx * t), point.y - (first.y + dy * t)));
+            }
+            require(nearest <= tolerance + 1e-9, "Bézier flattening exceeded its tolerance");
+        }
+    }
 
     curve.kind = paint::CurveKind::Arc;
     curve.set_line({-50, 0}, {50, 0});

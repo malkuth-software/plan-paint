@@ -26,6 +26,7 @@
 #include <gui_forms/canvas.hpp>
 #include <gui_forms/live_surface.hpp>
 #include <gui_forms/controls/combo_box.hpp>
+#include <gui_forms/controls/content_text_editor.hpp>
 #include <gui_forms/controls/track_bar.hpp>
 #include <gui_forms/delegate.hpp>
 #include <gui_forms/host.hpp>
@@ -109,10 +110,7 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
 
   public:
     void on_paint_overlay(gui_forms::Painter& painter, gui_forms::Rect damage) override;
-    void on_text_input(gui_forms::TextInputEvent& event) override;
-    void on_focus_changed(bool focused) override;
     gui_forms::SemanticDescriptor semantic_descriptor() const override;
-    bool on_semantic_action(gui_forms::SemanticAction action, std::string_view value) override;
 
   private:
     // The editor's pointer handling, in the routed form, for one event at
@@ -278,13 +276,29 @@ class Editor final : public gui_forms::Control {
 
     RecentFiles recent;
     int jpeg_quality = 92;
+    // The canvas text tool and sticky notes. `text` keeps Plan Paint's side:
+    // the box, the style, the layout and preview (laid out and rendered with
+    // Plan Paint's own engine), and a mirror of the editor's text and
+    // selection. The editing (keys, input methods, undo, the clipboard and
+    // accessibility) is the content editor's, `canvas_text()`.
     TextSession text;
-    void text_input(gui_forms::TextInputEvent& event);
+    // The content editor (stable id "canvas-text"), a child of the Editor
+    // above the canvas, shown while `text.active`. It paints nothing of its
+    // own and is transparent to hits: Plan Paint draws the text, caret and
+    // selection, and keeps the box handles and pointer placement.
+    [[nodiscard]] gui_forms::ContentTextEditor& canvas_text() const noexcept { return *canvas_text_; }
+    // Escape cancels and Control or Command + Enter places, ahead of the
+    // editor; false for every other key.
     bool text_key(gui_forms::KeyEvent& event);
     bool text_command(const std::string& command);
     void finish_text(bool place);
     void text_focus(bool focused);
     void text_frame();
+    // Places the editor over the text box (canvas client coordinates, then
+    // the Editor's arrange) and submits Plan Paint's layout of its text for
+    // the current revision. Called from refresh while text is active and
+    // from every view change.
+    void sync_canvas_text();
     void selection_frame();
     // The repeating UI timers of the caret blink and the selection's marching ants.
     // The timer calls the named member of the Editor that owns its token; the token
@@ -556,6 +570,21 @@ class Editor final : public gui_forms::Control {
     void text_pointer(const gui_forms::PointerEvent& event, Point point);
     void reset_text_caret();
     gui_forms::Rect text_caret_damage() const;
+    // Shows the editor for the session `text.begin` just opened: empty, no
+    // undo history, named for the session, focused.
+    void start_canvas_text();
+    // The editor's notices: a layout request (the text or the region's size
+    // changed), a selection change, and its focus.
+    void canvas_text_layout_requested(std::uint64_t revision);
+    void canvas_text_selection_changed(const gui_forms::TextSelection& selection);
+    void canvas_text_focus_changed(bool focused);
+    // The editor's local coordinates from text-box display pixels.
+    [[nodiscard]] gui_forms::ContentLayoutTransform canvas_text_view() const;
+    std::shared_ptr<gui_forms::ContentTextEditor> canvas_text_;
+    // The editor's region in canvas client coordinates (the bounding box of
+    // the text box on screen); the Editor's arrange offsets it by the canvas.
+    gui_forms::Rect canvas_text_region_{};
+    gui_forms::ContentLayoutResult canvas_text_layout_result_ = gui_forms::ContentLayoutResult::accepted;
     Point start_, last_, current_, selection_offset_, handle_offset_;
     gui_drawing::PointF pan_origin_;
     gui_forms::Point pan_start_;

@@ -1238,10 +1238,15 @@ void canvas_text_editing_and_commit() {
     require(editor.document.tool == paint::Tool::Text && shown(window, "text-font"),
             "Text opens its formatting ribbon");
     fixture.click(12, 14);
-    require(editor.text.active && editor.canvas().semantic_descriptor().role == gf::SemanticRole::text_box,
-            "canvas text starts as accessible editing session");
+    require(editor.text.active && editor.canvas_text().visible.read() &&
+                editor.canvas_text().semantic_descriptor().role == gf::SemanticRole::text_box &&
+                editor.canvas().semantic_descriptor().role != gf::SemanticRole::text_box,
+            "canvas text starts as accessible editing session in the content editor");
+    require(window.focused_control().get() == &editor.canvas_text(), "the canvas text's editor takes the focus");
     require(window.dispatch_text({"Aé\nPaint"}), "native text input reaches canvas text");
-    require(editor.text.edit.content == "Aé\nPaint", "UTF-8 and multiline text retained");
+    require(editor.text.edit.content == "Aé\nPaint" && editor.canvas_text().text() == "Aé\nPaint",
+            "UTF-8 and multiline text retained");
+    require(editor.canvas_text().layout_current(), "Plan Paint's layout of the canvas text is current");
     require(!editor.document.dirty(), "text preview does not mutate document");
     require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::z, gf::Modifier::control}),
             "text owns undo");
@@ -1249,10 +1254,23 @@ void canvas_text_editing_and_commit() {
     require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::y, gf::Modifier::control}),
             "text owns redo");
     require(editor.text.edit.content == "Aé\nPaint", "text redo restores UTF-8");
-    editor.text.edit.caret = editor.text.edit.anchor = 3;
+    editor.canvas_text().select(gf::Utf8Offset(3), gf::Utf8Offset(3));
+    require(editor.text.edit.caret == 3 && editor.text.edit.anchor == 3, "the selection is mirrored for drawing");
     require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::backspace}), "text backspace routed");
     require(editor.text.edit.content == "A\nPaint", "backspace removes whole UTF-8 character");
     editor.execute("undo");
+    require(editor.text.edit.content == "Aé\nPaint", "the ribbon's Undo reaches the canvas text");
+    editor.canvas_text().select(gf::Utf8Offset(0), gf::Utf8Offset(0));
+    editor.execute("delete");
+    require(editor.text.edit.content == "é\nPaint", "the ribbon's Delete removes the grapheme after the caret");
+    editor.execute("undo");
+    const gf::Utf8Offset end(editor.canvas_text().text().size());
+    editor.canvas_text().select(end, end);
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::tab}) &&
+                editor.text.edit.content == "Aé\nPaint\t",
+            "Tab inserts a tab into the canvas text");
+    editor.execute("undo");
+    require(editor.text.edit.content == "Aé\nPaint", "the tab is one undo step");
     editor.text.style.bold = true;
     editor.text.style.opaque = true;
     editor.text.resize({12, 14, 92, 74});
@@ -3032,7 +3050,9 @@ void sticky_note_contracts() {
     window.perform_layout();
     require(!window.find("editor-dialog") && editor.text.active && editor.text.note,
             "sticky insertion must immediately edit on canvas, without a popup");
-    require(window.focused_control().get() == &editor.canvas(), "sticky insertion must focus the canvas");
+    require(window.focused_control().get() == &editor.canvas_text(),
+            "sticky insertion must focus the canvas text's editor");
+    require(editor.canvas_text().accessible_name.read() == "Sticky note", "the editor is named for the note");
     require(shown(window, "sticky-paper") && shown(window, "sticky-width"),
             "sticky insertion must show its ribbon settings");
     {
@@ -3051,9 +3071,8 @@ void sticky_note_contracts() {
     }
     require(editor.document.undo_history.size() == history && !editor.text.preview.pixels.empty(),
             "blank note paper should be visible while the canvas remains unchanged");
-    gf::TextInputEvent input{"Plan"};
-    editor.text_input(input);
-    require(input.handled && editor.text.edit.content == "Plan", "canvas typing did not edit the note");
+    require(window.dispatch_text({"Plan"}) && editor.text.edit.content == "Plan",
+            "canvas typing did not edit the note");
     editor.execute("undo");
     require(editor.text.edit.content.empty() && editor.text.note, "text Undo must keep the paper");
     editor.execute("redo");
@@ -6880,7 +6899,10 @@ void icon_production_contracts() {
 gf::ContentTextLayout canvas_text_layout(paint::TextSession& session, const std::string& text, double zoom) {
     session.edit.content = text;
     session.refresh({0, 0, 0, 255}, {255, 255, 255, 255});
-    gf::ContentTextLayout layout = paint::forms::content_layout(session, text, 7, zoom);
+    gf::ContentLayoutTransform view;
+    view.xx = zoom;
+    view.yy = zoom;
+    gf::ContentTextLayout layout = paint::forms::content_layout(session, text, 7, view);
     const gf::TextStore store(text);
     const gf::ContentLayoutResult result = gf::validate_content_text_layout(layout, store, 7);
     if (result != gf::ContentLayoutResult::accepted) {
@@ -6889,6 +6911,14 @@ gf::ContentTextLayout canvas_text_layout(paint::TextSession& session, const std:
         throw std::runtime_error(message);
     }
     return layout;
+}
+// A layout box in the editor's local coordinates (through the transform, if any).
+gf::Rect local_box(const gf::ContentTextLayout& layout, gf::Rect box) {
+    if (!layout.transform) {
+        return box;
+    }
+    const gf::Rect result = gf::map_content_box(*layout.transform, box).bounds();
+    return result;
 }
 void canvas_text_content_layout() {
     paint::TextSession session;
@@ -6919,21 +6949,38 @@ void canvas_text_content_layout() {
                 wrapped.lines[1].bounds.y > wrapped.lines[0].bounds.y,
             "a wrapped row is a line of its own, starting where the row before ends");
     const gf::ContentTextLayout doubled = canvas_text_layout(session, words, 2.0);
-    require(std::abs(doubled.clusters[1].bounds.x - 2.0 * wrapped.clusters[1].bounds.x) < 1e-9 &&
-                std::abs(doubled.clusters[1].bounds.width - 2.0 * wrapped.clusters[1].bounds.width) < 1e-9,
+    const gf::Rect single_box = local_box(wrapped, wrapped.clusters[1].bounds);
+    const gf::Rect double_box = local_box(doubled, doubled.clusters[1].bounds);
+    require(wrapped.transform && (*wrapped.transform).axis_aligned() &&
+                std::abs(double_box.x - 2.0 * single_box.x) < 1e-9 &&
+                std::abs(double_box.width - 2.0 * single_box.width) < 1e-9,
             "the editor's coordinates scale with the zoom");
+    // Skew alone is affine: the boxes stay in text-box pixels under a
+    // shearing transform, so the editor's quads follow the slanted text.
     session.style.skew = 0.35;
+    const gf::ContentTextLayout skewed = canvas_text_layout(session, "Slanted\ntext", 1.5);
+    require(skewed.transform && !(*skewed.transform).axis_aligned() &&
+                std::abs((*skewed.transform).yy - 1.5) < 1e-12,
+            "skewed text submits its shear as the layout's transform");
+    {
+        const paint::Point display = session.display_point({10.0, 20.0});
+        const gf::Point mapped = (*skewed.transform).map({10.0, 20.0});
+        require(std::abs(mapped.x - 1.5 * display.x) < 1e-9 && std::abs(mapped.y - 1.5 * display.y) < 1e-9,
+                "the layout's transform is the display mapping followed by the view");
+    }
+    // Perspective and warp are not affine: bounding boxes, no transform.
     session.style.perspective = -0.6;
     session.style.warp = 0.3;
-    static_cast<void>(canvas_text_layout(session, "Bent\ntext", 1.5));
+    const gf::ContentTextLayout bent = canvas_text_layout(session, "Bent\ntext", 1.5);
+    require(!bent.transform && !paint::forms::affine_display(session), "warped text submits bounding boxes");
     session.style.skew = session.style.perspective = session.style.warp = 0;
     session.edit.content = "BO";
     session.refresh({0, 0, 0, 255}, {255, 255, 255, 255});
-    const gf::ContentTextLayout current = paint::forms::content_layout(session, "BO", 7, 1.0);
+    const gf::ContentTextLayout current = paint::forms::content_layout(session, "BO", 7, gf::ContentLayoutTransform{});
     require(gf::validate_content_text_layout(current, gf::TextStore("BO"), 8) ==
                 gf::ContentLayoutResult::stale_revision,
             "a layout for an earlier revision is stale");
-    const gf::ContentTextLayout foreign = paint::forms::content_layout(session, "BOX", 7, 1.0);
+    const gf::ContentTextLayout foreign = paint::forms::content_layout(session, "BOX", 7, gf::ContentLayoutTransform{});
     require(foreign.lines.empty(), "a layout of another text yields no lines");
 }
 int main(int argc, char** argv) {

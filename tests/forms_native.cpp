@@ -361,7 +361,7 @@ struct NativeExercise {
         (*editor).text.style.skew = 0.2;
         (*editor).text.style.perspective = -0.35;
         (*editor).text.style.warp = 0.15;
-        (*editor).text.replace("EDITABLE LETTERING");
+        (*editor).canvas_text().set_text("EDITABLE LETTERING");
         (*editor).refresh();
         window.perform_layout();
         entered = true;
@@ -1176,8 +1176,7 @@ struct NativeExercise {
         }
         if (sticky_review) {
             (*editor).execute("sticky-note");
-            gf::TextInputEvent text{"Plan the next step\n\nMake something useful."};
-            (*editor).text_input(text);
+            static_cast<void>((*editor).canvas_text().replace_selection("Plan the next step\n\nMake something useful."));
             window.perform_layout();
             inspect_frame(window);
             (*editor).execute("text-place");

@@ -728,6 +728,10 @@ void PaintCanvas::apply_view(double scale, gui_drawing::PointF origin) {
     const gf::Point handle_before = handle ? rotation_handle() : gf::Point{};
     const gf::Point anchor_before = view_anchor();
     RasterCanvas::set_view(scale, origin);
+    if (editor && (*editor).text.active) {
+        // The canvas text's editor follows the box on screen.
+        (*editor).sync_canvas_text();
+    }
     if (!handle) {
         return;
     }

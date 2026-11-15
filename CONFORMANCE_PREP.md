@@ -111,10 +111,43 @@ has been compiled.
        Linux block is added on template_harness's prep branch. Plan Paint's Linux package keeps its musl closure;
        `scripts/package-linux.py` copies whatever the loader resolves, so a static C++ runtime simply leaves
        libc++ out of it.
-   - **The canvas text tool on the content editing mode:** step 3 of the plan below, the layout conversion
-     (`src/forms/content_layout.*`, d448e08), is done with its tests. The control wiring waits for GUI.Forms gaps
-     (below).
-   - **Curve paths through GUI.Drawing 0.6:** not adopted; see "GUI.Forms primitives Plan Paint could source".
+   - **The canvas text tool on the content editing mode** (the plan below; the layout conversion was d448e08):
+     the gaps came back (GUI.Forms `claude/content-editor-gaps` 3f996bff4, folded into cp33), and the tool now
+     edits through a `gui_forms::ContentTextEditor`:
+     - **The control** (`Editor::canvas_text()`, stable id `canvas-text`): a child of the Editor above the canvas
+       and below the ribbon, multiline, `accepts_tab`, `draws_selection` false, transparent to hits, shown while
+       a session is open. `start_canvas_text` empties it, clears its history, names it ("Canvas text" or "Sticky
+       note") and focuses it; `finish_text` hides and empties it and gives the focus back to the canvas.
+     - **The layout:** `sync_canvas_text` (from `refresh` and from every view change, `PaintCanvas::apply_view`)
+       mirrors the editor's text into `TextSession`, places the editor over the box (`bitmap_to_client`, offset
+       by the canvas in `Editor::arrange`) and submits `content_layout` for the current revision.
+       `content_layout` now takes the view as a `ContentLayoutTransform`: where the display mapping is affine (a
+       note, or skew without perspective or warp) the boxes stay in text-box pixels under the layout's transform
+       (display mapping, then zoom, view rotation and pan), so the editor's hit testing, quads and published
+       boxes follow skewed and rotated text exactly. Perspective and warp keep bounding boxes.
+     - **Keys:** `text_key` keeps Escape and Control/Command+Enter ahead of the editor; everything else is the
+       editor's (grapheme and line moves, Tab, undo and redo, the clipboard, input methods). The ribbon's Undo,
+       Redo, Select all, Copy, Cut, Paste and Delete call the editor (`replace_selection`/`delete_selection`
+       through `delete_selection`; Delete with nothing selected removes the next grapheme).
+     - **Pointer:** the eight handles, the move bar and the click outside stay Plan Paint's; a press in the box
+       places the caret by Plan Paint's own layout (exact on perspective and warp too), moved to a grapheme
+       boundary, and sets the editor's selection.
+     - **Drawing:** Plan Paint keeps drawing the selection and the blinking caret along its rows through
+       `display_point` (exact for every mapping), from the editor's selection, mirrored on `selection_changed`;
+       the input method's marked text (`composition_range`) is underlined the same way. The blink follows the
+       editor's focus.
+     - **Accessibility:** the editor's node (text, selection, caret, the layout query). The canvas's node no
+       longer turns into a text box, and its `set_value` path is gone.
+     - **Kept:** `TextSession::replace`, `history` and `TextEditState::caret`/`anchor` stay in paint_core, because
+       the retired SDL frontend (`src/text_canvas.cpp`, `RAINSTAR_LEGACY_UI`) still uses them; the GUI.Forms
+       frontend no longer calls `replace` or `history`, and keeps caret and anchor only as the mirror it draws
+       from. Deleting them goes with retiring the legacy frontend (an owner choice).
+   - **Curves through GUI.Drawing's flattening** (GUI.Forms `claude/gd-flatten-raster` 0d7983c25): in the GUI.Forms
+     build `CurveGeometry::samples` builds a `GraphicsPath` (the cubic, or the circular arc as an arc of its
+     circle's bounds) and flattens it with `flattened_size` and `flatten` into its own arrays, keeping the exact
+     end points. A tolerance past `maximum_flattened_points` is doubled until it fits. paint_core links
+     `GUIForms::Application` privately and compiles with `RAINSTAR_GUI_DRAWING=1` (`cmake/GUIFormsFrontend.cmake`);
+     the frontend-free build keeps its own flattening. `execute_recorder` is not adopted: see decision D1 below.
 
 ## Tests that should cover it
 
@@ -124,6 +157,15 @@ has been compiled.
   - `canvas_pan_by_wheel_and_damage`;
   - `--pan-probe` for 6909ad1 (queue/claude__canvas-scroll-copy.md).
 - Configure against a 0.2 or cp28 SDK must stop at the probe with the pin message.
+- The canvas text on the editor and the curve flattening:
+  - `paint-forms` `canvas_text_editing_and_commit` (focus on the editor, its node, typing, the layout current,
+    the selection mirror, Backspace, the ribbon's Undo and Delete, Tab, place and cancel),
+    `sticky_note_contracts`' inline note case (the editor focused and named, typing through the window),
+    `text_caret_deadlines_damage_only_the_transformed_caret` and `canvas_text_content_layout` (the zoom transform,
+    the skew transform against `display_point`, bounding boxes for warp);
+  - `paint-core` curve cases in `core_tests.cpp` (the new tolerance and end-point check over three tolerances, the
+    collinear reversal, the arc's circle and sagitta checks), in both the GUI.Forms and the frontend-free build;
+  - `paint-forms-native` lettering and sticky reviews.
 - cp33 (item 8):
   - `paint-forms` `business_card_and_hidden_overlay_switch` (the identity, the gesture on and off, the Settings
     row, the hand card, the website press) and `canvas_text_content_layout`;
@@ -138,20 +180,19 @@ has been compiled.
   - the GUI.Forms commit, cache release and the four cache digests;
   - the template_harness main commit.
   - Both move once, at the conformance rebase (template_harness's CONFORMANCE_PREP.md).
-- **The canvas text tool's control wiring** (steps 1, 2 and 4 to 7 of the plan below). It waits for these GUI.Forms
-  gaps, reported to the coordinator; Plan Paint does not work around them:
-  - **Tab as input.** ContentTextEditor leaves Tab to focus navigation, and a multiline editor has no
-    `accepts_tab`. Plan Paint's canvas text inserts a tab today.
-  - **Programmatic insert and delete.** `replace_selection` and `delete_selection` stay on TextBox and RichTextBox;
-    TextBoxBase and ContentTextEditor have neither. The ribbon's Delete command on the canvas text, and any insert
-    from Plan Paint's own commands, need them.
-  - **The composition range** (question 3) is not public, so with `set_draws_selection(false)` Plan Paint cannot
-    underline marked text.
-  - **Transformed text** (question 5): the layout boxes are axis-aligned. The conversion uses bounding boxes, so on
-    skewed, perspective or warped text the editor's hit testing and the published boxes are approximate. This one
-    is acceptable to Plan Paint if GUI.Forms has no per-cluster quad planned.
-  - Settled by cp33 (d80a6ec6d): no-frame paint draws nothing (question 1), and measuring outside paint is not
-    needed, since Plan Paint lays out with its own engine.
+- **D1, `execute_recorder` for Plan Paint's strokes (decision for the coordinator).** Plan Paint strokes curves,
+  paths and shapes with its own ink (`polygon(image, samples, ink, ...)`: brush heads, materials, patterns,
+  smoothing, supersampling, organic contours), which a GUI.Drawing `Pen` cannot express. Options:
+  1. Keep Plan Paint's ink for every stroke and use GUI.Drawing for geometry only (flattening, done). **Recommended:**
+     the pixels stay Plan Paint's content, as the interface/content split puts them.
+  2. Draw "plain" strokes (solid colour, no material or pattern) through `execute_recorder` into the document
+     buffer (`Bitmap::borrow`). Two rasterizers would then draw the same tool, with visibly different
+     antialiasing between plain and material ink.
+  3. Ask GUI.Forms for brush and material hooks in the recorder raster, so every stroke could move. A large
+     capability for one consumer; not proposed.
+- Settled by cp33 and the gaps (3f996bff4): no-frame paint draws nothing (question 1), measuring outside paint is
+  not needed, Tab (`accepts_tab`), programmatic edits (`replace_selection`, `delete_selection`), the composition
+  range, and transformed text (an affine layout transform, quads).
 - **cp33's STXlib row-index switch** does not touch Plan Paint directly.
 - **STXlib boundary types** (the swap-in, Sequence step 4): Plan Paint's `std::string`, `std::vector` and
   `std::span` crossings of the GUI.Forms API will move to the owned boundary types when they land. Nothing to do
@@ -317,6 +358,8 @@ yet, because two pieces are still missing:
 - Requests for GUI.Forms (reported to the coordinator): a public path flattening at a stated tolerance, and a C++
   entry that rasterizes a recording into a caller-owned bitmap outside paint. Routing Plan Paint's C++ through the C
   ABI and a copy would be a workaround, so it is not done.
+- Both requests are met since (GUI.Forms 0d7983c25, folded into cp33): the flattening is adopted for the curve
+  tools, and the raster entry (`gui_drawing::execute_recorder`) is decision D1 under "What still waits".
 
 Stays Plan Paint's: flood fill, dithering, the warp mesh, the spirograph, icon codecs, and canvas text layout and
 rendering (stb_truetype: content, not interface).
@@ -340,6 +383,19 @@ ctest --test-dir <plan-paint>/build --output-on-failure
   placeholder lock (cp22) and would fetch the old SDK.
 
 ## Risks not checked without a build
+
+The canvas text on the editor and the curve flattening:
+- Focus: `start_canvas_text` asks for the editor's focus from inside the canvas's mouse-down. If the window moves
+  focus to the clicked control after the handler, the canvas would keep it; the tests check the focus.
+- Event order: the code assumes the editor raises `layout_requested` synchronously with each text change (the
+  mirror and preview follow it) and `selection_changed` after it; a selection mirrored before the text is only
+  drawn once the next layout arrives (the caret index is bounds-checked).
+- The editor's region may lie partly under the ribbon or outside the canvas; it paints nothing and takes no hits,
+  so only its published boxes extend there.
+- `GraphicsPath::flatten` must keep the collinear-reversal case (`core_tests`); the arc's start angle and sweep
+  sign follow the y-down parameter angles the header states.
+- paint_core now links the Application archive in the GUI.Forms build, so `paint-benchmark` and the core tests
+  link it too (their link lines grow; nothing else changes).
 
 cp33 (item 8):
 - The derived translations of "Diagnostic overlay: on" need a native reader's check.

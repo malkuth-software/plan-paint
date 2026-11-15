@@ -14,24 +14,50 @@ struct LayoutRow {
     std::size_t end = 0;
     double top = 0;
 };
-// The bounding box, in editor coordinates, of the text-box rectangle
-// (left, top, width, height) mapped through the session's display mapping.
-gf::Rect mapped_box(const TextSession& session, double left, double top, double width, double height, double zoom) {
-    const Point corners[4] = {session.display_point({left, top}), session.display_point({left + width, top}),
-                              session.display_point({left, top + height}),
-                              session.display_point({left + width, top + height})};
+// How boxes reach the editor: either kept in text-box pixels under the
+// layout's transform (`affine`), or mapped here through the display mapping
+// and the view as bounding boxes.
+struct BoxMapping {
+    const TextSession& session;
+    const gf::ContentLayoutTransform& view;
+    bool affine = false;
+};
+// The text-box rectangle (left, top, width, height) as a layout box.
+gf::Rect mapped_box(const BoxMapping& mapping, double left, double top, double width, double height) {
+    if (mapping.affine) {
+        const gf::Rect raw{left, top, width, height};
+        return raw;
+    }
+    const Point display[4] = {mapping.session.display_point({left, top}),
+                              mapping.session.display_point({left + width, top}),
+                              mapping.session.display_point({left, top + height}),
+                              mapping.session.display_point({left + width, top + height})};
+    gf::Point corners[4];
+    for (int index = 0; index < 4; ++index) {
+        corners[index] = mapping.view.map({display[index].x, display[index].y});
+    }
     double minimum_x = corners[0].x;
     double maximum_x = corners[0].x;
     double minimum_y = corners[0].y;
     double maximum_y = corners[0].y;
-    for (const Point& corner : corners) {
+    for (const gf::Point& corner : corners) {
         minimum_x = std::min(minimum_x, corner.x);
         maximum_x = std::max(maximum_x, corner.x);
         minimum_y = std::min(minimum_y, corner.y);
         maximum_y = std::max(maximum_y, corner.y);
     }
-    const gf::Rect result{minimum_x * zoom, minimum_y * zoom, (maximum_x - minimum_x) * zoom,
-                          (maximum_y - minimum_y) * zoom};
+    const gf::Rect result{minimum_x, minimum_y, maximum_x - minimum_x, maximum_y - minimum_y};
+    return result;
+}
+// `outer` after `inner`: local = outer(inner(point)).
+gf::ContentLayoutTransform compose(const gf::ContentLayoutTransform& outer, const gf::ContentLayoutTransform& inner) {
+    gf::ContentLayoutTransform result;
+    result.xx = outer.xx * inner.xx + outer.xy * inner.yx;
+    result.xy = outer.xx * inner.xy + outer.xy * inner.yy;
+    result.yx = outer.yx * inner.xx + outer.yy * inner.yx;
+    result.yy = outer.yx * inner.xy + outer.yy * inner.yy;
+    result.dx = outer.xx * inner.dx + outer.xy * inner.dy + outer.dx;
+    result.dy = outer.yx * inner.dx + outer.yy * inner.dy + outer.dy;
     return result;
 }
 // The rows of `layout` over `text`, in text order. A wrap that would split a
@@ -61,13 +87,42 @@ std::vector<LayoutRow> layout_rows(const TextLayout& layout, const std::string& 
 }
 } // namespace
 
+std::optional<gf::ContentLayoutTransform> affine_display(const TextSession& session) {
+    if (!session.note && (session.style.perspective != 0 || session.style.warp != 0)) {
+        return std::nullopt;
+    }
+    // Affine: three points fix the map (display_point is a shear and a
+    // scale about the box's centre, or the note's inset).
+    const Point origin = session.display_point({0.0, 0.0});
+    const Point unit_x = session.display_point({1.0, 0.0});
+    const Point unit_y = session.display_point({0.0, 1.0});
+    gf::ContentLayoutTransform result;
+    result.xx = unit_x.x - origin.x;
+    result.yx = unit_x.y - origin.y;
+    result.xy = unit_y.x - origin.x;
+    result.yy = unit_y.y - origin.y;
+    result.dx = origin.x;
+    result.dy = origin.y;
+    return result;
+}
+
 gf::ContentTextLayout content_layout(const TextSession& session, const std::string& text, std::uint64_t revision,
-                                     double zoom) {
+                                     const gf::ContentLayoutTransform& view) {
     gf::ContentTextLayout result;
     result.text_revision = revision;
     const TextLayout& layout = session.layout;
     if (layout.carets.size() != text.size() + 1) {
         return result;
+    }
+    const std::optional<gf::ContentLayoutTransform> display = affine_display(session);
+    BoxMapping mapping{session, view, display.has_value()};
+    // The caret bar is one client point wide: in text-box pixels under the
+    // transform, the inverse of its mean scale.
+    double caret_width = 1.0;
+    if (display) {
+        result.transform = compose(view, *display);
+        const double scale = std::sqrt(std::abs((*result.transform).determinant()));
+        caret_width = scale > 0.0 ? 1.0 / scale : 1.0;
     }
     const gf::TextStore store(text);
     const double line_height = layout.line_height;
@@ -102,7 +157,7 @@ gf::ContentTextLayout content_layout(const TextSession& session, const std::stri
             gf::ContentTextCluster cluster;
             cluster.range = {gf::Utf8Offset(position), gf::Utf8Offset(next)};
             cluster.line = static_cast<std::uint32_t>(line_index);
-            cluster.bounds = mapped_box(session, left, top, extent - left, line_height, zoom);
+            cluster.bounds = mapped_box(mapping, left, top, extent - left, line_height);
             cluster.right_to_left = false;
             result.clusters.push_back(cluster);
             right = std::max(right, extent);
@@ -110,17 +165,16 @@ gf::ContentTextLayout content_layout(const TextSession& session, const std::stri
         }
         gf::ContentTextLine line;
         line.range = {gf::Utf8Offset(row.start), gf::Utf8Offset(row.end)};
-        line.bounds = mapped_box(session, 0.0, row.top, right, line_height, zoom);
+        line.bounds = mapped_box(mapping, 0.0, row.top, right, line_height);
         result.lines.push_back(line);
     }
     // One caret stop per grapheme boundary, ascending. Each is the bar at
-    // the layout's caret for that byte, one bitmap pixel wide before
-    // mapping, and at least one client point wide after it.
+    // the layout's caret for that byte, one client point wide.
     std::size_t boundary = 0;
     while (true) {
         const Point caret = layout.carets[boundary];
-        gf::Rect bar = mapped_box(session, caret.x, caret.y, 0.0, line_height, zoom);
-        bar.width = std::max(bar.width, 1.0);
+        gf::Rect bar = mapped_box(mapping, caret.x, caret.y, 0.0, line_height);
+        bar.width = std::max(bar.width, caret_width);
         gf::ContentCaretStop stop;
         stop.offset = gf::Utf8Offset(boundary);
         stop.caret = bar;

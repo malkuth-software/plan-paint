@@ -8,12 +8,15 @@
 #include "text_session.hpp"
 #include <gui_forms/content/editing/content_text_layout.hpp>
 #include <cstdint>
+#include <optional>
 #include <string>
 namespace paint::forms {
 // The layout of `text` held by `session` (TextSession::layout, in text-box
 // pixels, laid out by TextSession::refresh from that same text) for revision
-// `revision` of the editor's text, in the local coordinates of an editor whose
-// bounds are the session's box at `zoom` client points per bitmap pixel.
+// `revision` of the editor's text. `view` maps a point of the text box as
+// displayed (after TextSession::display_point) to the editor's local
+// coordinates: the canvas zoom, view rotation and pan, less the editor's
+// origin.
 //
 // - Lines: one per row of the layout. A line break ends a line and is in
 //   none; a wrapped row starts a new line at its first grapheme. An empty
@@ -23,15 +26,22 @@ namespace paint::forms {
 //   Plan Paint's engine has no bidirectional pass, so every cluster runs
 //   left to right.
 // - Caret stops: one per grapheme boundary, from TextLayout::carets.
-// - Boxes: each text-box rectangle is mapped through
-//   TextSession::display_point (the note inset, or skew, perspective and
-//   warp) and scaled by `zoom`; a transformed rectangle becomes the bounding
-//   box of its mapped corners, so hit testing and the published boxes are
-//   approximate on transformed text.
+// - Boxes: where the display mapping is affine (a sticky note's inset, or
+//   text with neither perspective nor warp, skewed or not), the boxes stay
+//   in text-box pixels and the layout's transform is the display mapping
+//   followed by `view`, so the editor's hit testing, caret quads and
+//   published boxes follow skewed and rotated text exactly. Perspective and
+//   warp are not affine: each box is then the bounding box of its corners
+//   mapped through display_point and `view`, and hit testing and the
+//   published boxes are approximate there.
 //
 // A layout that does not belong to `text` (its caret table is not one entry
 // per byte plus one) yields a layout with no lines, which the editor refuses
 // and works on without.
 [[nodiscard]] gui_forms::ContentTextLayout content_layout(const TextSession& session, const std::string& text,
-                                                           std::uint64_t revision, double zoom);
+                                                           std::uint64_t revision,
+                                                           const gui_forms::ContentLayoutTransform& view);
+// The display mapping of `session` (TextSession::display_point) as an affine
+// map, or none where it is not affine (perspective or warp).
+[[nodiscard]] std::optional<gui_forms::ContentLayoutTransform> affine_display(const TextSession& session);
 } // namespace paint::forms

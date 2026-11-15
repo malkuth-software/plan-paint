@@ -2,11 +2,48 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#if RAINSTAR_GUI_DRAWING
+#include <gui_forms/drawing/graphics_path/graphics_path.hpp>
+#endif
 namespace paint {
 namespace {
 Point mix(Point first, Point last, double t) {
     return {first.x + (last.x - first.x) * t, first.y + (last.y - first.y) * t};
 }
+#if RAINSTAR_GUI_DRAWING
+// The GUI.Forms frontend flattens through GUI.Drawing's GraphicsPath, so the
+// curve tool and the toolkit share one flattening. The path holds one figure:
+// the cubic, or the circular arc as an ellipse arc of its circle's bounds.
+// GUI.Drawing refuses a tolerance needing more than maximum_flattened_points;
+// such a curve is flattened at the finest doubled tolerance that fits, as the
+// recursion depth limit below coarsens it in the frontend-free build.
+std::vector<Point> flatten_path(const gui_drawing::GraphicsPath& path, double tolerance, Point start, Point end) {
+    gui_drawing::PathFlattening needed = path.flattened_size(tolerance);
+    for (int attempt = 0; needed.status == gui_drawing::PathFlatteningStatus::limit_exceeded && attempt < 64;
+         ++attempt) {
+        tolerance *= 2;
+        needed = path.flattened_size(tolerance);
+    }
+    if (needed.status != gui_drawing::PathFlatteningStatus::complete || needed.figure_count == 0) {
+        return {start, end};
+    }
+    std::vector<gui_drawing::PointF> points(needed.point_count);
+    std::vector<gui_drawing::FlattenedFigure> figures(needed.figure_count);
+    const gui_drawing::PathFlattening written = path.flatten(tolerance, points, figures);
+    if (written.status != gui_drawing::PathFlatteningStatus::complete || figures[0].end < 2) {
+        return {start, end};
+    }
+    std::vector<Point> result;
+    result.reserve(figures[0].end);
+    for (std::size_t i = 0; i < figures[0].end; ++i) {
+        result.push_back({points[i].x, points[i].y});
+    }
+    // The arc's ends come from its angles; keep the curve's exact end points.
+    result.front() = start;
+    result.back() = end;
+    return result;
+}
+#else
 double segment_distance(Point point, Point first, Point last) {
     double dx = last.x - first.x, dy = last.y - first.y;
     double length_squared = dx * dx + dy * dy;
@@ -30,6 +67,7 @@ void flatten_bezier(Point a, Point b, Point c, Point d, double tolerance, int de
     flatten_bezier(a, ab, abc, middle, tolerance, depth + 1, output);
     flatten_bezier(middle, bcd, cd, d, tolerance, depth + 1, output);
 }
+#endif
 } // namespace
 void CurveGeometry::set_line(Point first, Point last) {
     start = first;
@@ -93,6 +131,35 @@ std::vector<Point> CurveGeometry::samples(double tolerance) const {
     if (!std::isfinite(tolerance) || tolerance <= 0) {
         throw std::invalid_argument("Curve tolerance must be positive and finite.");
     }
+#if RAINSTAR_GUI_DRAWING
+    gui_drawing::GraphicsPath path;
+    if (kind == CurveKind::Bezier) {
+        path.add_bezier({start.x, start.y}, {first_control.x, first_control.y},
+                        {second_control.x, second_control.y}, {end.x, end.y});
+        return flatten_path(path, tolerance, start, end);
+    }
+    double dx = end.x - start.x, dy = end.y - start.y, length = std::hypot(dx, dy);
+    double a = length / 2, h = std::abs(bulge);
+    if (a <= 0 || h < 1e-9) {
+        return {start, end};
+    }
+    // The centre lies on the chord's perpendicular bisector, radius - |bulge|
+    // behind the midpoint handle. Angles are y-down parameter angles in
+    // degrees, as GraphicsPath::add_arc reads them; the sweep turns from the
+    // start through the handle.
+    double radius = (a * a + h * h) / (2 * h);
+    Point middle = mix(start, end, 0.5);
+    double offset = bulge - std::copysign(radius, bulge);
+    Point centre{middle.x - offset * dy / length, middle.y + offset * dx / length};
+    Point handle_point = at(0.5);
+    constexpr double degrees = 180.0 / 3.14159265358979323846;
+    double start_angle = std::atan2(start.y - centre.y, start.x - centre.x) * degrees;
+    double handle_angle = std::atan2(handle_point.y - centre.y, handle_point.x - centre.x) * degrees;
+    double half_turn = std::remainder(handle_angle - start_angle, 360.0);
+    double sweep = std::copysign(4 * std::atan2(h, a) * degrees, half_turn);
+    path.add_arc({centre.x - radius, centre.y - radius, 2 * radius, 2 * radius}, start_angle, sweep);
+    return flatten_path(path, tolerance, start, end);
+#else
     std::vector<Point> result{start};
     if (kind == CurveKind::Bezier) {
         flatten_bezier(start, first_control, second_control, end, tolerance, 0, result);
@@ -115,5 +182,6 @@ std::vector<Point> CurveGeometry::samples(double tolerance) const {
         }
     }
     return result;
+#endif
 }
 } // namespace paint

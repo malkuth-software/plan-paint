@@ -165,6 +165,26 @@ void Editor::initialize_control_tree() {
     (*canvas_).transparency_cell_size = 12;
     (*canvas_).canvas_background = gf::Color::rgba(0, 0, 0, 0);
     add_child(canvas_);
+    // The canvas text's editor, above the canvas and below the ribbon (see
+    // canvas_text in editor.hpp): no frames and no selection drawing, so the
+    // canvas's own text preview and overlay show through it.
+    canvas_text_ = gf::make_control<gf::ContentTextEditor>(gf::StableId("canvas-text"));
+    (*canvas_text_).set_multiline(true);
+    (*canvas_text_).set_accepts_tab(true);
+    (*canvas_text_).set_draws_selection(false);
+    (*canvas_text_).hit_test_transparent = true;
+    (*canvas_text_).visible = false;
+    (*canvas_text_).accessible_name = tr("Canvas text");
+    (*canvas_text_).accessible_description =
+        tr("Editable text box. Control or Command + Enter places it; Escape cancels.");
+    add_child(canvas_text_);
+    subscriptions_.push_back((*canvas_text_).layout_requested().subscribe(
+        *this, gf::Delegate<std::uint64_t>::bind<Editor, &Editor::canvas_text_layout_requested>(*this)));
+    subscriptions_.push_back((*canvas_text_).selection_changed().subscribe(
+        *this,
+        gf::Delegate<const gf::TextSelection&>::bind<Editor, &Editor::canvas_text_selection_changed>(*this)));
+    subscriptions_.push_back((*canvas_text_).focus_observed().subscribe(
+        *this, gf::Delegate<bool>::bind<Editor, &Editor::canvas_text_focus_changed>(*this)));
     ribbon_ = gf::make_control<Ribbon>(gf::StableId("ribbon"),
                                        std::static_pointer_cast<Editor>(shared_from_this()));
     add_child(ribbon_);
@@ -315,8 +335,11 @@ void Editor::arrange(gf::Rect bounds) {
     (*help_).visible = show_help && !pattern_editing;
     set_child_layout(
         help_, {bounds.width - sidebar, ribbon_height, sidebar, bounds.height - ribbon_height - footer});
-    set_child_layout(canvas_, {ruler, ribbon_height + ruler, bounds.width - ruler - sidebar,
-                               std::max(1.0, bounds.height - ribbon_height - ruler - footer)});
+    const gf::Rect canvas_area{ruler, ribbon_height + ruler, bounds.width - ruler - sidebar,
+                               std::max(1.0, bounds.height - ribbon_height - ruler - footer)};
+    set_child_layout(canvas_, canvas_area);
+    set_child_layout(canvas_text_, {canvas_area.x + canvas_text_region_.x, canvas_area.y + canvas_text_region_.y,
+                                    canvas_text_region_.width, canvas_text_region_.height});
     for (const std::shared_ptr<gf::Control>& control : std::vector<std::shared_ptr<gf::Control>>{
              status_, cursor_status_, selection_status_, dimensions_status_, zoom_reset_, zoom_out_,
              zoom_slider_, zoom_in_, tool_size_status_}) {
@@ -718,7 +741,7 @@ void Editor::refresh() {
                                      settings.solid_transparency ? gf::Color::rgba(alpha.r, alpha.g, alpha.b)
                                                                  : gf::Color::rgba(211, 215, 220));
     if (text.active) {
-        text.refresh(document.ink.primary, document.ink.secondary);
+        sync_canvas_text();
         Image composed = document.image;
         composite(composed, text.preview, text.bounds.x, text.bounds.y);
         document.constrain_selection(composed, document.image);
@@ -1293,7 +1316,7 @@ void Editor::begin(Point point, bool secondary) {
         text.begin(point);
         text.bounds.w = std::max(80, std::min(440, document.image.width - text.bounds.x));
         (*ribbon_).show_tool_context();
-        reset_text_caret();
+        start_canvas_text();
         refresh();
         return;
     }
@@ -1653,7 +1676,9 @@ void Editor::on_key_preview(gf::KeyEvent& event) {
         event.handled = true;
         return;
     }
-    if (window() && (*window()).focused_control() == canvas_ && text.active && text_key(event)) {
+    if (text.active && window() &&
+        ((*window()).focused_control() == canvas_text_ || (*window()).focused_control() == canvas_) &&
+        text_key(event)) {
         return;
     }
     if (stamp_placement_ && event.physical_key == gf::PhysicalKey::escape) {
