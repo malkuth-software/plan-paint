@@ -141,13 +141,14 @@ has been compiled.
      - **Kept:** `TextSession::replace`, `history` and `TextEditState::caret`/`anchor` stay in paint_core, because
        the retired SDL frontend (`src/text_canvas.cpp`, `RAINSTAR_LEGACY_UI`) still uses them; the GUI.Forms
        frontend no longer calls `replace` or `history`, and keeps caret and anchor only as the mirror it draws
-       from. Deleting them goes with retiring the legacy frontend (an owner choice).
+       from. They are kept for the retired frontend for now (coordinator, 2026-11-15) and are removable when that
+       frontend goes.
    - **Curves through GUI.Drawing's flattening** (GUI.Forms `claude/gd-flatten-raster` 0d7983c25): in the GUI.Forms
      build `CurveGeometry::samples` builds a `GraphicsPath` (the cubic, or the circular arc as an arc of its
      circle's bounds) and flattens it with `flattened_size` and `flatten` into its own arrays, keeping the exact
      end points. A tolerance past `maximum_flattened_points` is doubled until it fits. paint_core links
      `GUIForms::Application` privately and compiles with `RAINSTAR_GUI_DRAWING=1` (`cmake/GUIFormsFrontend.cmake`);
-     the frontend-free build keeps its own flattening. `execute_recorder` is not adopted: see decision D1 below.
+     the frontend-free build keeps its own flattening. `execute_recorder` is not adopted (decision D1 below, option 1).
 
 ## Tests that should cover it
 
@@ -180,16 +181,12 @@ has been compiled.
   - the GUI.Forms commit, cache release and the four cache digests;
   - the template_harness main commit.
   - Both move once, at the conformance rebase (template_harness's CONFORMANCE_PREP.md).
-- **D1, `execute_recorder` for Plan Paint's strokes (decision for the coordinator).** Plan Paint strokes curves,
-  paths and shapes with its own ink (`polygon(image, samples, ink, ...)`: brush heads, materials, patterns,
-  smoothing, supersampling, organic contours), which a GUI.Drawing `Pen` cannot express. Options:
-  1. Keep Plan Paint's ink for every stroke and use GUI.Drawing for geometry only (flattening, done). **Recommended:**
-     the pixels stay Plan Paint's content, as the interface/content split puts them.
-  2. Draw "plain" strokes (solid colour, no material or pattern) through `execute_recorder` into the document
-     buffer (`Bitmap::borrow`). Two rasterizers would then draw the same tool, with visibly different
-     antialiasing between plain and material ink.
-  3. Ask GUI.Forms for brush and material hooks in the recorder raster, so every stroke could move. A large
-     capability for one consumer; not proposed.
+- **D1, `execute_recorder` for Plan Paint's strokes: decided, option 1 (coordinator, 2026-11-15).** Plan Paint
+  keeps its own ink (`polygon(image, samples, ink, ...)`: brush heads, materials, patterns, smoothing,
+  supersampling, organic contours) for every stroke and uses GUI.Drawing for geometry only (the curve flattening).
+  This follows the content split: the customer owns layout and pixels, GUI.Forms owns editing. The alternatives
+  not taken: plain strokes through `execute_recorder` (two rasterizers for one tool), and brush and material
+  hooks in the recorder raster.
 - Settled by cp33 and the gaps (3f996bff4): no-frame paint draws nothing (question 1), measuring outside paint is
   not needed, Tab (`accepts_tab`), programmatic edits (`replace_selection`, `delete_selection`), the composition
   range, and transformed text (an affine layout transform, quads).
@@ -359,7 +356,7 @@ yet, because two pieces are still missing:
   entry that rasterizes a recording into a caller-owned bitmap outside paint. Routing Plan Paint's C++ through the C
   ABI and a copy would be a workaround, so it is not done.
 - Both requests are met since (GUI.Forms 0d7983c25, folded into cp33): the flattening is adopted for the curve
-  tools, and the raster entry (`gui_drawing::execute_recorder`) is decision D1 under "What still waits".
+  tools, and the raster entry (`gui_drawing::execute_recorder`) is not adopted: decision D1 under "What still waits".
 
 Stays Plan Paint's: flood fill, dithering, the warp mesh, the spirograph, icon codecs, and canvas text layout and
 rendering (stb_truetype: content, not interface).
