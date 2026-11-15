@@ -520,3 +520,8 @@ the last, on every exit path); `test_raster()` only observes it, and both tests 
 anything is laid out, so the attachment (a test local) detaches before the fixture's window goes. Not proved
 without a run: if the abort repeats, it now comes at the raster's creation, before any test, which would place
 it in `OffscreenRaster::create` (the process's bundled font set) and make it a GUI.Forms report.
+At b7e8dea both new checks passed; the suite then aborted in `superimpose_paste_tab_drawing_and_removal`, whose
+last line reset the fixture's window while the `HostSession` borrowing it still lived (its destructor's
+shutdown locked the dead window's dispatcher mutex). The reset is gone: the session, declared after the
+fixture, ends first. No other test resets a window a live session borrows (`live_canvas_damage_opacity_and_reuse`
+resets one but has no session).

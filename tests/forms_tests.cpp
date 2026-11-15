@@ -7217,7 +7217,8 @@ void superimpose_paste_tab_drawing_and_removal() {
     editor.execute("paste");
     require(editor.document.selection.active && !editor.document.selection.superimpose,
             "with Superimpose off, Paste makes an ordinary floating selection");
-    fixture.window.reset();
+    // The session borrows the fixture's window: it ends first (declared
+    // after the fixture), and the window goes with the fixture after it.
 }
 int main(int argc, char** argv) {
     // The framebuffer tests' raster (test_raster): owned here, made before
