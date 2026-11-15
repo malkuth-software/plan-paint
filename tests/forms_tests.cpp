@@ -20,6 +20,7 @@
 #include <gui_forms/controls/ribbon.hpp>
 #include <gui_forms/controls/ribbon_gallery.hpp>
 #include <gui_forms/theme/theme_compiler/theme_compiler.hpp>
+#include <gui_forms/capture/offscreen_raster/offscreen_raster.hpp>
 #include <gui_forms/text/text_store/text_store.hpp>
 #include <gui_forms/diagnostics/invalidation_overlay/invalidation_overlay.hpp>
 #include <iostream>
@@ -130,6 +131,22 @@ std::shared_ptr<paint::forms::Ribbon> plan_ribbon(gf::Window& window) {
         throw std::runtime_error("expected Plan Paint's ribbon");
     }
     return ribbon;
+}
+// The CPU raster a test window borrows for framebuffers (an
+// OffscreenAttachment): only a host or an attachment gives a window a
+// framebuffer painter, so a window without one makes no framebuffer
+// (Window::create_framebuffer returns null). Made once on the test thread
+// with the embedded font pack; destroyed at exit, after every attachment.
+gf::OffscreenRaster& test_raster() {
+    static std::unique_ptr<gf::OffscreenRaster> raster;
+    if (!raster) {
+        gf::OffscreenRasterCreateResult created = gf::OffscreenRaster::create();
+        if (!created.succeeded()) {
+            throw std::runtime_error("the offscreen test raster: " + created.detail());
+        }
+        raster = created.take_raster();
+    }
+    return *raster;
 }
 // A control by ID, or the ribbon's hosted control for the command `id`
 // (hosted controls are named "ribbon-bar.<id>").
@@ -5775,6 +5792,7 @@ void rotated_pan_shifts_the_frame_and_damages_the_handle() {
     // A copied pan: the handle keeps to the viewport's edge, so the copy's
     // stale pixels of it and its new place are both damaged.
     window.set_scroll_copies_supported(true);
+    const gf::OffscreenAttachment attachment(test_raster(), window);
     const gf::Size client = window.client_size();
     std::unique_ptr<gf::PaintFramebuffer> framebuffer = window.create_framebuffer(client, 1.0);
     const gf::Rect all{0, 0, client.width, client.height};
@@ -6647,6 +6665,9 @@ void canvas_pan_by_wheel_and_damage() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
     gf::Window& window = *fixture.window;
+    // The copied-pan half paints into a framebuffer; the raster is attached
+    // first so every measurement below uses its text metrics.
+    const gf::OffscreenAttachment attachment(test_raster(), window);
     editor.document.new_image(3000, 2000);
     editor.refresh();
     window.perform_layout();

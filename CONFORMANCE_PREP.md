@@ -501,3 +501,15 @@ the edge, keyline, taper, edge-shadow, swatch and dialog-text colours are applic
 `:root`, values unchanged), and zero-width transparent borders are `border: none`;
 `theme_package_compiles_without_warnings` requires a finding-free compile. Risk (unbuilt): an application role
 read in `taper`, `edge-shadow` or `keylines`, or an alpha role colour, if the compiler refuses either there.
+
+## Test framebuffers (M4 run of 27ec4cc)
+
+paint-forms stopped at "a test framebuffer is available" (rotated_pan_shifts_the_frame_and_damages_the_handle;
+canvas_pan_by_wheel_and_damage has the same check). Cause: `Window::create_framebuffer` asks the window's
+framebuffer painter, which only a host (the native hosts, the surface manager) or an `OffscreenAttachment`
+installs; the Fixture's window has neither, so it returned null. Neither test had been built before (3734f6c
+and the wheel-pan copy case were written unbuilt); this is no API change in the one-module SDK. Fix: both
+tests attach the window to one `gf::OffscreenRaster` (embedded font pack, made once per process,
+`test_raster()`), the wheel-pan test from its start so all its measurements use one set of text metrics.
+Risk: the rotated test attaches mid-way; the provider change relays the window out before the copied-pan
+half, which paints and clears damage first.
