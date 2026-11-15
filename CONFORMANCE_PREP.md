@@ -4,7 +4,9 @@ This branch gets Plan Paint ready for the GUI.Forms conformance rebase, so the r
 has been compiled.
 
 - **Base:** `claude/combined-build` 6909ad1 (the superset of PRs #48 and #49; never built at 6909ad1).
-- **GUI.Forms target:** main 96d36969311722531a6a41828b555c2e9fa9261e (checkpoint cp29 merged; package version 0.6.0).
+- **GUI.Forms target:** the integrator's `claude/batch-cp33` db7ce9306 (package version still 0.6.0). Items 1 to 7
+  below were made against main 96d36969 (cp29); item 8 brings the branch to cp33. The batch was rebuilt since
+  3b76c159a, which item 8 was first read against; the public C++ headers are the same at both.
 - **Pins:** not moved. `third_party/gui-forms.lock.json` and `harness.lock` carry a PLACEHOLDER marker. The
   conformance rebase writes the final values.
 
@@ -72,6 +74,47 @@ has been compiled.
    - The cp28 calls that 6909ad1 needs are on main: `Control::scroll_content`,
      `RasterCanvas::declare_paint_follows_view` and `SurfaceRoot::set_scroll_copies_supported`.
 
+8. **cp33** (`claude/batch-cp33` db7ce9306), in three commits:
+   - **XML forms** (d13e863): `forms/{about,english_help,tool_size}.form` converted with GUI.Forms'
+     `tools/convert_form_to_xml.py`.
+   - **The unified business card** (d13e863):
+     - Plan Paint's own `src/forms/business_card.*` is gone. `src/forms/identity.*` installs the program identity
+       (`gui_forms::set_program_identity`: product, version, vendor, website, the About box's copyright line, the
+       credits) right after `Application::create`.
+     - The Help page shows GUI.Forms' page card. Its open request shows the hand card; the hand card's website
+       request goes to Plan Paint's link opener (`set_website_opener`, a test seam).
+     - The D-held secondary press on the vendor name now toggles GUI.Forms' diagnostic overlay; the editor no longer
+       feeds key previews to a card. The Settings row reads `gui_forms::diagnostic_overlay()`.
+     - The two retired strings ("Invalidation overlay: on until Plan Paint closes" and the card's accessible name)
+       are replaced by "Diagnostic overlay: on" in all 22 language files. The translations are derived from each
+       file's existing overlay term plus its word for "on"; `scripts/check-languages.py` passes (1016 entries).
+   - **Font pack stage 4, STXlib's state, LC_CTYPE** (a44327a):
+     - GUI.Forms' interface faces are compiled into its libraries; `GUIForms_FONT_DIR` holds only their licences.
+       `packaging/fonts.txt` is gone. Bundles and packages carry those licences in `licenses/fonts`, and `fonts/`
+       holds only the canvas text tool's own faces (`assets/fonts/cairo-unicode`, `assets/fonts/poster`).
+     - The toolkit faces the text tool used to list (Carlito, Cousine, the Noto faces, Portsmouth Rapids) leave its
+       font list. Its default faces are still the embedded Portsmouth ones.
+     - The Linux launcher no longer exports `GUI_FORMS_FONT_DIR`, and `installed_fonts()` no longer reads it.
+     - The Windows build directory gets `stxlib_state` beside the GUI.Forms DLLs. Packages follow the dependency
+       closure.
+     - D15: `main` sets `LC_CTYPE` from the environment on Linux (the host no longer sets the locale), with the
+       `std-rules: allow(locale-change)` marker.
+   - **Checked, nothing to change:**
+     - final classes: no Plan Paint class derives from one of cp33's 363 final classes, and no override is of a
+       function cp33 made final;
+     - `WheelPhase` (appended last to the pointer and mouse arguments): Plan Paint builds no `MouseEventArgs`
+       by aggregate, and its wheel handlers (canvas zoom and pan, the colour plane, the dialogs, the gradient
+       strip) treat every phase alike;
+     - the static libc++ Linux link (66556d959) comes through the toolchain file, `template_harness`'s
+       `harness/cmake/llvm22.cmake`, which `scripts/native-build.sh` and `scripts/smoke-build.py` pass. Its
+       Linux block is added on template_harness's prep branch. Plan Paint's Linux package keeps its musl closure;
+       `scripts/package-linux.py` copies whatever the loader resolves, so a static C++ runtime simply leaves
+       libc++ out of it.
+   - **The canvas text tool on the content editing mode:** step 3 of the plan below, the layout conversion
+     (`src/forms/content_layout.*`, d448e08), is done with its tests. The control wiring waits for GUI.Forms gaps
+     (below).
+   - **Curve paths through GUI.Drawing 0.6:** not adopted; see "GUI.Forms primitives Plan Paint could source".
+
 ## Tests that should cover it
 
 - The full Plan Paint suite (68 tests at 33c065d), in particular:
@@ -80,6 +123,13 @@ has been compiled.
   - `canvas_pan_by_wheel_and_damage`;
   - `--pan-probe` for 6909ad1 (queue/claude__canvas-scroll-copy.md).
 - Configure against a 0.2 or cp28 SDK must stop at the probe with the pin message.
+- cp33 (item 8):
+  - `paint-forms` `business_card_and_hidden_overlay_switch` (the identity, the gesture on and off, the Settings
+    row, the hand card, the website press) and `canvas_text_content_layout`;
+  - the forms generation of the three XML forms (`gui_forms_add_form`);
+  - `paint-forms-native` text cases with the poster faces from `fonts/`;
+  - the packaging smoke runs on macOS, Windows and Linux: `licenses/fonts` present, no face taken from the SDK;
+  - a Linux run with an input method (LC_CTYPE).
 
 ## What still waits
 
@@ -87,12 +137,21 @@ has been compiled.
   - the GUI.Forms commit, cache release and the four cache digests;
   - the template_harness main commit.
   - Both move once, at the conformance rebase (template_harness's CONFORMANCE_PREP.md).
-- **cp32 (content boundary):** the canvas text tool moves onto GUI.Forms' content editing mode. The plan is below; the
-  API is on `claude/cp32-content-boundary`, not yet on main.
-- **cp33:**
-  - font pack stage 4;
-  - the final-virtuals cleanup, which may make more raisers or overrides final;
-  - the STXlib row-index switch, which does not touch Plan Paint directly.
+- **The canvas text tool's control wiring** (steps 1, 2 and 4 to 7 of the plan below). It waits for these GUI.Forms
+  gaps, reported to the coordinator; Plan Paint does not work around them:
+  - **Tab as input.** ContentTextEditor leaves Tab to focus navigation, and a multiline editor has no
+    `accepts_tab`. Plan Paint's canvas text inserts a tab today.
+  - **Programmatic insert and delete.** `replace_selection` and `delete_selection` stay on TextBox and RichTextBox;
+    TextBoxBase and ContentTextEditor have neither. The ribbon's Delete command on the canvas text, and any insert
+    from Plan Paint's own commands, need them.
+  - **The composition range** (question 3) is not public, so with `set_draws_selection(false)` Plan Paint cannot
+    underline marked text.
+  - **Transformed text** (question 5): the layout boxes are axis-aligned. The conversion uses bounding boxes, so on
+    skewed, perspective or warped text the editor's hit testing and the published boxes are approximate. This one
+    is acceptable to Plan Paint if GUI.Forms has no per-cluster quad planned.
+  - Settled by cp33 (d80a6ec6d): no-frame paint draws nothing (question 1), and measuring outside paint is not
+    needed, since Plan Paint lays out with its own engine.
+- **cp33's STXlib row-index switch** does not touch Plan Paint directly.
 - **STXlib boundary types** (the swap-in, Sequence step 4): Plan Paint's `std::string`, `std::vector` and
   `std::span` crossings of the GUI.Forms API will move to the owned boundary types when they land. Nothing to do
   before their headers exist.
@@ -242,6 +301,22 @@ The missing atomic: rasterizing a path, pen or brush into caller-owned pixels.
 - This belongs to the gd_* inventory and the drawing ABI seal (conformance Sequence, step 3). It is the one request to
   record there for Plan Paint.
 
+**Rechecked against cp33's sealed drawing ABI (1.0; curves 0.6, rotated text 0.7).** Curve paths are not adopted
+yet, because two pieces are still missing:
+- **The C++ seam has no rasterizer.** `gui_drawing::GraphicsPath` (C++) stores lines, quadratic and cubic Béziers,
+  arcs and pies, but nothing in the public C++ headers executes a `GraphicsRecorder` into a `Bitmap`. That path
+  exists only in the C ABI: `recorder_execute` into an owned `gd` bitmap, through the separate raster module
+  (`gdr_initialize`), then `bitmap_lock` to copy out. `recorder_paint_target` draws into lent pixels, but only from
+  a paint callback.
+- **There is no flattening query.** `GraphicsPath::path_points` returns the stored points, not a flattened polyline
+  at a tolerance. Plan Paint strokes its curves with its own ink (brush heads, smoothing, supersampling and
+  patterns: `polygon(image, samples, ink, ...)`), which GUI.Drawing's `Pen` does not express. So the useful piece is
+  the curve geometry: `GraphicsPath` plus a public `flatten(tolerance)` returning the polyline, which would replace
+  `CurveGeometry::samples` and `flatten_bezier`.
+- Requests for GUI.Forms (reported to the coordinator): a public path flattening at a stated tolerance, and a C++
+  entry that rasterizes a recording into a caller-owned bitmap outside paint. Routing Plan Paint's C++ through the C
+  ABI and a copy would be a workaround, so it is not done.
+
 Stays Plan Paint's: flood fill, dithering, the warp mesh, the spirograph, icon codecs, and canvas text layout and
 rendering (stb_truetype: content, not interface).
 
@@ -264,6 +339,16 @@ ctest --test-dir <plan-paint>/build --output-on-failure
   placeholder lock (cp22) and would fetch the old SDK.
 
 ## Risks not checked without a build
+
+cp33 (item 8):
+- The derived translations of "Diagnostic overlay: on" need a native reader's check.
+- The business card's layout on the Help page (its measure in `arrange`) has not been seen.
+- `canvas_text_content_layout` assumes the embedded Portsmouth face lays out "Plan the next step..." in more than
+  one row at 120 pixels; a much narrower face would make the wrap check vacuous, not wrong.
+- The Windows build-tree copy of `stxlib::state` assumes the target is a shared library in both the SDK and the
+  in-tree build.
+
+Earlier:
 
 - Calls on temporaries to the 51 accessors that now delete their `&&` overload.
 - Signature drift in calls whose names survived (the identifier check works on names only).
