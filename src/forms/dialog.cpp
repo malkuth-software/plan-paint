@@ -2,7 +2,7 @@
 #include "about_form.hpp"
 #include "english_help_form.hpp"
 #include "tool_size_form.hpp"
-#include <gui_forms/diagnostics/invalidation_overlay/invalidation_overlay.hpp>
+#include <gui_forms/components/business_card/business_card.hpp>
 #include "localization.hpp"
 #include "forms/interface_theme.hpp"
 #include "forms/atlas.hpp"
@@ -456,10 +456,10 @@ void EditorDialog::initialize_control_tree() {
         put(canvas_controls_, {530, 286, 216, 32});
         label("settings-accessibility-hint", tr("Use canvas controls to position the drawing cursor and draw without dragging."), {530, 334, 216, 105});
         (*std::static_pointer_cast<gf::Label>(controls_.back())).text_wrapping = gf::TextWrapping::word;
-        // Read-only: the business card's hidden switch is the only way on,
-        // and nothing turns it off before Plan Paint closes.
-        if (gf::invalidation_overlay_default()) {
-            label("settings-invalidation-overlay", tr("Invalidation overlay: on until Plan Paint closes"),
+        // Read-only: the business card's gesture (D held, a right-click on
+        // its vendor name) is the only switch, on and off.
+        if (gf::diagnostic_overlay()) {
+            label("settings-invalidation-overlay", tr("Diagnostic overlay: on"),
                   {530, 446, 216, 52});
             (*std::static_pointer_cast<gf::Label>(controls_.back())).text_wrapping = gf::TextWrapping::word;
         }

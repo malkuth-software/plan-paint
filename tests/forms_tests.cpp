@@ -3,7 +3,8 @@
 #include "cursors/tool_cursors.hpp"
 #include "fixtures/icon_reference.hpp"
 #include "forms/display.hpp"
-#include "forms/business_card.hpp"
+#include "forms/identity.hpp"
+#include <gui_forms/components/business_card/business_card.hpp>
 #include "forms/editor.hpp"
 #include "forms/ribbon.hpp"
 #include "icon_palette.hpp"
@@ -1046,53 +1047,68 @@ std::string card_link_opened;
 void record_card_link(const std::string& address) {
     card_link_opened = address;
 }
-// Malkuthsoft's card at the foot of the help book: a click opens the
-// website; holding D while right-clicking the name switches on the
-// invalidation overlay for the session (the name prints red) and Settings
-// shows that read-only. It runs last: the switch is the process's, and the
-// test turns it off again so no later window carries outlines.
+// Malkuthsoft's card at the foot of the help book is GUI.Forms' business
+// card printing Plan Paint's identity: a click opens it in the hand, where
+// the website goes to Plan Paint's opener; holding D while right-clicking the
+// vendor name toggles the diagnostic overlay, on and off, and Settings shows
+// it read-only while it is on. It runs last and leaves the overlay off.
 void business_card_and_hidden_overlay_switch() {
     Fixture fixture;
     gf::Window& window = *fixture.window;
     paint::forms::Editor& editor = *fixture.editor;
-    gf::set_invalidation_overlay_default(false);
+    paint::forms::install_program_identity();
+    paint::forms::set_website_opener(&record_card_link);
+    gf::set_diagnostic_overlay(false);
     static_cast<void>(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::f1}));
     window.perform_layout();
-    std::shared_ptr<paint::forms::BusinessCard> card =
-        std::dynamic_pointer_cast<paint::forms::BusinessCard>(find_control(window, "business-card"));
-    require(editor.show_help && card != nullptr, "the help book carries Malkuthsoft's business card");
-    require(paint::forms::BusinessCard::name == "Malkuthsoft" &&
-                paint::forms::BusinessCard::website == "https://malkuthsoft.com",
-            "the card names Malkuthsoft and links its website");
+    std::shared_ptr<gf::BusinessCard> card =
+        std::dynamic_pointer_cast<gf::BusinessCard>(find_control(window, "business-card"));
+    require(editor.show_help && card != nullptr, "the help book carries GUI.Forms' business card");
+    require(card != nullptr && (*card).presentation() == gf::BusinessCardPresentation::page,
+            "the help book's card lies on the page");
+    require(gf::program_identity().vendor == "Malkuthsoft" &&
+                gf::program_identity().website == "https://malkuthsoft.com" &&
+                gf::program_identity().product == "Plan Paint",
+            "the identity names Malkuthsoft, its website and Plan Paint");
+    if (card == nullptr) { return; }
     gf::Control::Ptr book = find_control(window, "help-book");
     (*std::static_pointer_cast<gf::ScrollableControl>(book)).scroll_control_into_view(card);
     window.perform_layout();
-    (*card).opener = &record_card_link;
-    const gf::Rect card_bounds = bounds_of(window, "business-card");
-    const gf::Rect band = window_rect(*card, (*card).name_band());
-    press_at(window, "business-card", {card_bounds.x + card_bounds.width / 2, card_bounds.bottom() - 12},
-             gf::PointerButton::primary);
-    require(card_link_opened == "https://malkuthsoft.com", "a click on the card opens malkuthsoft.com");
+    const gf::Rect band = window_rect(*card, (*card).vendor_name_band());
     press_at(window, "business-card", centre(band), gf::PointerButton::secondary);
-    require(!gf::invalidation_overlay_default(), "a right-click on the name alone changes nothing");
+    require(!gf::diagnostic_overlay(), "a right-click on the name alone changes nothing");
     static_cast<void>(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::d}));
-    require((*card).d_held, "the editor sees D held whatever has focus");
-    press_at(window, "business-card", {card_bounds.x + card_bounds.width / 2, card_bounds.bottom() - 12},
-             gf::PointerButton::secondary);
-    require(!gf::invalidation_overlay_default(), "D and a right-click off the name change nothing");
     press_at(window, "business-card", centre(band), gf::PointerButton::secondary);
-    require(gf::invalidation_overlay_default(), "holding D while right-clicking the name switches the overlay on");
-    static_cast<void>(window.dispatch_key({gf::KeyAction::up, gf::PhysicalKey::d}));
-    require(gf::invalidation_overlay_default() && !(*card).d_held, "releasing D is seen; the overlay stays on");
+    require(gf::diagnostic_overlay(), "holding D while right-clicking the name switches the overlay on");
     editor.execute("settings");
     window.perform_layout();
     require(shown(window, "settings-invalidation-overlay"), "Settings shows the overlay is on, read-only");
     routed_button(window, "dialog-cancel");
-    gf::set_invalidation_overlay_default(false);
+    press_at(window, "business-card", centre(band), gf::PointerButton::secondary);
+    require(!gf::diagnostic_overlay(), "the same gesture turns the overlay off again");
+    static_cast<void>(window.dispatch_key({gf::KeyAction::up, gf::PhysicalKey::d}));
     editor.execute("settings");
     window.perform_layout();
     require(!shown(window, "settings-invalidation-overlay"), "Settings shows nothing while the overlay is off");
     routed_button(window, "dialog-cancel");
+    // A click on the page card opens the window's card in the hand.
+    const gf::Rect card_bounds = window_rect(*card, (*card).card_bounds());
+    press_at(window, "business-card", {card_bounds.x + card_bounds.width / 2, card_bounds.bottom() - 12},
+             gf::PointerButton::primary);
+    window.perform_layout();
+    const std::shared_ptr<gf::BusinessCard> hand = gf::shown_business_card(window);
+    require(gf::business_card_shown(window) && hand != nullptr &&
+                (*hand).presentation() == gf::BusinessCardPresentation::hand,
+            "a click on the card shows it in the hand");
+    if (hand != nullptr) {
+        // In the hand the press action asks for the website.
+        static_cast<void>((*hand).on_semantic_action(gf::SemanticAction::press, {}));
+        require(card_link_opened == "https://malkuthsoft.com", "the hand card's website goes to Plan Paint's opener");
+    }
+    gf::hide_business_card(window);
+    require(!gf::business_card_shown(window), "hide_business_card puts the card away");
+    paint::forms::set_website_opener(nullptr);
+    gf::set_diagnostic_overlay(false);
 }
 // Without a running application's windowing (this fixture) a dialog opens
 // over the editor; in a running application it opens as an owned window of

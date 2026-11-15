@@ -1,5 +1,6 @@
 #include "localization.hpp"
 #include "forms/help.hpp"
+#include "forms/identity.hpp"
 #include "help_content.hpp"
 #include <algorithm>
 namespace paint::forms {
@@ -70,8 +71,38 @@ void HelpBook::initialize_control_tree() {
         add_child(header);
         add_child(body);
     }
-    card_ = gf::make_control<BusinessCard>(gf::StableId("business-card"));
+    card_ = gf::make_control<gf::BusinessCard>(gf::StableId("business-card"), gf::BusinessCardPresentation::page);
     add_child(card_);
+    card_open_ = (*card_).open_requested().subscribe(
+        *this, gf::Delegate<gf::BusinessCardRequest&>::bind<HelpBook, &HelpBook::card_open_requested>(*this));
+}
+void HelpBook::card_open_requested(gf::BusinessCardRequest& request) {
+    gf::BorrowedPointer<gf::Window> window = attached_window();
+    if (!window) { return; }
+    // Shown here rather than by the card's default, so the hand card's
+    // website request is routed before it can be pressed.
+    static_cast<void>(gf::show_business_card(*window));
+    request.handled = true;
+    const std::shared_ptr<gf::BusinessCard> hand = gf::shown_business_card(*window);
+    if (hand == nullptr || hand == hand_card_.lock()) { return; }
+    hand_website_.disconnect();
+    hand_card_ = hand;
+    hand_website_ = (*hand).website_requested().subscribe(
+        *this, gf::Delegate<gf::BusinessCardRequest&>::bind<HelpBook, &HelpBook::website_requested>(*this));
+}
+void HelpBook::website_requested(gf::BusinessCardRequest& request) {
+    const WebsiteOpener opener = website_opener();
+    const std::string& address = gf::program_identity().website;
+    if (opener != nullptr && !address.empty()) {
+        opener(address);
+        request.handled = true;
+    }
+}
+void HelpBook::on_dispose() noexcept {
+    card_open_.disconnect();
+    hand_website_.disconnect();
+    hand_card_.reset();
+    ScrollableControl::on_dispose();
 }
 gf::Event<gf::ButtonBase&>& HelpBook::close_clicked() {
     return (*close_).clicked();
@@ -102,14 +133,12 @@ void HelpBook::arrange(gf::Rect bounds) {
         rectangles.push_back({12, y, width, height});
         y += height + 7;
     }
-    // The card, centred under the topics at most 300 points wide, its
-    // shadow's room beside and below it.
-    const double card_width = std::min(300.0, width - 24);
-    const double card_height = card_width / BusinessCard::aspect;
+    // The card, centred under the topics at most 300 points wide; its
+    // measure includes the margin it keeps for its shadow and tilt.
+    const gf::Size card_size = (*card_).measure({std::min(300.0, width - 24), 100000});
     controls.push_back(card_);
-    rectangles.push_back({12 + (width - card_width) * 0.5, y + 12, card_width + BusinessCard::shadow_room,
-                          card_height + BusinessCard::shadow_room});
-    y += 12 + card_height + BusinessCard::shadow_room + 12;
+    rectangles.push_back({12 + (width - card_size.width) * 0.5, y + 12, card_size.width, card_size.height});
+    y += 12 + card_size.height + 12;
     arrange_scroll_viewport({bounds.width, bounds.height}, {width + 24, y + 5});
     gf::Point offset = scroll_position();
     for (std::size_t i = 0; i < controls.size(); ++i) {

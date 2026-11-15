@@ -1,4 +1,5 @@
 #include "forms/editor.hpp"
+#include "forms/identity.hpp"
 #include "command_line.hpp"
 #include "paths.hpp"
 #include "localization.hpp"
@@ -61,6 +62,8 @@ int main(int argc, char** argv) {
             return 1;
         }
         gui_forms::Application& application = *created.application;
+        // The identity GUI.Forms' business card prints, before any window.
+        paint::forms::install_program_identity();
         const std::shared_ptr<paint::forms::Editor> editor =
             gui_forms::make_control<paint::forms::Editor>(gui_forms::StableId("paint.editor"));
         try {
