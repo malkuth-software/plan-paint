@@ -95,10 +95,9 @@ has been compiled.
      - The toolkit faces the text tool used to list (Carlito, Cousine, the Noto faces, Portsmouth Rapids) leave its
        font list. Its default faces are still the embedded Portsmouth ones.
      - The Linux launcher no longer exports `GUI_FORMS_FONT_DIR`, and `installed_fonts()` no longer reads it.
-     - STXlib's shared state: no copy. The owner decided every delivered program is one module, with no native
-       library beside it (GUI.Forms `claude/one-module`, being written): GUI.Forms and libc++ link statically into
-       the executable. The Windows build-tree copy of the GUI.Forms DLLs stays only until one-module lands, and is
-       then removed (marked in `cmake/GUIFormsFrontend.cmake`).
+     - One module (GUI.Forms 66f82629b, folded): GUI.Forms, its threading library and STXlib's state link
+       statically into each executable. The Windows build-tree copy of the GUI.Forms DLLs is gone; the package
+       scripts follow the dependency closure, which now holds no first-party library.
      - D15: `main` sets `LC_CTYPE` from the environment on Linux (the host no longer sets the locale), with the
        `std-rules: allow(locale-change)` marker.
    - **Checked, nothing to change:**
@@ -154,8 +153,6 @@ has been compiled.
   - Settled by cp33 (d80a6ec6d): no-frame paint draws nothing (question 1), and measuring outside paint is not
     needed, since Plan Paint lays out with its own engine.
 - **cp33's STXlib row-index switch** does not touch Plan Paint directly.
-- **One module** (GUI.Forms `claude/one-module`): when it lands, remove the `paint-forms-runtime` copy of the
-  GUI.Forms DLLs and link statically. The package scripts' closures should then find no GUI.Forms library.
 - **STXlib boundary types** (the swap-in, Sequence step 4): Plan Paint's `std::string`, `std::vector` and
   `std::span` crossings of the GUI.Forms API will move to the owned boundary types when they land. Nothing to do
   before their headers exist.

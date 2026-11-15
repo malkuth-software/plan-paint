@@ -176,15 +176,8 @@ if(APPLE OR WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
       DEPENDS ${canvas_fonts}
       VERBATIM)
     add_custom_target(paint-forms-runtime DEPENDS "${forms_runtime_stamp}")
-    if(WIN32)
-      # Waits on GUI.Forms' one-module change: every delivered program is one
-      # module, with GUI.Forms and libc++ linked statically into the
-      # executable. This copy goes when it lands; nothing more is copied.
-      add_dependencies(paint-forms-runtime GUIForms::Application GUIForms::Threading)
-      add_custom_command(TARGET paint-forms-runtime POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:GUIForms::Application>" "$<TARGET_FILE:GUIForms::Threading>" "${forms_runtime_directory}"
-        VERBATIM)
-    endif()
+    # One module (GUI.Forms 66f82629b): GUI.Forms and its threading library
+    # link statically into each executable, so no library is copied here.
     foreach(forms_target IN ITEMS plan-paint paint-forms-native-tests paint-forms-tests)
       add_dependencies(${forms_target} paint-forms-runtime)
     endforeach()
