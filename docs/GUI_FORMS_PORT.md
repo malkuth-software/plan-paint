@@ -23,9 +23,10 @@ Every package script runs `scripts/check_system_libraries.py` on the program
 first: `otool -L` on macOS must show only `/System/` and `/usr/lib/`, the
 ELF `NEEDED` entries must be the C library and the X11, ATK and GLib
 libraries GUI.Forms' Linux host uses (and `ldd` must resolve each one in a
-system directory), and the Windows imports must be system DLLs. macOS still
-admits the shared libc++, libc++abi and libunwind of GUI.Forms' matched
-runtime until the harness links its archives, as Linux and Windows already do.
+system directory), and the Windows imports must be system DLLs. macOS admits the shared libc++, libc++abi and libunwind only
+while the harness toolchain found no static archives in the runtime tree
+(`HARNESS_STATIC_CXX_RUNTIME` OFF); with the archives it links them, as Linux
+and Windows do.
 
 | Platform | Compiler distribution | Build/runtime contract |
 | --- | --- | --- |

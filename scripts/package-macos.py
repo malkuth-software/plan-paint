@@ -44,10 +44,14 @@ def main():
         shutil.rmtree(app)
     binary_name = "plan-paint" if forms else "plan-paint-legacy"
     source_app = ROOT / build / (binary_name + ".app")
-    # One module: the program imports only /System and /usr/lib, besides the
-    # matched LLVM runtime's shared libc++ the macOS harness still links (it
-    # is bundled below; nothing else may be).
-    require_system_libraries([source_app / "Contents/MacOS" / binary_name], allow_shared_cxx_runtime=True)
+    # One module: the program imports only /System and /usr/lib. The shared
+    # libc++, libc++abi and libunwind are admitted (and bundled below) only
+    # while the harness toolchain found no static archives in the runtime
+    # tree (HARNESS_STATIC_CXX_RUNTIME OFF, template_harness llvm22.cmake);
+    # a tree without the entry predates that selection and links them shared.
+    static_runtime = re.search(r"^HARNESS_STATIC_CXX_RUNTIME:BOOL=ON$", cache, re.MULTILINE) is not None
+    shared_runtime = not static_runtime
+    require_system_libraries([source_app / "Contents/MacOS" / binary_name], allow_shared_cxx_runtime=shared_runtime)
     shutil.copytree(source_app, app)
     executable = app / "Contents/MacOS" / binary_name
     subprocess.check_call(["strip", "-S", "-x", str(executable)])
@@ -144,7 +148,7 @@ def main():
         runtime_path = "@executable_path/../Frameworks" if target == executable else "@loader_path"
         if runtime_path not in rpaths(target):
             run(["install_name_tool", "-add_rpath", runtime_path, str(target)])
-    require_system_libraries(sorted(seen), allow_shared_cxx_runtime=True)
+    require_system_libraries(sorted(seen), allow_shared_cxx_runtime=shared_runtime)
     if args.runtime:
         audit = ROOT / "template_harness/harness/audit_macos_minimum.py"
         subprocess.run([__import__("sys").executable, str(audit), str(app)], check=True)

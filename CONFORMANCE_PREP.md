@@ -567,13 +567,15 @@ closure); `tests/test_system_libraries.py` covers the classification, run by `na
 
 **Open, for the coordinator.**
 
-1. macOS still links the shared libc++, libc++abi and libunwind of GUI.Forms' matched runtime (the harness
-   `llvm22.cmake` macOS branch), so the macOS check passes `--allow-shared-cxx-runtime` and the package
-   bundles those three. Options: (a) port GUI.Forms' `llvm22.cmake` archive selection (libc++.a when the runtime
-   tree has it) into template_harness, so Plan Paint is one module on macOS too; (b) keep the admission until
-   the runtime tree ships archives. Recommendation: (a), as one harness change for every product.
-2. `package-linux.py` still copies the glibc-ABI closure of system libraries (libX11, ATK, GLib and their
-   dependencies) into `lib/`. Options: (a) stop copying and rely on the distribution's system libraries, as
+1. Decided (coordinator, option a): the harness `llvm22.cmake` follows GUI.Forms' selection (a15257db0) and
+   links the runtime's `libc++.a`, `libc++abi.a` and `libunwind.a` when present, setting
+   `HARNESS_STATIC_CXX_RUNTIME` (template_harness claude/conformance-prep 04b22df). `package-macos.py` admits
+   the shared trio only while that entry is OFF. **Dependency:** the archives come from Coder A's
+   template_harness claude/macos-static-libcxx (5411c1f); until it lands and the runtime tree carries them,
+   macOS still links and bundles the shared runtime, and Plan Paint's harness.lock must then move to a
+   harness with both branches.
+2. Open, with the owner (left as is until they answer): `package-linux.py` still copies the glibc-ABI closure
+   of system libraries (libX11, ATK, GLib and their dependencies) into `lib/`. Options: (a) stop copying and rely on the distribution's system libraries, as
    the check already requires; (b) keep the copies as a portability aid. Recommendation: (a), which is what
    "one module" says; it needs the owner's word because it changes which distributions the archive runs on.
 

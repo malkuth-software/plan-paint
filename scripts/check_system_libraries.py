@@ -15,9 +15,10 @@ host links, and every library `ldd` resolves lies in a system directory.
 PE: every DLL Name (`objdump -p`) is a Windows system DLL.
 
 --allow-shared-cxx-runtime admits libc++, libc++abi and libunwind: the macOS
-harness toolchain still links the shared runtime of GUI.Forms' matched LLVM
-tree (template_harness/harness/cmake/llvm22.cmake), which the macOS package
-bundles until the harness links its archives as Linux and Windows do.
+harness toolchain (template_harness/harness/cmake/llvm22.cmake) links the
+shared runtime when the LLVM tree has no static archives, and the macOS
+package then bundles them; package-macos.py passes it only while the build's
+HARNESS_STATIC_CXX_RUNTIME is OFF.
 """
 from pathlib import Path
 import argparse
