@@ -72,12 +72,12 @@ struct Fixture {
         window = std::make_unique<gf::Window>(editor, gf::Size{1280, 820}, resources);
         (*window).perform_layout();
     }
+    // A document point in window coordinates, through the canvas's exact
+    // inverse of its input mapping (the placed, snapped origin in a binary
+    // view), so a synthetic pointer maps back to (x, y).
     gf::Point position(double x, double y) {
         paint::forms::PaintCanvas& canvas = (*editor).canvas();
-        gui_drawing::PointF origin = canvas.view_origin.read();
-        const gui_drawing::PointF point = canvas.view_point({x, y});
-        return canvas.point_to_window(
-            {(point.x - origin.x) * canvas.zoom.read(), (point.y - origin.y) * canvas.zoom.read()});
+        return canvas.point_to_window(canvas.bitmap_point_to_client({x, y}));
     }
     bool pointer(gf::PointerAction action, double x, double y,
                  gf::PointerButton button = gf::PointerButton::primary,
@@ -4954,9 +4954,10 @@ void spirograph_resize_controls(int guide = 0, int insert = paint::spiro_default
     const paint::Point center = editor.spiro.center;
     fixture.drag(handle.x, handle.y, center.x + 1.5 * (handle.x - center.x),
                  center.y + 1.5 * (handle.y - center.y));
-    require(std::abs(editor.spiro.scale - 1.2) < 1e-8 &&
-                std::abs((*scale).value.read() - 1.2) < 1e-8 && !editor.canvas().has_pointer_capture(),
-            "rotated-view resize handle loses scale, numeric feedback or pointer release");
+    require(std::abs(editor.spiro.scale - 1.2) < 1e-8, "a rotated-view resize drag sets the apparatus scale");
+    require(std::abs((*scale).value.read() - 1.2) < 1e-8,
+            "a rotated-view resize drag shows the new scale in the spiro-scale field");
+    require(!editor.canvas().has_pointer_capture(), "a rotated-view resize drag releases the pointer");
     require(editor.spiro.angle == .75 && editor.spiro.pegs[0].loaded && editor.spiro.pegs[0].width == 3,
             "apparatus resizing changes the rolling phase or ink");
     const paint::Point resized_handle = editor.spiro.resize_position();

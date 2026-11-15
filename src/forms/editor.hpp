@@ -101,6 +101,11 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
 
     gui_forms::Rect bitmap_to_client(gui_drawing::RectI pixels) const noexcept;
     gui_drawing::PointF client_to_bitmap(gui_forms::Point client) const noexcept;
+    // The exact inverse of client_to_bitmap: a document point in client
+    // coordinates, from the bitmap origin as RasterCanvas places it (snapped
+    // to its device fraction in a binary view), so overlays and synthetic
+    // pointers land where input maps back.
+    gui_forms::Point bitmap_point_to_client(gui_drawing::PointF point) const noexcept;
     gui_drawing::PointF view_point(gui_drawing::PointF point) const noexcept;
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
 

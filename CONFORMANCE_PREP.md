@@ -525,3 +525,12 @@ last line reset the fixture's window while the `HostSession` borrowing it still 
 shutdown locked the dead window's dispatcher mutex). The reset is gone: the session, declared after the
 fixture, ends first. No other test resets a window a live session borrows (`live_canvas_damage_opacity_and_reuse`
 resets one but has no session).
+Next (c807db3): `spirograph_resize_controls` failed its combined rotated-view resize check, now three checks
+(scale, field, capture). Cause found from the code: in a binary view (zoom and device scale powers of two)
+`RasterCanvas::client_to_bitmap` uses the bitmap origin snapped to 2^-(23 - reach) device pixels, while the
+Fixture's `position` and `Editor::screen` used the unsnapped `view_origin`. After `rotate_view(.35)` the origin
+is no longer on that grid, so the synthetic drag mapped back up to about 1e-4 pixels off and the scale missed
+1.2 by about 1e-6 (the check allows 1e-8); the field shows the same scale, so it fails with it. Capture release
+is not implicated (the spiro up path releases it). Fix: `PaintCanvas::bitmap_point_to_client`, the exact inverse
+of `client_to_bitmap` (from the placed origin, `RasterCanvas::client_to_bitmap({0, 0})`); `Editor::screen` and
+the Fixture use it, so overlays and test pointers land where input maps. Not a GUI.Forms gap.

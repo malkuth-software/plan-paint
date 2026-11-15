@@ -457,10 +457,8 @@ void Editor::view_moved() {
     invalidate(gf::Rect{0, ribbon_height, 21, 20 + area.height});
 }
 gf::Point Editor::screen(Point point) const {
-    const gui_drawing::PointF mapped = (*canvas_).view_point({point.x, point.y});
-    gui_drawing::PointF origin = (*canvas_).view_origin.read();
-    double zoom = (*canvas_).zoom.read();
-    return {(mapped.x - origin.x) * zoom, (mapped.y - origin.y) * zoom};
+    const gf::Point client = (*canvas_).bitmap_point_to_client({point.x, point.y});
+    return client;
 }
 void Editor::paint_canvas_overlay(gf::Painter& painter, gf::Rect) {
     painter.save();
