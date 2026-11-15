@@ -7069,16 +7069,35 @@ void superimpose_paste_tab_drawing_and_removal() {
                     near_channel(shown_pixel.g, 0.05 * 255 + 0.95 * drawn.g),
                 "the composite follows the transparency and brightness");
     }
-    // A right-click on it removes it, and draws nothing.
-    fixture.pointer(gf::PointerAction::down, left + 30, top + 70, gf::PointerButton::secondary);
-    fixture.pointer(gf::PointerAction::up, left + 30, top + 70, gf::PointerButton::secondary);
+    // Right-button drawing (the second colour) also goes under it, and the
+    // image stays: only Escape removes it.
+    (*transparency).value = 50;
+    (*brightness).value = 0;
+    editor.document.ink.secondary = {250, 20, 50, 255};
+    const paint::Color alternate = editor.document.ink.secondary;
+    fixture.pointer(gf::PointerAction::down, left + 20, top + 70, gf::PointerButton::secondary);
+    fixture.pointer(gf::PointerAction::move, left + 60, top + 70, gf::PointerButton::secondary);
+    fixture.pointer(gf::PointerAction::up, left + 60, top + 70, gf::PointerButton::secondary);
     window.perform_layout();
-    require(!editor.document.superimposed.active && !shown(window, "superimpose-tab"),
-            "a right-click removes the superimposed image and its tab");
-    require(std::memcmp(before.pixels.data(), editor.document.image.pixels.data(),
-                        before.pixels.size() * sizeof(paint::Color)) == 0 &&
+    const paint::Color right_drawn = editor.document.image.get(left + 40, top + 70);
+    require(paint::equal(right_drawn, alternate) && !paint::equal(right_drawn, before.get(left + 40, top + 70)),
+            "right-button drawing paints the second colour under the superimposed image");
+    require(editor.document.superimposed.active && shown(window, "superimpose-tab"),
+            "a right-click does not remove the superimposed image");
+    {
+        const paint::Color shown_pixel = displayed(editor, left + 40, top + 70);
+        require(near_channel(shown_pixel.r, 0.5 * 220 + 0.5 * right_drawn.r) &&
+                    near_channel(shown_pixel.g, 0.5 * 30 + 0.5 * right_drawn.g),
+                "the right-button stroke shows through the superimposed image");
+    }
+    // Escape from a context with nothing selected removes it and its tab.
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                !editor.document.superimposed.active,
+            "Escape with nothing selected removes the superimposed image");
+    window.perform_layout();
+    require(!shown(window, "superimpose-tab") &&
                 paint::equal(displayed(editor, left + 40, top + 40), drawn),
-            "removing it restores the plain view of the unchanged picture");
+            "removing it takes the tab away and restores the plain view of the picture");
     // Two Escapes with nothing else selected: placement, then removal.
     editor.execute("paste");
     require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&

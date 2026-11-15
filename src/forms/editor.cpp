@@ -1213,17 +1213,6 @@ void Editor::pointer(const gf::PointerEvent& event) {
             if (event.button != gf::PointerButton::primary && event.button != gf::PointerButton::secondary) {
                 return;
             }
-            // A right-click on the superimposed image (or on a superimposed
-            // paste being placed) removes it; every other press goes to the
-            // work underneath.
-            if (event.button == gf::PointerButton::secondary &&
-                (document.superimposed.contains(point) ||
-                 (document.selection.active && document.selection.superimpose &&
-                  document.selection.contains(static_cast<int>(std::floor(point.x)),
-                                              static_cast<int>(std::floor(point.y)))))) {
-                remove_superimposed();
-                return;
-            }
             if ((event.button == gf::PointerButton::secondary &&
                  (document.tool == Tool::Path || document.tool == Tool::Stamp)) ||
                 (event.button == gf::PointerButton::primary && document.tool == Tool::Path && edit_path_nodes)) {

@@ -291,7 +291,9 @@ class Editor final : public gui_forms::Control {
     bool superimpose_paste = false;
     SuperimposeLook superimpose_look;
     // Removes the superimposed image, and a superimposed paste still being
-    // placed; the Superimpose tab goes with them.
+    // placed; the Superimpose tab goes with them. Reached by Escape from a
+    // context with nothing selected and by the tab's Remove; pointer presses
+    // never remove it (owner, 2026-11-15).
     void remove_superimposed();
     // Whether Escape now has nothing else to end (no selection, text,
     // stamp, warp, path or curve in progress), so it removes the

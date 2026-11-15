@@ -172,8 +172,9 @@ Code only, not compiled.
   while an image is superimposed or being placed, and selected after a superimposed paste or drop
   (`Ribbon::show_superimpose`). It holds Transparency (0 to 95), Brightness (-100 to +100) and Remove. The
   numbers change only `Editor::superimpose_look`, then the view.
-- **Removing it:** a right-click on it (or on the paste being placed); Escape when nothing else is in progress
-  (`escape_reaches_superimposed`: no selection, text, stamp, warp, path or curve); and the tab's Remove. With a
+- **Removing it:** Escape when nothing else is in progress (`escape_reaches_superimposed`: no selection, text,
+  stamp, warp, path or curve), and the tab's Remove. A right-click does not remove it: right-button drawing (Alt
+  colour) works over it as usual (owner, 2026-11-15). With a
   selection active, the first Escape ends the selection and the second removes the image. A superimposed paste
   still being placed is a selection, so a paste needs two Escapes as well.
 - **Strings:** "Superimpose" and "Brightness" are new in the 22 language packs. "Transparency" and "Remove"
@@ -189,14 +190,13 @@ Code only, not compiled.
      and opened files until removed;
   4. brightness from -100% to +100%, transparency from 0 to 95% (default 50%), so it never vanishes;
   5. the option and the look last for the session and are not saved in the settings;
-  6. a right-click anywhere on its rectangle removes it, so right-button drawing (Alt colour) is not possible
-     over it;
+  6. decided (owner, 2026-11-15): right-click draws; only Escape, Escape removes it (and the tab's Remove);
   7. the help pages do not describe it yet.
 - **Tests:**
   - `paint-forms` `superimpose_paste_tab_drawing_and_removal`: the option and the tab, no undo step, the first
     Escape placing it, the composite at the default look, the pencil drawing under it and showing through, the
-    controls changing the composite and not the picture, the right-click, the two-Escape rule with and without a
-    selection, and Paste with the option off;
+    controls changing the composite and not the picture, right-button drawing under it (the image stays), the
+    two-Escape rule with and without a selection, and Paste with the option off;
   - `paint-core` `test_superimpose`: the paste and commit in Document, and the blend arithmetic (50%, the 95% cap,
     brightness -100%).
 - **Risks (not checked without a build):**

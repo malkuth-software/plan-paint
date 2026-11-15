@@ -2,7 +2,8 @@
 // Superimpose (the paste option): an image laid over the work as a tracing
 // aid. It is drawn over the canvas in the view only: never merged into the
 // document's pixels, saved, exported or recorded for undo. The work below
-// shows through it, and drawing goes to the work underneath.
+// shows through it, and drawing with either button goes to the work
+// underneath. Only Escape (or the tab's Remove) takes it away.
 #include "image.hpp"
 namespace paint {
 struct SuperimposedImage {
