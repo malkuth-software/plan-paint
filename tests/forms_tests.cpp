@@ -2,6 +2,7 @@
 #include "conv.hpp"
 #include "cursors/tool_cursors.hpp"
 #include "fixtures/icon_reference.hpp"
+#include "forms/content_layout.hpp"
 #include "forms/display.hpp"
 #include "forms/identity.hpp"
 #include <gui_forms/components/business_card/business_card.hpp>
@@ -18,6 +19,7 @@
 #include <filesystem>
 #include <gui_forms/controls/ribbon.hpp>
 #include <gui_forms/controls/ribbon_gallery.hpp>
+#include <gui_forms/text/text_store/text_store.hpp>
 #include <gui_forms/diagnostics/invalidation_overlay/invalidation_overlay.hpp>
 #include <iostream>
 #include <optional>
@@ -6873,6 +6875,67 @@ void icon_production_contracts() {
         icon_states_contracts();
         icon_batch_contracts();
 }
+// The canvas text tool's layout as GUI.Forms' content layout
+// (forms/content_layout.hpp): every case must pass GUI.Forms' own validation.
+gf::ContentTextLayout canvas_text_layout(paint::TextSession& session, const std::string& text, double zoom) {
+    session.edit.content = text;
+    session.refresh({0, 0, 0, 255}, {255, 255, 255, 255});
+    gf::ContentTextLayout layout = paint::forms::content_layout(session, text, 7, zoom);
+    const gf::TextStore store(text);
+    const gf::ContentLayoutResult result = gf::validate_content_text_layout(layout, store, 7);
+    if (result != gf::ContentLayoutResult::accepted) {
+        const std::string message = "canvas text layout refused: " +
+            std::string(gf::content_layout_result_name(result)) + " for \"" + text + "\"";
+        throw std::runtime_error(message);
+    }
+    return layout;
+}
+void canvas_text_content_layout() {
+    paint::TextSession session;
+    session.begin({0, 0});
+    const gf::ContentTextLayout empty = canvas_text_layout(session, "", 1.0);
+    require(empty.lines.size() == 1 && empty.clusters.empty() && empty.carets.size() == 1,
+            "an empty canvas text is one empty line with one caret");
+    // A combining acute accent joins its base: two graphemes, not three code points.
+    const gf::ContentTextLayout combining = canvas_text_layout(session, "Ae\xCC\x81", 1.0);
+    require(combining.clusters.size() == 2 && combining.clusters[1].range.start == gf::Utf8Offset(1) &&
+                combining.clusters[1].range.end == gf::Utf8Offset(4) && combining.carets.size() == 3,
+            "a combining mark shares its base's cluster and caret stops");
+    // Woman, zero-width joiner, laptop: one emoji sequence, one cluster.
+    const gf::ContentTextLayout emoji = canvas_text_layout(session, "\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x92\xBB", 1.0);
+    require(emoji.clusters.size() == 1 && emoji.carets.size() == 2, "an emoji sequence is one cluster");
+    const gf::ContentTextLayout tab = canvas_text_layout(session, "a\tb", 1.0);
+    require(tab.clusters.size() == 3, "a tab is a cluster of its own");
+    const gf::ContentTextLayout trailing = canvas_text_layout(session, "ab\n", 1.0);
+    require(trailing.lines.size() == 2 && trailing.lines[0].range.end == gf::Utf8Offset(2) &&
+                trailing.lines[1].range.start == gf::Utf8Offset(3) &&
+                trailing.lines[1].range.end == gf::Utf8Offset(3),
+            "a final line break is in no line and leaves an empty last line");
+    session.resize({0, 0, 120, 400});
+    const std::string words = "Plan the next step and make something useful";
+    const gf::ContentTextLayout wrapped = canvas_text_layout(session, words, 1.0);
+    require(wrapped.lines.size() > 1 && wrapped.lines[1].range.start > gf::Utf8Offset(0) &&
+                wrapped.lines[1].range.start == wrapped.lines[0].range.end &&
+                wrapped.lines[1].bounds.y > wrapped.lines[0].bounds.y,
+            "a wrapped row is a line of its own, starting where the row before ends");
+    const gf::ContentTextLayout doubled = canvas_text_layout(session, words, 2.0);
+    require(std::abs(doubled.clusters[1].bounds.x - 2.0 * wrapped.clusters[1].bounds.x) < 1e-9 &&
+                std::abs(doubled.clusters[1].bounds.width - 2.0 * wrapped.clusters[1].bounds.width) < 1e-9,
+            "the editor's coordinates scale with the zoom");
+    session.style.skew = 0.35;
+    session.style.perspective = -0.6;
+    session.style.warp = 0.3;
+    static_cast<void>(canvas_text_layout(session, "Bent\ntext", 1.5));
+    session.style.skew = session.style.perspective = session.style.warp = 0;
+    session.edit.content = "BO";
+    session.refresh({0, 0, 0, 255}, {255, 255, 255, 255});
+    const gf::ContentTextLayout current = paint::forms::content_layout(session, "BO", 7, 1.0);
+    require(gf::validate_content_text_layout(current, gf::TextStore("BO"), 8) ==
+                gf::ContentLayoutResult::stale_revision,
+            "a layout for an earlier revision is stale");
+    const gf::ContentTextLayout foreign = paint::forms::content_layout(session, "BOX", 7, 1.0);
+    require(foreign.lines.empty(), "a layout of another text yields no lines");
+}
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "--icon-production") {
@@ -6901,6 +6964,7 @@ int main(int argc, char** argv) {
         selection_text_path_carpet_and_move();
         selection_skew_handles();
         text_caret_deadlines_damage_only_the_transformed_caret();
+        canvas_text_content_layout();
         pencil_is_independent_of_brush_material();
         backward_path_and_guide_connections();
         cancel_pending_lines_and_guide_preview();
