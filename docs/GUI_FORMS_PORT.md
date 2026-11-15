@@ -132,10 +132,11 @@ orientation, margins and pixel quadrants. Physical printer output and every
 scanner/desktop combination have not been verified. Missing optional desktop
 services produce an error rather than reporting success.
 
-New Linux builds target the GUI.Forms Ubuntu 24.04 ABI. Their archives bundle
-application libraries, fonts and X11 locale data; glibc and its loader remain
-system dependencies. Run the top-level `Plan Paint` launcher and retain the
-complete directory. Previously released 1.1.4 musl archives are unchanged. No package manager or network connection is needed to draw, use help,
+New Linux archives carry the program alone (owner, 2026-11-15: no build
+against any distribution's copies): the desktop's glibc, X11 or XWayland, ATK
+and GLib are used at run time, and no library, loader or X11 locale data is
+copied. Run the top-level `Plan Paint` launcher and retain the complete
+directory. Previously released 1.1.4 musl archives are unchanged. No package manager or network connection is needed to draw, use help,
 open or save pictures. The Mac application is signed ad hoc; the installer is
 unsigned and not Developer ID notarized.
 

@@ -574,10 +574,12 @@ closure); `tests/test_system_libraries.py` covers the classification, run by `na
    template_harness claude/macos-static-libcxx (5411c1f); until it lands and the runtime tree carries them,
    macOS still links and bundles the shared runtime, and Plan Paint's harness.lock must then move to a
    harness with both branches.
-2. Open, with the owner (left as is until they answer): `package-linux.py` still copies the glibc-ABI closure
-   of system libraries (libX11, ATK, GLib and their dependencies) into `lib/`. Options: (a) stop copying and rely on the distribution's system libraries, as
-   the check already requires; (b) keep the copies as a portability aid. Recommendation: (a), which is what
-   "one module" says; it needs the owner's word because it changes which distributions the archive runs on.
+2. Decided (owner, option a): "we dont build against any distro"; STXlib is to carry the C library; X11 and
+   XWayland support is sufficient for now. `package-linux.py` carries the program alone: no copied libraries,
+   loader or X11 locale data, the build-tree RUNPATH removed, and the check run on the build output and again
+   on the packaged program. A musl program is refused (it cannot use the desktop's glibc X11). The Linux
+   runtime notices (musl, X11 client, GLib, AT-SPI and their dependencies) leave `packaging/licenses/runtime`.
+   SwiftEdit's `tools/Package-Desktop.py` gets the same change on its claude/conformance-prep.
 
 **Risks not checked without a build.** libavif's LocalDav1d needs meson and ninja (and nasm on x86-64; without
 it dav1d may build without assembly or fail); its dav1d revision differs from the 54706fc6 the old script
