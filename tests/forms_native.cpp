@@ -17,6 +17,7 @@
 #include <functional>
 #include <gui_forms/controls/ribbon.hpp>
 #include <gui_forms/engine/part_table/engine_part_table.hpp>
+#include <map>
 #include <optional>
 #include <stxlib/optional.hpp>
 #include <gui_forms/paint_framebuffer.hpp>
@@ -225,6 +226,15 @@ std::string counter_text(std::optional<std::uint64_t> value) {
     const std::string text = value.has_value() ? std::to_string(*value) : std::string("n/a");
     return text;
 }
+// The look of a hovered tab's face in one capture (TabHoverProbe): its
+// device pixels, the colours among them, the most common colour's share
+// and the share of its one-pixel inner ring in another colour (percent).
+struct TabFace {
+    std::size_t pixels = 0;
+    std::size_t distinct = 0;
+    int dominant_share = 0;
+    int outline_share = 0;
+};
 // Whether `colour` lies within `tolerance` of `red`, `green`, `blue` on
 // every channel.
 bool near_colour(paint::Color colour, int red, int green, int blue, int tolerance) {
@@ -265,14 +275,16 @@ struct NativeExercise {
     bool pan_probe = false;
     // --tab-hover: the owner's steps for the Pencil tab (2026-11-17): choose
     // the Pencil tool, click the tool tab ("Pencil"), hover it; then the
-    // same on the Home tab for comparison. Each hovered tab settles for
-    // 200 ms, the ribbon is captured to a PNG and the engine's counters are
-    // printed before and after the hover. PAINT_TOOL_TAB_WIDTH sets the
-    // tool tab's authored width (142) for a variant run;
-    // PAINT_TAB_HOVER_DIR names the captures' directory (the temporary
-    // directory otherwise). The probe fails when the hovered selected
-    // Pencil tab shows the menu-item hot plate (#D5E9FA floor, #488BC4
-    // edge): the built-in recipe of the tab's hover layer.
+    // same on the Home tab for comparison. Each hovered tab is captured (the
+    // ribbon, to a PNG) and the engine's counters printed every 100 ms out
+    // to 1500 ms after the hover and once at 3 s, the window's pointer kept
+    // on the tab's centre. PAINT_TOOL_TAB_WIDTH sets the tool tab's
+    // authored width (142) for a variant run; PAINT_TAB_HOVER_DIR names the
+    // captures' directory (the temporary directory otherwise). The probe
+    // fails when the hovered selected Pencil tab shows the menu-item hot
+    // plate at any step (#D5E9FA floor, #488BC4 edge), or settles flat with
+    // a rectangular outline (one colour over 60% of its face and over 80%
+    // of its inner ring in another) while the Home tab does not.
     bool tab_hover_probe = false;
     bool tab_hover_done = false;
     std::string tab_hover_failure;
@@ -283,6 +295,12 @@ struct NativeExercise {
     gf::RasterCacheStatistics tab_hover_cache{};
     std::unique_ptr<gf::Timer> tab_hover_timer;
     gf::SubscriptionToken tab_hover_tick;
+    gf::Point tab_hover_point{};
+    std::chrono::steady_clock::time_point tab_hover_started{};
+    int tab_hover_ticks = 0;
+    std::string tab_hover_plate_seen;
+    TabFace tab_hover_last_face{};
+    TabFace tab_hover_pencil_end{};
     // --dialog-window: an editor dialog opens as a second, owned window, and
     // runs modally through show_modal. A failure found inside the nested
     // loop is kept here and reported after the run.
@@ -1108,10 +1126,12 @@ struct NativeExercise {
         }
         static_cast<void>(tab_hover_handle.request_close());
     }
-    // Clicks the tab, then hovers it; the settle timer captures it.
+    // Clicks the tab, then hovers it; the series timer captures it every
+    // 100 ms out to 1500 ms after the hover, and once more at 3 s.
     void tab_hover_begin(const std::string& id) {
         gf::Window& window = *tab_hover_window;
         tab_hover_id = id;
+        tab_hover_plate_seen.clear();
         const std::optional<gf::Rect> shown = ribbon_tab_rect(window, id);
         if (!shown) {
             tab_hover_fail("Tab hover probe: the ribbon shows no " + id);
@@ -1128,17 +1148,63 @@ struct NativeExercise {
         // The selected tab stands taller: hover the centre of where it is now.
         const std::optional<gf::Rect> selected = ribbon_tab_rect(window, id);
         const gf::Rect bounds = selected ? *selected : *shown;
-        const gf::Point hover{bounds.x + bounds.width / 2, bounds.y + bounds.height / 2};
+        tab_hover_point = {bounds.x + bounds.width / 2, bounds.y + bounds.height / 2};
         tab_hover_metrics = window.metrics_snapshot();
         tab_hover_cache = window.engine_parts().cache_statistics();
-        static_cast<void>(window.dispatch_pointer({gf::PointerAction::move, gf::PointerButton::none, hover}));
-        tab_hover_timer = std::make_unique<gf::Timer>(window, std::chrono::milliseconds(200));
+        static_cast<void>(window.dispatch_pointer({gf::PointerAction::move, gf::PointerButton::none, tab_hover_point}));
+        tab_hover_started = std::chrono::steady_clock::now();
+        tab_hover_ticks = 0;
+        tab_hover_timer = std::make_unique<gf::Timer>(window, std::chrono::milliseconds(100));
         const TabHoverTick tick{this};
         tab_hover_tick = (*tab_hover_timer).tick().subscribe(tick);
         (*tab_hover_timer).start();
     }
-    void tab_hover_settled() {
+    // One timer tick of the series: ticks 1 to 15 (100 to 1500 ms) and 30
+    // (3 s) capture; the last ends the tab's series.
+    void tab_hover_step() {
+        ++tab_hover_ticks;
+        gf::Window& window = *tab_hover_window;
+        // The engine reads the pointer the window last saw: keep it on the
+        // tab's centre, where the owner's pointer rests, whatever the real
+        // cursor does meanwhile (a move to the same point keeps the hover).
+        static_cast<void>(window.dispatch_pointer({gf::PointerAction::move, gf::PointerButton::none, tab_hover_point}));
+        if (tab_hover_ticks <= 15 || tab_hover_ticks == 30) {
+            tab_hover_capture();
+        }
+        if (!tab_hover_failure.empty() || tab_hover_ticks < 30) {
+            return;
+        }
         (*tab_hover_timer).stop();
+        if (tab_hover_id == "tool-tab") {
+            tab_hover_pencil_end = tab_hover_last_face;
+            if (!tab_hover_plate_seen.empty()) {
+                tab_hover_fail("The hovered selected Pencil tab showed the menu-item hot plate (" + tab_hover_plate_seen + ")");
+                return;
+            }
+            tab_hover_begin("home-tab");
+            return;
+        }
+        const TabFace& pencil = tab_hover_pencil_end;
+        const TabFace& home = tab_hover_last_face;
+        std::cout << "Tab hover end states at 3 s: Pencil dominant " << pencil.dominant_share << "% of " << pencil.pixels
+                  << " px (" << pencil.distinct << " colours, outline " << pencil.outline_share
+                  << "%); Home dominant " << home.dominant_share << "% of " << home.pixels << " px (" << home.distinct
+                  << " colours, outline " << home.outline_share << "%)\n"
+                  << std::flush;
+        // The owner's look: a flat face with a rectangular outline over it,
+        // unlike the Home tab's settled rise.
+        const bool pencil_flat = pencil.dominant_share >= 60 && pencil.outline_share >= 80;
+        const bool home_flat = home.dominant_share >= 60 && home.outline_share >= 80;
+        if (pencil_flat && !home_flat) {
+            tab_hover_fail("The hovered selected Pencil tab settles flat with a rectangular outline (dominant " +
+                           std::to_string(pencil.dominant_share) + "%, outline " + std::to_string(pencil.outline_share) +
+                           "%), unlike the Home tab");
+            return;
+        }
+        tab_hover_done = true;
+        static_cast<void>(tab_hover_handle.request_close());
+    }
+    void tab_hover_capture() {
         gf::Window& window = *tab_hover_window;
         window.perform_layout();
         const std::optional<gf::Rect> shown = ribbon_tab_rect(window, tab_hover_id);
@@ -1147,14 +1213,15 @@ struct NativeExercise {
             tab_hover_fail("Tab hover probe: " + tab_hover_id + " is gone after its hover");
             return;
         }
-        // Whether the tab is still hot: the real pointer, elsewhere, may
-        // have taken the hover away during the settle.
         bool hot = false;
         for (const gf::Ribbon::Tab& tab : (*bar).realized_tabs()) {
             if (tab.stable_id == tab_hover_id) {
                 hot = tab.states.hot;
             }
         }
+        const long long elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      std::chrono::steady_clock::now() - tab_hover_started)
+                                      .count();
         bool painted = false;
         const gf::Size client = window.client_size();
         const paint::Image frame = render_snapshot(window, client, painted);
@@ -1169,51 +1236,84 @@ struct NativeExercise {
                                                                      : std::filesystem::temp_directory_path();
         const char* width = std::getenv("PAINT_TOOL_TAB_WIDTH");
         const std::string variant = width && *width ? std::string("-w") + width : std::string();
-        const std::filesystem::path capture = folder / ("plan-paint-tab-hover-" + tab_hover_id + variant + ".png");
+        const std::string step = std::to_string(tab_hover_ticks * 100);
+        const std::filesystem::path capture =
+            folder / ("plan-paint-tab-hover-" + tab_hover_id + variant + "-" + std::string(4 - std::min<std::size_t>(4, step.size()), '0') + step + "ms.png");
         paint::save_image(captured, paint::path_to_utf8(capture));
-        // The hot plate's colours over the hovered tab.
+        // The tab's face: the hot plate's colours, the most common colour's
+        // share, the colours seen, and how much of its one-pixel inner ring
+        // differs from the most common colour (an outline).
+        const int left = std::max(0, static_cast<int>(std::floor((*shown).x * scale)));
+        const int top = std::max(0, static_cast<int>(std::floor((*shown).y * scale)));
+        const int right = std::min(frame.width, static_cast<int>(std::ceil(((*shown).x + (*shown).width) * scale)));
+        const int bottom = std::min(frame.height, static_cast<int>(std::ceil(((*shown).y + (*shown).height) * scale)));
         std::size_t edge = 0;
         std::size_t floor = 0;
-        const int left = static_cast<int>(std::floor((*shown).x * scale));
-        const int top = static_cast<int>(std::floor((*shown).y * scale));
-        const int right = static_cast<int>(std::ceil(((*shown).x + (*shown).width) * scale));
-        const int bottom = static_cast<int>(std::ceil(((*shown).y + (*shown).height) * scale));
-        for (int y = std::max(0, top); y < std::min(frame.height, bottom); ++y) {
-            for (int x = std::max(0, left); x < std::min(frame.width, right); ++x) {
+        std::map<std::uint32_t, std::size_t> counts;
+        for (int y = top; y < bottom; ++y) {
+            for (int x = left; x < right; ++x) {
                 const paint::Color pixel = frame.get(x, y);
                 if (near_colour(pixel, 0x48, 0x8b, 0xc4, 8)) { ++edge; }
                 if (near_colour(pixel, 0xd5, 0xe9, 0xfa, 3)) { ++floor; }
+                const std::uint32_t key = (static_cast<std::uint32_t>(pixel.r) << 16) |
+                                          (static_cast<std::uint32_t>(pixel.g) << 8) | pixel.b;
+                ++counts[key];
             }
+        }
+        std::uint32_t dominant = 0;
+        std::size_t dominant_count = 0;
+        std::size_t pixels = 0;
+        for (const std::pair<const std::uint32_t, std::size_t>& entry : counts) {
+            pixels += entry.second;
+            if (entry.second > dominant_count) {
+                dominant = entry.first;
+                dominant_count = entry.second;
+            }
+        }
+        // The ring one device pixel inside the tab's bounds.
+        std::size_t ring = 0;
+        std::size_t ring_other = 0;
+        for (int y = top + 1; y < bottom - 1; ++y) {
+            for (int x = left + 1; x < right - 1; ++x) {
+                const bool on_ring = y == top + 1 || y == bottom - 2 || x == left + 1 || x == right - 2;
+                if (!on_ring) { continue; }
+                const paint::Color pixel = frame.get(x, y);
+                const std::uint32_t key = (static_cast<std::uint32_t>(pixel.r) << 16) |
+                                          (static_cast<std::uint32_t>(pixel.g) << 8) | pixel.b;
+                ++ring;
+                if (key != dominant) { ++ring_other; }
+            }
+        }
+        TabFace face;
+        face.pixels = pixels;
+        face.distinct = counts.size();
+        face.dominant_share = pixels > 0 ? static_cast<int>(dominant_count * 100 / pixels) : 0;
+        face.outline_share = ring > 0 ? static_cast<int>(ring_other * 100 / ring) : 0;
+        tab_hover_last_face = face;
+        const std::size_t across = static_cast<std::size_t>(std::max(0, right - left));
+        if (tab_hover_id == "tool-tab" && (floor >= 16 || edge >= across / 2) && tab_hover_plate_seen.empty()) {
+            tab_hover_plate_seen = step + " ms: floor " + std::to_string(floor) + " px, edge " + std::to_string(edge) + " px";
         }
         const gf::MetricsSnapshot after = window.metrics_snapshot();
         const gf::RasterCacheStatistics cache = window.engine_parts().cache_statistics();
         const gf::MetricsSnapshot& before = tab_hover_metrics;
-        std::cout << "Tab hover probe " << tab_hover_id << " (width " << (*shown).width << ", painted "
-                  << (painted ? "yes" : "no") << ", hot " << (hot ? "yes" : "no")
-                  << "): engine_primitive_refusals " << before.engine_primitive_refusals
-                  << " -> " << after.engine_primitive_refusals << ", engine_dither_degradations "
-                  << before.engine_dither_degradations << " -> " << after.engine_dither_degradations
-                  << ", engine_built_in_fallbacks " << counter_text(built_in_fallbacks(before)) << " -> "
-                  << counter_text(built_in_fallbacks(after)) << ", engine_raster_failures "
-                  << counter_text(raster_failures(before)) << " -> " << counter_text(raster_failures(after))
-                  << ", keyframe_demand_bakes " << tab_hover_cache.keyframe_demand_bakes << " -> "
-                  << cache.keyframe_demand_bakes << ", keyframe_hits " << tab_hover_cache.keyframe_hits << " -> "
-                  << cache.keyframe_hits << ", bakes " << tab_hover_cache.bakes << " -> " << cache.bakes
-                  << "; hot-plate pixels: edge " << edge << ", floor " << floor << "; capture "
-                  << paint::path_to_utf8(capture) << "\n"
+        std::cout << "Tab hover " << tab_hover_id << " +" << step << " ms (measured " << elapsed << ", width "
+                  << (*shown).width << ", painted " << (painted ? "yes" : "no") << ", hot " << (hot ? "yes" : "no")
+                  << "): refusals " << before.engine_primitive_refusals << "->" << after.engine_primitive_refusals
+                  << ", dither_degradations " << before.engine_dither_degradations << "->"
+                  << after.engine_dither_degradations << ", built_in_fallbacks "
+                  << counter_text(built_in_fallbacks(before)) << "->" << counter_text(built_in_fallbacks(after))
+                  << ", raster_failures " << counter_text(raster_failures(before)) << "->"
+                  << counter_text(raster_failures(after)) << ", keyframe_demand_bakes "
+                  << tab_hover_cache.keyframe_demand_bakes << "->" << cache.keyframe_demand_bakes
+                  << ", keyframe_idle_bakes " << tab_hover_cache.keyframe_idle_bakes << "->"
+                  << cache.keyframe_idle_bakes << ", keyframe_hits " << tab_hover_cache.keyframe_hits << "->"
+                  << cache.keyframe_hits << ", idle_keyframes_queued " << cache.idle_keyframes_queued << ", hits "
+                  << tab_hover_cache.hits << "->" << cache.hits << ", bakes " << tab_hover_cache.bakes << "->"
+                  << cache.bakes << "; face: dominant " << face.dominant_share << "% of " << face.pixels << " px, "
+                  << face.distinct << " colours, outline " << face.outline_share << "%; hot plate: floor " << floor
+                  << ", edge " << edge << "; " << paint::path_to_utf8(capture) << "\n"
                   << std::flush;
-        const std::size_t tab_pixels_across = static_cast<std::size_t>(std::max(0, right - left));
-        if (tab_hover_id == "tool-tab") {
-            if (floor >= 16 || edge >= tab_pixels_across / 2) {
-                tab_hover_fail("The hovered selected Pencil tab shows the menu-item hot plate (#D5E9FA floor " +
-                               std::to_string(floor) + " px, #488BC4 edge " + std::to_string(edge) + " px)");
-                return;
-            }
-            tab_hover_begin("home-tab");
-            return;
-        }
-        tab_hover_done = true;
-        static_cast<void>(tab_hover_handle.request_close());
     }
     // An editor dialog in a window of its own: first driven from this loop
     // (modal_dialogs off), then modally through show_modal.
@@ -2104,7 +2204,7 @@ struct WindowsFixtureReady {
 } // namespace
 void TabHoverTick::operator()() const {
     try {
-        (*exercise).tab_hover_settled();
+        (*exercise).tab_hover_step();
     } catch (const std::exception& failure) {
         (*exercise).tab_hover_fail(failure.what());
     }
