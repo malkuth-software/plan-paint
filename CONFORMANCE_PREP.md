@@ -10,6 +10,30 @@ has been compiled.
 - **Pins:** not moved. `third_party/gui-forms.lock.json` and `harness.lock` carry a PLACEHOLDER marker. The
   conformance rebase writes the final values.
 
+## Port to GUI.Forms #483 (claude/conformance-port)
+
+`claude/conformance-port` ports this branch (2a1182c) to GUI.Forms #483 (`checkpoint/2026-11-15-cp32`, read at
+48a8560a6), from the integrator's conformance build of 2a1182c (146 distinct errors in 32 frontend sources; the
+tests were not reached). Not compiled.
+
+- **stxlib::Optional (D15 V1).** Optional properties are written with `Optional::of`: ComboBox and ListBox
+  `selected_index`, the Ribbon's `selected_tab`, Label `font`, Control `cursor`. Optional fields
+  likewise: `SurfaceMaterial::border` and its edges, `MaterialDeclaration::drop_shadow`, `SemanticDescriptor`
+  numeric, minimum and maximum values, `ContentTextLayout::transform`. Reads use `present()`, `absent()` and
+  `*value()` on a named Optional (`value()` on a temporary does not compile). The selected-index handlers and their
+  `Delegate`s take `stxlib::Optional<std::size_t>`; `affine_display` returns `stxlib::Optional`. Tests compare an
+  index with `Optional::of(n)`. Plan Paint's own optionals (ink, curve kinds, sticky notes, the editor's cursor
+  point, command bounds) and GUI.Forms' remaining `std::optional` surfaces (`GalleryCommand::value`,
+  `Ribbon::overlay_group`) stay `std::optional`.
+- **Renames.** `HorizontalAlignment::far`/`near` are `end`/`start`; `RibbonCommandSize::small` and
+  `RibbonGroupSize::small` are `compact`. The forms and theme have no near/far values.
+- **Text stack.** The toolkit no longer carries HarfBuzz, FreeType or SheenBidi. `copy_toolkit_notices` takes the
+  notices from an installed SDK only (the source-tree list named files #483 no longer has), and
+  THIRD_PARTY_NOTICES names STXlib instead.
+- **claude/static-codecs** (2a1182c plus the Superimpose fixes and the static codecs, 5ce174f) still needs merging
+  onto the port: `git merge-tree` shows one textual conflict, in tests/forms_tests.cpp, and its added code has none
+  of the patterns above.
+
 ## What was adapted
 
 1. **Flat control headers** (`tools/control_header_moves.json` in GUI.Forms; the old spellings do not compile):
@@ -366,7 +390,7 @@ rendering (stb_truetype: content, not interface).
 Against a local GUI.Forms SDK of the target commit, on the M4 (LLVM 22, the GUI.Forms build recipe):
 
 ```sh
-# 1. The SDK, from a GUI.Forms checkout at 96d36969 (or the conformance release):
+# 1. The SDK, from a GUI.Forms checkout at #483 (claude/conformance-port) or 96d36969 (conformance-prep):
 python3 -B tools/build_sdk.py --target macos-arm64 --prefix <sdk> --features all
 # 2. Plan Paint against it (GUIFormsFrontend.cmake takes the find_package path):
 cmake -S <plan-paint> -B <plan-paint>/build -G Ninja \
