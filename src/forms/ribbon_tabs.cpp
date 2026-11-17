@@ -101,6 +101,17 @@ gf::MenuItemSpec Ribbon::menu_item(const std::string& id, const std::string& tex
     }
     return {row, gf::MenuItemKind::command, row_command, text};
 }
+gf::MenuItemSpec Ribbon::menu_check(const std::string& id, const std::string& text) {
+    gf::MenuItemSpec spec = menu_item(id, text);
+    spec.kind = gf::MenuItemKind::check;
+    return spec;
+}
+void Ribbon::set_menu_checked(const std::string& id, bool checked) {
+    const std::map<std::string, std::shared_ptr<gf::Command>>::iterator found = menu_commands_.find("choice-" + id);
+    if (found != menu_commands_.end() && (*(*found).second).state().checked != checked) {
+        (*(*found).second).set_checked(checked);
+    }
+}
 gf::RibbonCommandSpec Ribbon::button(const std::string& id, const std::string& text, int image_index, Size size,
                                      Kind kind) {
     gf::RibbonCommandSpec spec;
@@ -226,7 +237,10 @@ gf::RibbonTabSpec Ribbon::home_tab() {
 
     gf::RibbonGroupSpec clipboard = group("clipboard", "");
     gf::RibbonCommandSpec paste = button("paste", tr("Paste"), 0, Size::large, Kind::split);
-    paste.drop_down = {menu_item("paste", tr("Paste")), menu_item("open", tr("Open image…"))};
+    // Superimpose is a mode of Paste (and of dropping an image file): the
+    // next paste lies over the work as a tracing aid instead of joining it.
+    paste.drop_down = {menu_item("paste", tr("Paste")), menu_item("open", tr("Open image…")),
+                       menu_check("superimpose-paste", tr("Superimpose"))};
     clipboard.commands.push_back(std::move(paste));
     tab.groups.push_back(std::move(clipboard));
 
@@ -806,9 +820,27 @@ gf::RibbonTabSpec Ribbon::gradient_tab() {
     return tab;
 }
 
+// The contextual tab of a superimposed image: how it is drawn over the work,
+// and Remove (as a right-click on it, or Escape with nothing selected).
+gf::RibbonTabSpec Ribbon::superimpose_tab() {
+    gf::RibbonTabSpec tab;
+    tab.stable_id = "superimpose-tab";
+    tab.text = tr("Superimpose");
+    tab.tab_set = "superimpose-tools";
+    gf::RibbonGroupSpec look = group("superimpose-look", tr("Superimpose"));
+    look.layouts = {paired_rows()};
+    number(look, "superimpose-transparency", tr("Transparency"));
+    number(look, "superimpose-brightness", tr("Brightness"));
+    tab.groups.push_back(std::move(look));
+    gf::RibbonGroupSpec remove = group("superimpose-remove-group", "");
+    remove.commands.push_back(button("superimpose-remove", tr("Remove"), -1, Size::large));
+    tab.groups.push_back(std::move(remove));
+    return tab;
+}
+
 std::vector<gf::RibbonTabSpec> Ribbon::build_tabs() {
     std::vector<gf::RibbonTabSpec> tabs;
-    tabs.reserve(9);
+    tabs.reserve(10);
     tabs.push_back(home_tab());
     tabs.push_back(view_tab());
     tabs.push_back(materials_tab());
@@ -825,6 +857,10 @@ std::vector<gf::RibbonTabSpec> Ribbon::build_tabs() {
     icon_tab.text = tr("Icon");
     icon_tab.tab_set = "icon-tools";
     tabs.push_back(std::move(icon_tab));
+    // Contextual tabs come after the core tabs, together and in the order
+    // apply_tabs declares their sets (gf::Ribbon::set_tabs refuses others):
+    // text, spirograph, gradient, icon, superimpose.
+    tabs.push_back(superimpose_tab());
     // The original tab row's widths (the earlier strip's tab buttons); the
     // contextual text and spirograph tabs keep their labels' widths.
     const std::pair<const char*, double> widths[] = {{"home-tab", 61},  {"view-tab", 63},   {"patterns-tab", 100},
@@ -861,10 +897,12 @@ void Ribbon::apply_tabs() {
     if (signature == tabs_signature_) {
         return;
     }
+    // The sets' order is the contextual tabs' order in build_tabs.
     std::vector<gf::RibbonTabSetSpec> sets = {{"text-tools", tr("Text tools")},
                                               {"spiro-tools", tr("Spirograph tools")},
                                               {"gradient-tools", tr("Gradient tools")},
-                                              {"icon-tools", tr("Icon tools")}};
+                                              {"icon-tools", tr("Icon tools")},
+                                              {"superimpose-tools", tr("Superimpose")}};
     (*bar_).set_tabs(std::move(tabs), std::move(sets));
     tabs_signature_ = signature;
     bind_hosted();
@@ -905,6 +943,8 @@ void Ribbon::bind_hosted() {
         {"sticky-height", &Ribbon::sticky_height_, 24, 4096, 192, 0},
         {"gradient-angle", &Ribbon::gradient_angle_, 0, 360, 0, 1},
         {"gradient-position", &Ribbon::gradient_position_, 0, 100, 0, 1},
+        {"superimpose-transparency", &Ribbon::superimpose_transparency_, 0, superimpose_maximum_transparency, 50, 0},
+        {"superimpose-brightness", &Ribbon::superimpose_brightness_, -100, 100, 0, 0},
     };
     struct ComboSpec {
         const char* id;
@@ -955,6 +995,8 @@ void Ribbon::bind_hosted() {
         entry.control = control;
         entry.changed = (*control).value_changed().subscribe(
             *this, id.starts_with("gradient-") ? gf::Delegate<double>::bind<Ribbon, &Ribbon::gradient_number_changed>(*this)
+                   : id.starts_with("superimpose-")
+                       ? gf::Delegate<double>::bind<Ribbon, &Ribbon::superimpose_number_changed>(*this)
                    : id == "spiro-scale"       ? gf::Delegate<double>::bind<Ribbon, &Ribbon::spiro_scale_changed>(*this)
                                                : gf::Delegate<double>::bind<Ribbon, &Ribbon::options_changed>(*this));
     }

@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "Establecer como fondo de escritorio (centrado)",
   "Set as desktop background (fill)": "Establecer como fondo de escritorio (relleno)",
   "Set as desktop background (tile)": "Establecer como fondo de escritorio (mosaico)",
-  "Diagnostic overlay: on": "Superposición de invalidación: activa"
+  "Diagnostic overlay: on": "Superposición de invalidación: activa",
+  "Superimpose": "Superponer",
+  "Brightness": "Brillo"
 }

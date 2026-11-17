@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "Definir como plano de fundo (centralizar)",
   "Set as desktop background (fill)": "Definir como plano de fundo (preencher)",
   "Set as desktop background (tile)": "Definir como plano de fundo (lado a lado)",
-  "Diagnostic overlay: on": "Sobreposição de invalidação: ativa"
+  "Diagnostic overlay: on": "Sobreposição de invalidação: ativa",
+  "Superimpose": "Sobrepor",
+  "Brightness": "Brilho"
 }

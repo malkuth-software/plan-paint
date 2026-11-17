@@ -174,6 +174,62 @@ tests were not reached). Not compiled.
      `GUIForms::Application` privately and compiles with `RAINSTAR_GUI_DRAWING=1` (`cmake/GUIFormsFrontend.cmake`);
      the frontend-free build keeps its own flattening. `execute_recorder` is not adopted (decision D1 below, option 1).
 
+## Superimpose (claude/superimpose, stacked on 2a1182c)
+
+The owner's new feature: an image laid over the work as a tracing aid, so the picture can be drawn underneath it.
+Code only, not compiled.
+
+- **The option:** Paste's drop-down gains a check row, Superimpose (`superimpose-paste`). It is a mode of Paste:
+  a clipboard paste, a clipboard file and an image file dropped on the window all follow it.
+- **Placing it:** with the option on, `Document::paste(..., superimpose = true)` makes a floating selection marked
+  `superimpose`, moved and scaled like any paste. It records no undo step and never enlarges the canvas.
+  Committing it (`Document::commit_selection`, so Escape or anything else that commits a paste) makes
+  `Document::superimposed` of it instead of merging it. `FloatingSelection::composite_onto` never draws a
+  superimposed paste into a picture.
+- **Drawing:** the view draws it. `publish_image` for the canvas goes through `PaintCanvas::superimposed_source`,
+  which blends the image (or the paste being placed) over the composed picture in a scratch image the canvas owns.
+  That covers only the published damage when it is partial, so a brush stroke recomposes only its own pixels. It
+  lies in document pixels, so it pans, zooms and tilts with the canvas. Tools draw on the picture underneath.
+  `superimpose_onto` (`src/superimpose.*`, in paint_core) blends source over destination: the image's colour,
+  adjusted by the brightness, at its alpha times (1 - transparency), over the work.
+- **The tab:** a contextual tab set, `superimpose-tools` (tab `superimpose-tab`, "Superimpose"). It is available
+  while an image is superimposed or being placed, and selected after a superimposed paste or drop
+  (`Ribbon::show_superimpose`). It holds Transparency (0 to 95), Brightness (-100 to +100) and Remove. The
+  numbers change only `Editor::superimpose_look`, then the view.
+- **Removing it:** Escape when nothing else is in progress (`escape_reaches_superimposed`: no selection, text,
+  stamp, warp, path or curve), and the tab's Remove. A right-click does not remove it: right-button drawing (Alt
+  colour) works over it as usual (owner, 2026-11-15). With a
+  selection active, the first Escape ends the selection and the second removes the image. A superimposed paste
+  still being placed is a selection, so a paste needs two Escapes as well.
+- **Strings:** "Superimpose" and "Brightness" are new in the 22 language packs. "Transparency" and "Remove"
+  already existed.
+- **GUI.Forms seams:** the ribbon's contextual tab sets and hosted numbers, a check row in a split button's
+  drop-down (`MenuItemKind::check` with the row's Command), drag and drop, and the clipboard. No GUI.Forms gap
+  found. Plan Paint composes all the pixels.
+- **Defaults chosen, open owner questions:**
+  1. one superimposed image at a time (a new superimposed paste replaces it);
+  2. it is placed with the normal paste placement (move and scale) before it is committed. While placed it is
+     already drawn see-through, at the tab's look;
+  3. it is a view aid: not saved, not exported, not on the undo stack, and kept across picture edits, new pictures
+     and opened files until removed;
+  4. brightness from -100% to +100%, transparency from 0 to 95% (default 50%), so it never vanishes;
+  5. the option and the look last for the session and are not saved in the settings;
+  6. decided (owner, 2026-11-15): right-click draws; only Escape, Escape removes it (and the tab's Remove);
+  7. the help pages do not describe it yet.
+- **Tests:**
+  - `paint-forms` `superimpose_paste_tab_drawing_and_removal`: the option and the tab, no undo step, the first
+    Escape placing it, the composite at the default look, the pencil drawing under it and showing through, the
+    controls changing the composite and not the picture, right-button drawing under it (the image stays), the
+    two-Escape rule with and without a selection, and Paste with the option off;
+  - `paint-core` `test_superimpose`: the paste and commit in Document, and the blend arithmetic (50%, the 95% cap,
+    brightness -100%).
+- **Risks (not checked without a build):**
+  - whether a ribbon drop-down shows a check row's mark from its Command;
+  - the pencil pixel the test reads (a one-pixel stroke from a drag along a row);
+  - a damage-limited publish after the image moved without a full refresh would leave stale composite pixels
+    outside the damage. Every placement change refreshes in full today;
+  - an undo during placement restores the selection from its snapshot and drops the paste being placed.
+
 ## Tests that should cover it
 
 - The full Plan Paint suite (68 tests at 33c065d), in particular:
@@ -457,3 +513,100 @@ Earlier:
    ends, but it is the work the material change starts; moving the tile render to a worker and the image
    replacement out of `on_paint` (to the settings change) is done in 3eac5ec: `request_backing` renders on a
    worker, `deliver_backing` loads the image outside paint, and paint shows the plain colour until then.
+
+## Dogfood start fix (owner report on 3df9631)
+
+The dogfood build exited at start with "Ribbon contextual tabs come together, in their sets' order": the
+Superimpose tab stood between the gradient and icon tabs while its set was declared after icon-tools. The tab
+now follows the icon tab, in the declared order (text, spirograph, gradient, icon, superimpose);
+`ribbon_accepts_every_contextual_tab_set` builds the themed ribbon and checks every set is declared, has a
+tab, comes after the core tabs and keeps the order. The 18 W201 warnings from `plan-paint.theme.css` are gone:
+the edge, keyline, taper, edge-shadow, swatch and dialog-text colours are application roles (`color-roles` in
+`:root`, values unchanged), and zero-width transparent borders are `border: none`;
+`theme_package_compiles_without_warnings` requires a finding-free compile, with the stock control anatomies
+and the built-in effects as GUIForms::theme_check compiles it (without the anatomies every stock type name was
+W106 unknown_selector_name: 51 findings on the M4, fixed in the follow-up commit). Risk (unbuilt): an application role
+read in `taper`, `edge-shadow` or `keylines`, or an alpha role colour, if the compiler refuses either there.
+
+## Test framebuffers (M4 run of 27ec4cc)
+
+paint-forms stopped at "a test framebuffer is available" (rotated_pan_shifts_the_frame_and_damages_the_handle;
+canvas_pan_by_wheel_and_damage has the same check). Cause: `Window::create_framebuffer` asks the window's
+framebuffer painter, which only a host (the native hosts, the surface manager) or an `OffscreenAttachment`
+installs; the Fixture's window has neither, so it returned null. Neither test had been built before (3734f6c
+and the wheel-pan copy case were written unbuilt); this is no API change in the one-module SDK. Fix: both
+tests attach the window to one `gf::OffscreenRaster` (embedded font pack, made once per process,
+`test_raster()`), the wheel-pan test from its start so all its measurements use one set of text metrics.
+The M4 run of 99de75e aborted in the rotated test ("mutex lock failed: Invalid argument", exit 134), after the
+raster was made lazily inside that test, mid-way, and held by a function-local static destroyed at exit. Now
+`main` owns the raster (a local `std::unique_ptr`, made on the test thread before the first test, released after
+the last, on every exit path); `test_raster()` only observes it, and both tests attach at their start, before
+anything is laid out, so the attachment (a test local) detaches before the fixture's window goes. Not proved
+without a run: if the abort repeats, it now comes at the raster's creation, before any test, which would place
+it in `OffscreenRaster::create` (the process's bundled font set) and make it a GUI.Forms report.
+At b7e8dea both new checks passed; the suite then aborted in `superimpose_paste_tab_drawing_and_removal`, whose
+last line reset the fixture's window while the `HostSession` borrowing it still lived (its destructor's
+shutdown locked the dead window's dispatcher mutex). The reset is gone: the session, declared after the
+fixture, ends first. No other test resets a window a live session borrows (`live_canvas_damage_opacity_and_reuse`
+resets one but has no session).
+Next (c807db3): `spirograph_resize_controls` failed its combined rotated-view resize check, now three checks
+(scale, field, capture). Cause found from the code: in a binary view (zoom and device scale powers of two)
+`RasterCanvas::client_to_bitmap` uses the bitmap origin snapped to 2^-(23 - reach) device pixels, while the
+Fixture's `position` and `Editor::screen` used the unsnapped `view_origin`. After `rotate_view(.35)` the origin
+is no longer on that grid, so the synthetic drag mapped back up to about 1e-4 pixels off and the scale missed
+1.2 by about 1e-6 (the check allows 1e-8); the field shows the same scale, so it fails with it. Capture release
+is not implicated (the spiro up path releases it). Fix: `PaintCanvas::bitmap_point_to_client`, the exact inverse
+of `client_to_bitmap` (from the placed origin, `RasterCanvas::client_to_bitmap({0, 0})`); `Editor::screen` and
+the Fixture use it, so overlays and test pointers land where input maps. Not a GUI.Forms gap.
+Next (8bb046a): `business_card_and_hidden_overlay_switch` threw from `press_at` without naming the press.
+GUI.Forms' `BusinessCard::on_mouse_down` handles a secondary press on the vendor name only while D is held, so
+the plain right-click on the name is legitimately unhandled: the test now expects it not consumed
+(`press_unhandled_at`). Every press names itself, and a failure says where it landed (the window's `hit_test`
+target and, for a primary press, `last_press_trace`). Not a GUI.Forms gap (the old Plan Paint card consumed
+it; GUI.Forms' does not, by design).
+
+## One module: static codecs and the package check (claude/static-codecs)
+
+The owner's rule: a shipped program has no native library dependencies and is one module. The dogfood build
+3df9631 linked Homebrew's libtiff, libwebp and dav1d dynamically; that copy stays as it is on this Mac.
+
+**Choice.** No first-party decoder exists for TIFF, WebP or AVIF (GUI.Forms owns only PNG, through stx_png), so
+the codecs are linked statically from pinned sources by the product's own CMake (`cmake/ImportFormats.cmake`):
+
+- libtiff 4.7.2 at commit d01a94be (the tag's commit), the existing reduced profile, `tiff-static`;
+- libwebp 1.6.0 at commit 4fa21912 (the revision the removed `scripts/build-macos-codecs.sh` built shared),
+  decoder target `webp`, every tool off;
+- dav1d through libavif 1.4.2's `AVIF_CODEC_DAV1D=LOCAL`, at libavif's own pin, as a static archive built by
+  meson during configure (`MACOSX_DEPLOYMENT_TARGET` carries 14.0 to it).
+
+`RAINSTAR_SYSTEM_CODECS` (default OFF) replaces `RAINSTAR_BUNDLED_TIFF`; ON links installed copies for a quick
+development tree and warns that the result is not shippable. `native-build.sh` no longer builds the shared
+macOS codec prefix, and CI no longer installs codec packages (Windows installs meson and nasm instead).
+
+**Package check.** `scripts/check_system_libraries.py` refuses any import that is not the system's: `otool -L`
+only `/System/` and `/usr/lib/`; ELF `NEEDED` only the C library, its loader, libgcc_s and the X11, ATK and
+GLib libraries GUI.Forms' Linux host links, with every `ldd` line resolved in a system directory; PE only
+Windows system DLLs. Each package script runs it on the program before bundling (macOS also on the bundled
+closure); `tests/test_system_libraries.py` covers the classification, run by `native-build.sh test`.
+
+**Open, for the coordinator.**
+
+1. Decided (coordinator, option a): the harness `llvm22.cmake` follows GUI.Forms' selection (a15257db0) and
+   links the runtime's `libc++.a`, `libc++abi.a` and `libunwind.a` when present, setting
+   `HARNESS_STATIC_CXX_RUNTIME` (template_harness claude/conformance-prep 04b22df). `package-macos.py` admits
+   the shared trio only while that entry is OFF. **Dependency:** the archives come from Coder A's
+   template_harness claude/macos-static-libcxx (5411c1f); until it lands and the runtime tree carries them,
+   macOS still links and bundles the shared runtime, and Plan Paint's harness.lock must then move to a
+   harness with both branches.
+2. Decided (owner, option a): "we dont build against any distro"; STXlib is to carry the C library; X11 and
+   XWayland support is sufficient for now. `package-linux.py` carries the program alone: no copied libraries,
+   loader or X11 locale data, the build-tree RUNPATH removed, and the check run on the build output and again
+   on the packaged program. A musl program is refused (it cannot use the desktop's glibc X11). The Linux
+   runtime notices (musl, X11 client, GLib, AT-SPI and their dependencies) leave `packaging/licenses/runtime`.
+   SwiftEdit's `tools/Package-Desktop.py` gets the same change on its claude/conformance-prep.
+
+**Risks not checked without a build.** libavif's LocalDav1d needs meson and ninja (and nasm on x86-64; without
+it dav1d may build without assembly or fail); its dav1d revision differs from the 54706fc6 the old script
+built. libwebp and libtiff are first configured as subprojects here; target or option collisions would show at
+configure. The Windows check refuses `libwinpthread-1.dll`, as GUI.Forms does; if the harness still links
+winpthreads shared, the Windows package fails until it links it statically.

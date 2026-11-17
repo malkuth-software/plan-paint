@@ -35,11 +35,8 @@ case "$action" in
     # from its pinned stx source (cmake/Stx.cmake); nothing else is fetched.
     set -- -DRAINSTAR_TOOLKIT_SOURCE_DIR="$PWD/gui_forms"
     set -- "$@" -DPAINT_RELEASE_VERSION="${PAINT_RELEASE_VERSION:-$(python3 scripts/release_version.py)}"
-    if [ "$platform" = macos-arm64 ]; then
-      sh scripts/build-macos-codecs.sh
-      export PKG_CONFIG_PATH="$PWD/.build/codecs-macos14/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-      set -- "$@" -DCMAKE_PREFIX_PATH="$PWD/.build/codecs-macos14${CMAKE_PREFIX_PATH:+;$CMAKE_PREFIX_PATH}"
-    fi
+    # The codecs are static archives from pinned sources (cmake/ImportFormats.cmake,
+    # RAINSTAR_SYSTEM_CODECS OFF): nothing is installed or prebuilt for them.
     case "$platform" in
       windows-x64|macos-arm64|linux-x64|linux-arm64) ;;
       *) echo "Unsupported native platform: $platform" >&2; exit 1 ;;
@@ -47,7 +44,7 @@ case "$action" in
     cmake -S . -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_TOOLCHAIN_FILE="$PWD/template_harness/harness/cmake/llvm22.cmake" \
       -DCMAKE_C_COMPILER="$compiler_c" -DCMAKE_CXX_COMPILER="$compiler_cxx" \
-      -DRAINSTAR_BUNDLED_TIFF=ON "$@"
+      -DRAINSTAR_SYSTEM_CODECS=OFF "$@"
     ;;
 esac
 case "$action" in
@@ -58,6 +55,7 @@ case "$action" in
     ctest --test-dir "$build" --output-on-failure --timeout 180
     python3 scripts/check-style.py
     python3 -m unittest discover -s tests -p 'test_toolkit_cache.py'
+    python3 -m unittest discover -s tests -p 'test_system_libraries.py'
     ;;
 esac
 case "$action" in

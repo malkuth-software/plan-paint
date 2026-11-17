@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "デスクトップの背景に設定 (中央)",
   "Set as desktop background (fill)": "デスクトップの背景に設定 (全体)",
   "Set as desktop background (tile)": "デスクトップの背景に設定 (並べて表示)",
-  "Diagnostic overlay: on": "無効化オーバーレイ: オン"
+  "Diagnostic overlay: on": "無効化オーバーレイ: オン",
+  "Superimpose": "重ねて表示",
+  "Brightness": "明るさ"
 }

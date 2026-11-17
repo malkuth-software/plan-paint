@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "Đặt làm hình nền (căn giữa)",
   "Set as desktop background (fill)": "Đặt làm hình nền (lấp đầy)",
   "Set as desktop background (tile)": "Đặt làm hình nền (lát gạch)",
-  "Diagnostic overlay: on": "Lớp phủ vô hiệu hóa: bật"
+  "Diagnostic overlay: on": "Lớp phủ vô hiệu hóa: bật",
+  "Superimpose": "Chồng lên",
+  "Brightness": "Độ sáng"
 }

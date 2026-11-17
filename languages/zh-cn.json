@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "设为桌面背景 (居中)",
   "Set as desktop background (fill)": "设为桌面背景 (填充)",
   "Set as desktop background (tile)": "设为桌面背景 (平铺)",
-  "Diagnostic overlay: on": "失效叠加层：开启"
+  "Diagnostic overlay: on": "失效叠加层：开启",
+  "Superimpose": "叠加",
+  "Brightness": "亮度"
 }

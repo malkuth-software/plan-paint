@@ -154,7 +154,7 @@ The [file and codec audit](docs/SECURITY_AUDIT_2026-09-19.md) and [memory-leak a
 - **Mark connector ends.** Lines, arcs, Bézier curves and open paths have independent **Start marker** and **End marker** choices: open arrow, hollow triangle/diamond/circle, bar, exactly one, many, zero-or-one, one-or-more and zero-or-more. Cardinalities use bars, circles and crow's feet. Markers follow the endpoint tangent, scale with stroke width and shrink to fit short paths. They remain solid when the shaft is dashed or dotted; hollow symbols leave the artwork beneath them visible. Closed shapes omit markers, and closed paths disable their controls. Markers are part of the same pixel edit and retained path history as the line.
 - **Turn and reshape.** Drag the round handle at a selection's upper-right corner to rotate freely; hold **Shift** for 15-degree steps. Lasso an object and choose **Selection → Mesh** to stretch it with control points.
 
-**F1** opens the yellow help sidebar, with step-by-step instructions and keyboard shortcuts. The drawing workflow needs no account or network connection. Idle windows wait for input. The native interface renders on the CPU and presents changed areas. Linux packages include their musl loader, library dependencies, X11 locale data and fonts; they do not download or install packages when launched. Native Wayland without XWayland and mixed-DPI Linux displays are not supported by this release.
+**F1** opens the yellow help sidebar, with step-by-step instructions and keyboard shortcuts. The drawing workflow needs no account or network connection. Idle windows wait for input. The native interface renders on the CPU and presents changed areas. Linux packages carry the program alone and use the desktop's own X11 (or XWayland) and C library; they do not download or install packages when launched. Native Wayland without XWayland and mixed-DPI Linux displays are not supported by this release.
 
 Print and page setup use native system dialogs on Mac and Windows. Linux provides paper, orientation, margin, printer and copy controls, and submits PostScript to a configured CUPS `lp` service. Scanner capture and desktop backgrounds use available operating-system services. On Mac and Linux, scanner capture opens a separate application; save the scan there, then drop it into Paint.
 
@@ -197,8 +197,9 @@ Reshape uses a triangle mesh and rejects folds. Final antialiasing uses bounded 
 Development builds use **C++20**, **LLVM 22.1.8**, **CMake 3.25+**, Ninja and
 Python 3.11+. The standalone GUI.Forms source and its published compiler caches
 are pinned in `third_party/gui-forms.lock.json`. Paint consumes the standard
-`GUIForms::Application` and shared `Threading` targets. libtiff, libwebp and
-dav1d supply image codecs; CMake fetches the other pinned import dependencies.
+`GUIForms::Application` and shared `Threading` targets. The image codecs
+(libtiff, libwebp, dav1d under libavif) are built statically from pinned
+sources, so the program imports only system libraries.
 
 See [Native build and platform notes](docs/GUI_FORMS_PORT.md) for prerequisites,
 cache imports, macOS runtime handling and the complete platform commands.

@@ -457,10 +457,8 @@ void Editor::view_moved() {
     invalidate(gf::Rect{0, ribbon_height, 21, 20 + area.height});
 }
 gf::Point Editor::screen(Point point) const {
-    const gui_drawing::PointF mapped = (*canvas_).view_point({point.x, point.y});
-    gui_drawing::PointF origin = (*canvas_).view_origin.read();
-    double zoom = (*canvas_).zoom.read();
-    return {(mapped.x - origin.x) * zoom, (mapped.y - origin.y) * zoom};
+    const gf::Point client = (*canvas_).bitmap_point_to_client({point.x, point.y});
+    return client;
 }
 void Editor::paint_canvas_overlay(gf::Painter& painter, gf::Rect) {
     painter.save();
@@ -2151,11 +2149,14 @@ void Editor::paste() {
         Image image = load_image(files.paths_utf8.front());
         finish_controls();
         const Point origin = canvas().visible_paste_origin(document.image.width, document.image.height);
-        document.paste(image, static_cast<int>(origin.x), static_cast<int>(origin.y));
+        document.paste(image, static_cast<int>(origin.x), static_cast<int>(origin.y), superimpose_paste);
         if (window()) {
             static_cast<void>((*window()).request_focus(canvas_));
         }
         refresh();
+        if (superimpose_paste) {
+            (*ribbon_).show_superimpose();
+        }
         return;
     }
     gf::HostClipboardImageResult result = services().read_clipboard_image();
@@ -2168,11 +2169,26 @@ void Editor::paste() {
     Image image = validated_clipboard_image(*result.image());
     finish_controls();
     const Point origin = canvas().visible_paste_origin(document.image.width, document.image.height);
-    document.paste(image, static_cast<int>(origin.x), static_cast<int>(origin.y));
+    document.paste(image, static_cast<int>(origin.x), static_cast<int>(origin.y), superimpose_paste);
     if (window()) {
         static_cast<void>((*window()).request_focus(canvas_));
     }
     refresh();
+    if (superimpose_paste) {
+        (*ribbon_).show_superimpose();
+    }
+}
+void Editor::remove_superimposed() {
+    if (document.selection.active && document.selection.superimpose) {
+        release_gesture();
+        document.selection = {};
+    }
+    document.superimposed = {};
+    refresh();
+}
+bool Editor::escape_reaches_superimposed() const {
+    return !document.selection.active && !text.active && !stamp_placement_ && !warp_active() &&
+           !document.path.extending && !document.curve.base;
 }
 namespace {
 // The closed notice of a dialog's own window, for the editor that opened it.
@@ -2424,11 +2440,14 @@ void Editor::on_drag(gf::DragEvent& event) {
                 int y = std::clamp(static_cast<int>(std::floor(point.y)), 0,
                                    std::max(0, document.image.height - image.height));
                 finish_controls();
-                document.paste(image, x, y);
+                document.paste(image, x, y, superimpose_paste);
                 if (window()) {
                     static_cast<void>((*window()).request_focus(canvas_));
                 }
                 refresh();
+                if (superimpose_paste) {
+                    (*ribbon_).show_superimpose();
+                }
             } catch (const std::exception& exception) {
                 error(exception.what());
                 event.accepted_effect = gf::DragEffect::none;
@@ -2775,8 +2794,19 @@ void Editor::execute(const std::string& command) {
             finish_controls();
             document.invert_colors();
         } else if (command == "release") {
-            finish_controls(true);
-            reset_stamp();
+            // Escape ends whatever is in progress first (a selection, a
+            // superimposed paste still being placed); only from a context
+            // with nothing selected does it remove the superimposed image.
+            if (document.superimposed.active && escape_reaches_superimposed()) {
+                remove_superimposed();
+            } else {
+                finish_controls(true);
+                reset_stamp();
+            }
+        } else if (command == "superimpose-paste") {
+            superimpose_paste = !superimpose_paste;
+        } else if (command == "superimpose-remove") {
+            remove_superimposed();
         } else if (command == "finish-path") {
             if (document.tool == Tool::Path) {
                 document.end_path_geometry();

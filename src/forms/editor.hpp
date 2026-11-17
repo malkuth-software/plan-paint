@@ -50,6 +50,14 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     std::shared_ptr<gui_forms::LiveSurface> display_surface() const { return display_surface_; }
     void set_transparency_colors(gui_forms::Color first, gui_forms::Color second);
     void publish_source(const Image& source, Rect damage);
+    // What the canvas shows for `source` (the picture as refresh composes
+    // it): `source` itself, or, while an image is superimposed (or a
+    // superimposed paste is being placed), `source` with that image blended
+    // over it, in superimposed_view_, which this canvas owns and reuses.
+    // Only `damage` is recomposed when it names a part of a picture of the
+    // same size; an empty damage recomposes everything. The result is valid
+    // until the next call.
+    const Image& superimposed_source(const Image& source, Rect damage);
     void poll_view();
     void prepare_display();
     void display_frame(gui_forms::FrameTime now);
@@ -93,6 +101,11 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
 
     gui_forms::Rect bitmap_to_client(gui_drawing::RectI pixels) const noexcept;
     gui_drawing::PointF client_to_bitmap(gui_forms::Point client) const noexcept;
+    // The exact inverse of client_to_bitmap: a document point in client
+    // coordinates, from the bitmap origin as RasterCanvas places it (snapped
+    // to its device fraction in a binary view), so overlays and synthetic
+    // pointers land where input maps back.
+    gui_forms::Point bitmap_point_to_client(gui_drawing::PointF point) const noexcept;
     gui_drawing::PointF view_point(gui_drawing::PointF point) const noexcept;
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
 
@@ -138,6 +151,7 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     gui_forms::Color transparency_first_ = gui_forms::Color::rgba(246, 247, 249);
     gui_forms::Color transparency_second_ = gui_forms::Color::rgba(211, 215, 220);
     void paint_display(gui_forms::Painter& painter);
+    Image superimposed_view_;
     CanvasWorkStatistics work_statistics_;
     gui_forms::FrameRequestToken display_request_, preparation_request_;
     gui_forms::FrameTime next_display_{}, preparation_deadline_{};
@@ -276,6 +290,20 @@ class Editor final : public gui_forms::Control {
 
     RecentFiles recent;
     int jpeg_quality = 92;
+    // Superimpose (superimpose.hpp, Document::superimposed): the paste
+    // option, and how the superimposed image is drawn. Both last for the
+    // session; neither is saved.
+    bool superimpose_paste = false;
+    SuperimposeLook superimpose_look;
+    // Removes the superimposed image, and a superimposed paste still being
+    // placed; the Superimpose tab goes with them. Reached by Escape from a
+    // context with nothing selected and by the tab's Remove; pointer presses
+    // never remove it (owner, 2026-11-15).
+    void remove_superimposed();
+    // Whether Escape now has nothing else to end (no selection, text,
+    // stamp, warp, path or curve in progress), so it removes the
+    // superimposed image.
+    [[nodiscard]] bool escape_reaches_superimposed() const;
     // The canvas text tool and sticky notes. `text` keeps Plan Paint's side:
     // the box, the style, the layout and preview (laid out and rendered with
     // Plan Paint's own engine), and a mirror of the editor's text and

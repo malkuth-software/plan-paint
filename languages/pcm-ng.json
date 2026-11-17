@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "Use as desktop background (for middle)",
   "Set as desktop background (fill)": "Use as desktop background (fill am)",
   "Set as desktop background (tile)": "Use as desktop background (tile am)",
-  "Diagnostic overlay: on": "Invalidation overlay: e dey on"
+  "Diagnostic overlay: on": "Invalidation overlay: e dey on",
+  "Superimpose": "Put am on top",
+  "Brightness": "Brightness"
 }

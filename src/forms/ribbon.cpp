@@ -539,8 +539,13 @@ void Ribbon::synchronize_tab_sets() {
     const bool text = tool == Tool::Text;
     const bool icon = (*editor).document.atlas.kind == AtlasKind::Icon ||
                       (*editor).document.atlas.kind == AtlasKind::Cursor;
-    const std::pair<const char*, bool> sets[] = {
-        {"text-tools", text}, {"spiro-tools", spiro}, {"gradient-tools", gradient}, {"icon-tools", icon}};
+    const bool superimposed = (*editor).document.superimposed.active ||
+                              ((*editor).document.selection.active && (*editor).document.selection.superimpose);
+    const std::pair<const char*, bool> sets[] = {{"text-tools", text},
+                                                 {"spiro-tools", spiro},
+                                                 {"gradient-tools", gradient},
+                                                 {"icon-tools", icon},
+                                                 {"superimpose-tools", superimposed}};
     for (const std::pair<const char*, bool>& set : sets) {
         const gf::RibbonTabSetAvailability current = (*bar_).tab_set_availability(set.first);
         if (set.second && current == gf::RibbonTabSetAvailability::not_available) {
@@ -634,6 +639,7 @@ void Ribbon::synchronize_commands() {
     set_checked("material-edge", !secondary_color_);
     set_checked("material-fill", secondary_color_);
     set_checked("heal-source", (*editor).set_heal_source);
+    set_menu_checked("superimpose-paste", (*editor).superimpose_paste);
     set_text("text-place", (*editor).text.note ? tr("Apply") : tr("Place text"));
     set_text("stamp-shapes-menu", stamp_shape_name(document.stamp_shape));
     set_enabled("context-stamp-apply", (*editor).can_apply_stamp_placement());
@@ -752,6 +758,8 @@ void Ribbon::synchronize_values() {
         {text_skew_, (*editor).text.style.skew},
         {text_perspective_, (*editor).text.style.perspective},
         {text_warp_, (*editor).text.style.warp},
+        {superimpose_transparency_, (*editor).superimpose_look.transparency},
+        {superimpose_brightness_, (*editor).superimpose_look.brightness},
     };
     for (const std::pair<std::shared_ptr<gf::NumericUpDown>, double>& each : numbers) {
         if (each.first && (*each.first).value.read() != each.second) {
@@ -932,6 +940,32 @@ void Ribbon::command_invoked(const gf::CommandInvocation& invocation) {
         return;
     }
     activate(id);
+}
+
+void Ribbon::show_superimpose() {
+    (*bar_).minimized = false;
+    close_popup();
+    synchronize();
+    if ((*bar_).tab_set_availability("superimpose-tools") != gf::RibbonTabSetAvailability::not_available) {
+        (*bar_).set_tab_set_availability("superimpose-tools", gf::RibbonTabSetAvailability::active);
+    }
+    update_panels();
+}
+
+// Only the view changes: the composite is redrawn, the picture is not.
+void Ribbon::superimpose_number_changed(double) {
+    const std::shared_ptr<Editor> editor = editor_.lock();
+    if (synchronizing_ || !editor) {
+        return;
+    }
+    if (superimpose_transparency_) {
+        (*editor).superimpose_look.transparency =
+            std::clamp((*superimpose_transparency_).value.read(), 0.0, superimpose_maximum_transparency);
+    }
+    if (superimpose_brightness_) {
+        (*editor).superimpose_look.brightness = std::clamp((*superimpose_brightness_).value.read(), -100.0, 100.0);
+    }
+    (*editor).refresh();
 }
 
 void Ribbon::drop_down_chosen(const gf::RibbonDropDownInvocation& invocation) {

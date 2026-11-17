@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "تنظیم به‌عنوان پس‌زمینهٔ میزکار (وسط)",
   "Set as desktop background (fill)": "تنظیم به‌عنوان پس‌زمینهٔ میزکار (پرکردن)",
   "Set as desktop background (tile)": "تنظیم به‌عنوان پس‌زمینهٔ میزکار (کاشی)",
-  "Diagnostic overlay: on": "لایهٔ نمایش ابطال: روشن"
+  "Diagnostic overlay: on": "لایهٔ نمایش ابطال: روشن",
+  "Superimpose": "روی‌هم‌گذاری",
+  "Brightness": "روشنایی"
 }

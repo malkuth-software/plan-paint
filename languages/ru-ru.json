@@ -1017,5 +1017,7 @@
   "Set as desktop background (center)": "Сделать фоном рабочего стола (по центру)",
   "Set as desktop background (fill)": "Сделать фоном рабочего стола (заполнить)",
   "Set as desktop background (tile)": "Сделать фоном рабочего стола (мозаика)",
-  "Diagnostic overlay: on": "Подсветка перерисовки: включена"
+  "Diagnostic overlay: on": "Подсветка перерисовки: включена",
+  "Superimpose": "Наложение",
+  "Brightness": "Яркость"
 }

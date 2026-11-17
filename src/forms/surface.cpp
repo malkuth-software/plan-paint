@@ -90,6 +90,17 @@ gui_drawing::PointF PaintCanvas::document_point(gui_drawing::PointF point) const
 gui_drawing::PointF PaintCanvas::client_to_bitmap(gf::Point client) const noexcept {
     return document_point(RasterCanvas::client_to_bitmap(client));
 }
+gf::Point PaintCanvas::bitmap_point_to_client(gui_drawing::PointF point) const noexcept {
+    // RasterCanvas::client_to_bitmap is (client - offset) / zoom, so the
+    // client origin maps to -offset / zoom: the placed origin, which in a
+    // binary view differs from view_origin by the snap (up to 2^-(23 -
+    // reach) device pixels).
+    const gui_drawing::PointF mapped = view_point(point);
+    const gui_drawing::PointF placed = RasterCanvas::client_to_bitmap({0, 0});
+    const double scale = zoom.read();
+    const gf::Point client{(mapped.x - placed.x) * scale, (mapped.y - placed.y) * scale};
+    return client;
+}
 gf::Rect PaintCanvas::bitmap_to_client(gui_drawing::RectI pixels) const noexcept {
     const gui_drawing::PointF origin = view_origin.read();
     double left = 1e30, top = 1e30, right = -1e30, bottom = -1e30;

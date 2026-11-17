@@ -19,10 +19,15 @@
 #include <filesystem>
 #include <gui_forms/controls/ribbon.hpp>
 #include <gui_forms/controls/ribbon_gallery.hpp>
+#include <gui_forms/theme/theme_compiler/theme_compiler.hpp>
+#include <gui_forms/theme/stock_anatomies/stock_anatomies.hpp>
+#include <gui_forms/engine/effect_registry/effect_registry.hpp>
+#include <gui_forms/capture/offscreen_raster/offscreen_raster.hpp>
 #include <gui_forms/text/text_store/text_store.hpp>
 #include <gui_forms/diagnostics/invalidation_overlay/invalidation_overlay.hpp>
 #include <iostream>
 #include <optional>
+#include <iterator>
 #include <stxlib/optional.hpp>
 #include <span>
 #include <stdexcept>
@@ -68,12 +73,12 @@ struct Fixture {
         window = std::make_unique<gf::Window>(editor, gf::Size{1280, 820}, resources);
         (*window).perform_layout();
     }
+    // A document point in window coordinates, through the canvas's exact
+    // inverse of its input mapping (the placed, snapped origin in a binary
+    // view), so a synthetic pointer maps back to (x, y).
     gf::Point position(double x, double y) {
         paint::forms::PaintCanvas& canvas = (*editor).canvas();
-        gui_drawing::PointF origin = canvas.view_origin.read();
-        const gui_drawing::PointF point = canvas.view_point({x, y});
-        return canvas.point_to_window(
-            {(point.x - origin.x) * canvas.zoom.read(), (point.y - origin.y) * canvas.zoom.read()});
+        return canvas.point_to_window(canvas.bitmap_point_to_client({x, y}));
     }
     bool pointer(gf::PointerAction action, double x, double y,
                  gf::PointerButton button = gf::PointerButton::primary,
@@ -129,6 +134,27 @@ std::shared_ptr<paint::forms::Ribbon> plan_ribbon(gf::Window& window) {
         throw std::runtime_error("expected Plan Paint's ribbon");
     }
     return ribbon;
+}
+// The CPU raster a test window borrows for framebuffers (an
+// OffscreenAttachment): only a host or an attachment gives a window a
+// framebuffer painter, so a window without one makes no framebuffer
+// (Window::create_framebuffer returns null). main owns the raster: it makes
+// it on the test thread before the first test, and releases it after the
+// last, once every attachment (a local of a test, ended before its fixture's
+// window goes) has detached. This observes it; null outside main's run.
+gf::OffscreenRaster* test_raster_owner = nullptr;
+gf::OffscreenRaster& test_raster() {
+    if (test_raster_owner == nullptr) {
+        throw std::runtime_error("the offscreen test raster is made by main before the tests");
+    }
+    return *test_raster_owner;
+}
+std::unique_ptr<gf::OffscreenRaster> make_test_raster() {
+    gf::OffscreenRasterCreateResult created = gf::OffscreenRaster::create();
+    if (!created.succeeded()) {
+        throw std::runtime_error("the offscreen test raster: " + created.detail());
+    }
+    return created.take_raster();
 }
 // A control by ID, or the ribbon's hosted control for the command `id`
 // (hosted controls are named "ribbon-bar.<id>").
@@ -319,13 +345,41 @@ std::optional<RibbonTarget> ribbon_target(gf::Window& window, const std::string&
     }
     return std::nullopt;
 }
+// Where a press at `point` lands, for a failure message: the control the
+// window hits there and, for a primary press, the window's press trace
+// (SurfaceRoot::last_press_trace: the routed target and its outcome).
+std::string press_landing(gf::Window& window, gf::Point point, gf::PointerButton mouse) {
+    std::string text = " at " + std::to_string(point.x) + "," + std::to_string(point.y);
+    const gf::Control::Ptr hit = window.hit_test(point);
+    text += hit ? "; hits " + std::string((*hit).stable_id().value()) : "; hits nothing";
+    if (mouse == gf::PointerButton::primary) {
+        const gf::PressTrace& trace = window.last_press_trace();
+        text += "; press trace target " + trace.target_stable_id + " (" + trace.target_control_id + "), outcome " +
+                std::to_string(static_cast<int>(trace.outcome));
+        if (!trace.handled_by.empty()) {
+            text += ", handled by " + trace.handled_by;
+        }
+    }
+    return text;
+}
+// Presses and releases at `point`; the press must be consumed. `id` names
+// the press in a failure, with where it landed.
 void press_at(gf::Window& window, const std::string& id, gf::Point point, gf::PointerButton mouse) {
     if (!window.dispatch_pointer({gf::PointerAction::down, mouse, point})) {
-        throw std::runtime_error("button consumes routed pointer down: " + id + " at " + std::to_string(point.x) +
-                                 "," + std::to_string(point.y));
+        throw std::runtime_error("button consumes routed pointer down: " + id + press_landing(window, point, mouse));
     }
     // A ribbon tab acts on the press and leaves the release unhandled, so
     // only the press must be consumed.
+    static_cast<void>(window.dispatch_pointer({gf::PointerAction::up, mouse, point}));
+}
+// Presses and releases at `point`; the press must be left unhandled (a
+// press that changes nothing, such as a right-click on the business card's
+// name without D held).
+void press_unhandled_at(gf::Window& window, const std::string& id, gf::Point point, gf::PointerButton mouse) {
+    if (window.dispatch_pointer({gf::PointerAction::down, mouse, point})) {
+        throw std::runtime_error("a press that changes nothing is left unhandled: " + id +
+                                 press_landing(window, point, mouse));
+    }
     static_cast<void>(window.dispatch_pointer({gf::PointerAction::up, mouse, point}));
 }
 // Clicks a button control, or else the ribbon element `id`: a command, a
@@ -1078,16 +1132,20 @@ void business_card_and_hidden_overlay_switch() {
     (*std::static_pointer_cast<gf::ScrollableControl>(book)).scroll_control_into_view(card);
     window.perform_layout();
     const gf::Rect band = window_rect(*card, (*card).vendor_name_band());
-    press_at(window, "business-card", centre(band), gf::PointerButton::secondary);
+    // GUI.Forms' card handles a secondary press on the name only with D held
+    // (BusinessCard::on_mouse_down); without D the press changes nothing and
+    // is left unhandled.
+    press_unhandled_at(window, "business-card name, right-click without D", centre(band),
+                       gf::PointerButton::secondary);
     require(!gf::diagnostic_overlay(), "a right-click on the name alone changes nothing");
     static_cast<void>(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::d}));
-    press_at(window, "business-card", centre(band), gf::PointerButton::secondary);
+    press_at(window, "business-card name, right-click with D (on)", centre(band), gf::PointerButton::secondary);
     require(gf::diagnostic_overlay(), "holding D while right-clicking the name switches the overlay on");
     editor.execute("settings");
     window.perform_layout();
     require(shown(window, "settings-invalidation-overlay"), "Settings shows the overlay is on, read-only");
     routed_button(window, "dialog-cancel");
-    press_at(window, "business-card", centre(band), gf::PointerButton::secondary);
+    press_at(window, "business-card name, right-click with D (off)", centre(band), gf::PointerButton::secondary);
     require(!gf::diagnostic_overlay(), "the same gesture turns the overlay off again");
     static_cast<void>(window.dispatch_key({gf::KeyAction::up, gf::PhysicalKey::d}));
     editor.execute("settings");
@@ -1096,7 +1154,7 @@ void business_card_and_hidden_overlay_switch() {
     routed_button(window, "dialog-cancel");
     // A click on the page card opens the window's card in the hand.
     const gf::Rect card_bounds = window_rect(*card, (*card).card_bounds());
-    press_at(window, "business-card", {card_bounds.x + card_bounds.width / 2, card_bounds.bottom() - 12},
+    press_at(window, "business-card foot, primary click", {card_bounds.x + card_bounds.width / 2, card_bounds.bottom() - 12},
              gf::PointerButton::primary);
     window.perform_layout();
     const std::shared_ptr<gf::BusinessCard> hand = gf::shown_business_card(window);
@@ -4929,9 +4987,10 @@ void spirograph_resize_controls(int guide = 0, int insert = paint::spiro_default
     const paint::Point center = editor.spiro.center;
     fixture.drag(handle.x, handle.y, center.x + 1.5 * (handle.x - center.x),
                  center.y + 1.5 * (handle.y - center.y));
-    require(std::abs(editor.spiro.scale - 1.2) < 1e-8 &&
-                std::abs((*scale).value.read() - 1.2) < 1e-8 && !editor.canvas().has_pointer_capture(),
-            "rotated-view resize handle loses scale, numeric feedback or pointer release");
+    require(std::abs(editor.spiro.scale - 1.2) < 1e-8, "a rotated-view resize drag sets the apparatus scale");
+    require(std::abs((*scale).value.read() - 1.2) < 1e-8,
+            "a rotated-view resize drag shows the new scale in the spiro-scale field");
+    require(!editor.canvas().has_pointer_capture(), "a rotated-view resize drag releases the pointer");
     require(editor.spiro.angle == .75 && editor.spiro.pegs[0].loaded && editor.spiro.pegs[0].width == 3,
             "apparatus resizing changes the rolling phase or ink");
     const paint::Point resized_handle = editor.spiro.resize_position();
@@ -5743,6 +5802,9 @@ void rotated_pan_shifts_the_frame_and_damages_the_handle() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
     gf::Window& window = *fixture.window;
+    // Attached before anything is laid out or rendered, so the whole test
+    // uses one text metrics provider; it detaches before the fixture goes.
+    const gf::OffscreenAttachment attachment(test_raster(), window);
     editor.settings.rotate_view = true;
     editor.document.image.set(35, 35, {20, 70, 110, 255});
     editor.rotate_view(0.35);
@@ -6646,6 +6708,9 @@ void canvas_pan_by_wheel_and_damage() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
     gf::Window& window = *fixture.window;
+    // The copied-pan half paints into a framebuffer; the raster is attached
+    // first so every measurement below uses its text metrics.
+    const gf::OffscreenAttachment attachment(test_raster(), window);
     editor.document.new_image(3000, 2000);
     editor.refresh();
     window.perform_layout();
@@ -6985,11 +7050,223 @@ void canvas_text_content_layout() {
     const gf::ContentTextLayout foreign = paint::forms::content_layout(session, "BOX", 7, gf::ContentLayoutTransform{});
     require(foreign.lines.empty(), "a layout of another text yields no lines");
 }
+// The colour the canvas shows at document pixel (x, y): the published frame,
+// straight RGB (every test frame here is opaque).
+paint::Color displayed(paint::forms::Editor& editor, int x, int y) {
+    const gf::LiveSurfaceFrame frame = (*editor.canvas().display_surface()).acquire_latest();
+    const std::byte* pixel = frame.pixels().data() + static_cast<std::size_t>(y) * frame.row_bytes() +
+                             static_cast<std::size_t>(x) * 4;
+    const bool bgra = frame.pixel_format() == gf::LiveSurfacePixelFormat::bgra32_premultiplied_srgb;
+    const paint::Color result{static_cast<std::uint8_t>(pixel[bgra ? 2 : 0]), static_cast<std::uint8_t>(pixel[1]),
+                              static_cast<std::uint8_t>(pixel[bgra ? 0 : 2]), static_cast<std::uint8_t>(pixel[3])};
+    return result;
+}
+bool near_channel(int value, double expected) {
+    return std::abs(value - expected) <= 1.5;
+}
+// Superimpose: the paste option lays the image over the work in the view
+// only; the tab adjusts how it is drawn; a right-click on it, or Escape from
+// a context with nothing selected, removes it.
+// Plan Paint's theme package compiles onto the GUI.Forms base with no
+// finding at all: its edge and text colours are application roles, so none
+// warns W201 (a literal colour forced high contrast cannot remap).
+void theme_package_compiles_without_warnings() {
+    // As the application and the build-time check (GUIForms::theme_check)
+    // compile it: the stock control anatomies, so the stock types' names
+    // and parts are known selectors, and the built-in effects.
+    gf::ThemeCompileOptions options{};
+    options.controls = gf::stock_control_anatomies();
+    options.effects = &gf::built_in_effect_registry();
+    options.base = gf::ThemeBase::gui_forms;
+    const gf::ThemePackage packages[] = {paint::plan_paint_theme()};
+    const gf::ThemeValidation validation = gf::validate_theme_packages(packages, gf::ThemeLibrary{}, options);
+    for (const gf::ThemeCompileDiagnostic& diagnostic : validation.diagnostics) {
+        std::cerr << gf::format_theme_diagnostic(diagnostic) << "\n";
+    }
+    require(validation.valid, "Plan Paint's theme package is valid");
+    require(validation.diagnostics.empty(), "Plan Paint's theme package compiles without warnings");
+}
+
+// The whole ribbon, with every contextual tab set, is accepted by
+// gf::Ribbon::set_tabs: core tabs first, then each set's tabs together in
+// the declared sets' order, and every declared set has a tab.
+void ribbon_accepts_every_contextual_tab_set() {
+    Fixture fixture{Fixture::Themed{}};
+    TestServices services;
+    gf::HostSession session(*fixture.window, service_capabilities(), &services);
+    require(session.dispatch({1, 0, gf::HostAttachEvent{{1280, 820}, 1}}).accepted(), "ribbon host attaches");
+    gf::Ribbon& bar = *ribbon_bar(*fixture.window);
+    const std::span<const gf::RibbonTabSetSpec> sets = bar.tab_sets();
+    const char* const expected[] = {"text-tools", "spiro-tools", "gradient-tools", "icon-tools", "superimpose-tools"};
+    require(sets.size() == std::size(expected), "the ribbon declares every contextual tab set");
+    for (std::size_t index = 0; index < sets.size(); ++index) {
+        require(sets[index].stable_id == expected[index], "the contextual tab sets keep their order");
+    }
+    const std::span<const gf::RibbonTabSpec> tabs = bar.tabs();
+    std::size_t next_set = 0;
+    bool contextual = false;
+    std::vector<int> tab_counts(sets.size(), 0);
+    for (const gf::RibbonTabSpec& tab : tabs) {
+        if (tab.tab_set.empty()) {
+            require(!contextual, "core tabs come before every contextual tab");
+            continue;
+        }
+        contextual = true;
+        while (next_set < sets.size() && sets[next_set].stable_id != tab.tab_set) {
+            ++next_set;
+        }
+        require(next_set < sets.size(), "contextual tabs come together, in their sets' order");
+        ++tab_counts[next_set];
+    }
+    for (std::size_t index = 0; index < sets.size(); ++index) {
+        require(tab_counts[index] > 0, "every contextual tab set has a tab");
+        bar.set_tab_set_availability(sets[index].stable_id, gf::RibbonTabSetAvailability::available);
+        require(bar.tab_set_availability(sets[index].stable_id) == gf::RibbonTabSetAvailability::available,
+                "each contextual tab set can be shown");
+        bar.set_tab_set_availability(sets[index].stable_id, gf::RibbonTabSetAvailability::not_available);
+    }
+}
+
+void superimpose_paste_tab_drawing_and_removal() {
+    Fixture fixture;
+    TestServices services;
+    gf::HostSession session(*fixture.window, service_capabilities(), &services);
+    require(session.dispatch({1, 0, gf::HostAttachEvent{{1280, 820}, 1}}).accepted(), "superimpose host attaches");
+    gf::Window& window = *fixture.window;
+    paint::forms::Editor& editor = *fixture.editor;
+    // A red picture on the clipboard, then a white canvas to trace on.
+    editor.document.image.reset(128, 96, {220, 30, 30, 255});
+    editor.refresh();
+    editor.execute("copy");
+    editor.document.image.reset(128, 96, {255, 255, 255, 255});
+    editor.refresh();
+    const std::size_t history = editor.document.undo_history.size();
+    editor.execute("superimpose-paste");
+    require(editor.superimpose_paste, "Paste's drop-down turns Superimpose on");
+    editor.execute("paste");
+    window.perform_layout();
+    require(editor.document.selection.active && editor.document.selection.superimpose &&
+                editor.document.undo_history.size() == history,
+            "a superimposed paste is placed like a paste, with no undo step");
+    require(shown(window, "superimpose-tab") && shown(window, "superimpose-transparency") &&
+                shown(window, "superimpose-brightness"),
+            "the Superimpose tab appears when the image is pasted");
+    const int left = editor.document.selection.x;
+    const int top = editor.document.selection.y;
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                !editor.document.selection.active && editor.document.superimposed.active &&
+                editor.document.superimposed.x == left && editor.document.superimposed.y == top,
+            "the first Escape ends the placement and keeps the image superimposed");
+    require(white(editor.document.image.get(left + 10, top + 10)) && editor.document.undo_history.size() == history,
+            "the superimposed image never joins the picture");
+    {
+        const paint::Color shown_pixel = displayed(editor, left + 10, top + 10);
+        require(near_channel(shown_pixel.r, 0.5 * 220 + 0.5 * 255) && near_channel(shown_pixel.g, 0.5 * 30 + 0.5 * 255),
+                "the image blends down over the work at the default transparency");
+    }
+    // Drawing goes to the work underneath and shows through the image.
+    editor.choose_tool(paint::Tool::Pencil);
+    fixture.drag(left + 20, top + 40, left + 60, top + 40);
+    const paint::Color drawn = editor.document.image.get(left + 40, top + 40);
+    require(!white(drawn) && editor.document.superimposed.active, "the pencil draws under the superimposed image");
+    {
+        const paint::Color shown_pixel = displayed(editor, left + 40, top + 40);
+        require(near_channel(shown_pixel.r, 0.5 * 220 + 0.5 * drawn.r) &&
+                    near_channel(shown_pixel.g, 0.5 * 30 + 0.5 * drawn.g),
+                "the stroke shows through the superimposed image");
+    }
+    // The controls change the composite only.
+    const paint::Image before = editor.document.image;
+    const std::shared_ptr<gf::NumericUpDown> transparency =
+        std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "superimpose-transparency"));
+    const std::shared_ptr<gf::NumericUpDown> brightness =
+        std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "superimpose-brightness"));
+    require(transparency && brightness, "the Superimpose tab hosts Transparency and Brightness");
+    (*transparency).value = 95;
+    (*brightness).value = 100;
+    require(editor.superimpose_look.transparency == 95 && editor.superimpose_look.brightness == 100,
+            "the tab's controls set the look");
+    require(std::memcmp(before.pixels.data(), editor.document.image.pixels.data(),
+                        before.pixels.size() * sizeof(paint::Color)) == 0,
+            "transparency and brightness leave the picture alone");
+    {
+        // Brightness +100 lifts the image to white; 95% transparency leaves 5% of it.
+        const paint::Color shown_pixel = displayed(editor, left + 40, top + 40);
+        require(near_channel(shown_pixel.r, 0.05 * 255 + 0.95 * drawn.r) &&
+                    near_channel(shown_pixel.g, 0.05 * 255 + 0.95 * drawn.g),
+                "the composite follows the transparency and brightness");
+    }
+    // Right-button drawing (the second colour) also goes under it, and the
+    // image stays: only Escape removes it.
+    (*transparency).value = 50;
+    (*brightness).value = 0;
+    editor.document.ink.secondary = {250, 20, 50, 255};
+    const paint::Color alternate = editor.document.ink.secondary;
+    fixture.pointer(gf::PointerAction::down, left + 20, top + 70, gf::PointerButton::secondary);
+    fixture.pointer(gf::PointerAction::move, left + 60, top + 70, gf::PointerButton::secondary);
+    fixture.pointer(gf::PointerAction::up, left + 60, top + 70, gf::PointerButton::secondary);
+    window.perform_layout();
+    const paint::Color right_drawn = editor.document.image.get(left + 40, top + 70);
+    require(paint::equal(right_drawn, alternate) && !paint::equal(right_drawn, before.get(left + 40, top + 70)),
+            "right-button drawing paints the second colour under the superimposed image");
+    require(editor.document.superimposed.active && shown(window, "superimpose-tab"),
+            "a right-click does not remove the superimposed image");
+    {
+        const paint::Color shown_pixel = displayed(editor, left + 40, top + 70);
+        require(near_channel(shown_pixel.r, 0.5 * 220 + 0.5 * right_drawn.r) &&
+                    near_channel(shown_pixel.g, 0.5 * 30 + 0.5 * right_drawn.g),
+                "the right-button stroke shows through the superimposed image");
+    }
+    // Escape from a context with nothing selected removes it and its tab.
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                !editor.document.superimposed.active,
+            "Escape with nothing selected removes the superimposed image");
+    window.perform_layout();
+    require(!shown(window, "superimpose-tab") &&
+                paint::equal(displayed(editor, left + 40, top + 40), drawn),
+            "removing it takes the tab away and restores the plain view of the picture");
+    // Two Escapes with nothing else selected: placement, then removal.
+    editor.execute("paste");
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                editor.document.superimposed.active,
+            "the first Escape keeps the image");
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                !editor.document.superimposed.active,
+            "the second Escape, from a context with nothing selected, removes it");
+    // With a canvas selection: the first Escape only deselects.
+    editor.execute("paste");
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                editor.document.superimposed.active,
+            "the placement ends first");
+    editor.document.select({0, 0, 20, 20});
+    editor.refresh();
+    require(editor.document.selection.active, "a canvas selection is active");
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                !editor.document.selection.active && editor.document.superimposed.active,
+            "Escape with a selection clears the selection and keeps the superimposed image");
+    require(window.dispatch_key({gf::KeyAction::down, gf::PhysicalKey::escape}) &&
+                !editor.document.superimposed.active,
+            "the next Escape removes it");
+    // The option off: an ordinary paste again.
+    editor.execute("superimpose-paste");
+    editor.execute("paste");
+    require(editor.document.selection.active && !editor.document.selection.superimpose,
+            "with Superimpose off, Paste makes an ordinary floating selection");
+    // The session borrows the fixture's window: it ends first (declared
+    // after the fixture), and the window goes with the fixture after it.
+}
 int main(int argc, char** argv) {
+    // The framebuffer tests' raster (test_raster): owned here, made before
+    // any window and released after every test, never by static destruction.
+    std::unique_ptr<gf::OffscreenRaster> raster;
     try {
+        raster = make_test_raster();
+        test_raster_owner = raster.get();
         if (argc == 2 && std::string(argv[1]) == "--icon-production") {
             icon_production_contracts();
             std::cout << "Icon production forms contracts passed\n";
+            test_raster_owner = nullptr;
+            raster.reset();
             return 0;
         }
         if (argc > 2 || (argc == 2 && std::string(argv[1]) != "--general")) {
@@ -7014,6 +7291,9 @@ int main(int argc, char** argv) {
         selection_skew_handles();
         text_caret_deadlines_damage_only_the_transformed_caret();
         canvas_text_content_layout();
+        theme_package_compiles_without_warnings();
+        ribbon_accepts_every_contextual_tab_set();
+        superimpose_paste_tab_drawing_and_removal();
         pencil_is_independent_of_brush_material();
         backward_path_and_guide_connections();
         cancel_pending_lines_and_guide_preview();
@@ -7109,9 +7389,13 @@ int main(int argc, char** argv) {
         dialog_overlay_without_runtime_windows();
         std::cout << "GUI.Forms: RGBA, routed capture, undo, material strokes, curves/save, selections, "
                      "path, stamp and anchored zoom passed\n";
+        test_raster_owner = nullptr;
+        raster.reset();
         return 0;
     } catch (const std::exception& exception) {
         std::cerr << exception.what() << '\n';
+        test_raster_owner = nullptr;
+        raster.reset();
         return 1;
     }
 }

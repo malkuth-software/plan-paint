@@ -8,6 +8,29 @@
 
 :root {
   ink-on-soft-paper: #153765 on #e8f2ff;
+  /* Plan Paint's edge and text colours as application roles, so forced
+     high contrast remaps them by meaning (a literal in a text or edge
+     position warns W201). Each falls back to the built-in role named. */
+  color-roles: paint-command-edge from ordinary-line, paint-command-edge-disabled from ordinary-line,
+               paint-plane-keyline from ordinary-line, paint-tab-taper from dark-line,
+               paint-tab-shadow from shadow, paint-selected-tab-ink from ink-on-soft-paper,
+               paint-swatch-clear from ordinary-line, paint-swatch-hover-edge from selection-line,
+               paint-swatch-chosen-edge from selection-line, paint-swatch-light from chrome-highlight,
+               paint-swatch-light-soft from chrome-highlight, paint-swatch-shade from shadow,
+               paint-dialog-ink from ink-on-paper;
+  paint-command-edge: #6384b2;
+  paint-command-edge-disabled: rgba(143, 166, 196, 0.39);
+  paint-plane-keyline: #91acca;
+  paint-tab-taper: #496c9f;
+  paint-tab-shadow: rgba(24, 56, 97, 0.45);
+  paint-selected-tab-ink: #173f79 on #e8f2ff;
+  paint-swatch-clear: #ffffff00;
+  paint-swatch-hover-edge: #dbb66d;
+  paint-swatch-chosen-edge: #c49332;
+  paint-swatch-light: #fffff0;
+  paint-swatch-light-soft: #fffff0b4;
+  paint-swatch-shade: #a06d1c23;
+  paint-dialog-ink: #2d4258 on #ffffff;
 }
 
 /* The soft-dither hover (owner, 2026-11-09): command faces are flat at
@@ -19,7 +42,7 @@ ribbon::part(command-face):active,
 ribbon::part(command-face):checked,
 ribbon::part(command-face):disabled {
   border-radius: 3px;
-  border: 1px solid #6384b2;
+  border: 1px solid role(paint-command-edge);
 }
 
 ribbon::part(command-face):active {
@@ -33,7 +56,7 @@ ribbon::part(command-face):checked {
 }
 
 ribbon::part(command-face):disabled {
-  border-color: rgba(143, 166, 196, 0.39);
+  border-color: role(paint-command-edge-disabled);
   background-image: linear-gradient(to bottom, #becfe4 0%, #b5c7de 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.39);
 }
@@ -59,7 +82,7 @@ ribbon::part(tab-rail) {
 ribbon::part(tab) {
   background-color: #9bb6da;
   background-image: linear-gradient(to bottom, rgba(34, 70, 116, 0.15) 0%, rgba(0, 0, 0, 0) 72%);
-  border: 0 solid transparent;
+  border: none;
   border-top-left-radius: 4px;
   border-top-right-radius: 4px;
   border-bottom-left-radius: 0;
@@ -83,17 +106,15 @@ ribbon::part(tab-label) {
 
 ribbon::part(application-button) {
   background-image: linear-gradient(to bottom, #528be0 0%, #173f88 100%);
-  border: 0 solid transparent;
+  border: none;
   border-radius: 0;
   box-shadow: none;
 }
 
 ribbon::part(command-plane) {
   background-image: linear-gradient(to bottom, #e8f2ff 0%, #cadefb 28%, #a5c4f1 62%, #769fdf 100%);
-  border-top: 0 solid transparent;
-  border-bottom: 1px solid #91acca;
-  border-left: 0 solid transparent;
-  border-right: 0 solid transparent;
+  border: none;
+  border-bottom: 1px solid role(paint-plane-keyline);
   border-radius: 0;
   box-shadow: inset 0 -1px 0 rgba(245, 251, 255, 0.82);
 }
@@ -120,8 +141,8 @@ ribbon::part(command-plane) {
 ribbon::part(tab) {
   gap: -4px;
   margin-top: 3px;
-  taper: 4px #496c9f;
-  edge-shadow: 9px rgba(24, 56, 97, 0.45);
+  taper: 4px role(paint-tab-taper);
+  edge-shadow: 9px role(paint-tab-shadow);
 }
 
 ribbon::part(tab):state(selected) {
@@ -134,7 +155,7 @@ ribbon::part(tab):disabled {
 }
 
 ribbon::part(tab-label):state(selected) {
-  color: #173f79;
+  color: role(paint-selected-tab-ink);
   font-weight: bold;
   font-size: 1.08em;
 }
@@ -147,25 +168,25 @@ ribbon::part(tab-label):state(selected) {
    at rest, a warm gold under the pointer, a deeper gold when chosen. */
 .swatch {
   background: #ffffff00;
-  border: 1px solid #ffffff00;
+  border: 1px solid role(paint-swatch-clear);
   keylines: none;
   box-shadow: none;
 }
 .swatch:hover {
   background: linear-gradient(to bottom, #fff9e4, #ffe49d);
-  border-color: #dbb66d;
+  border-color: role(paint-swatch-hover-edge);
   border-radius: 2px;
-  keylines: #fffff0 #fffff0b4 #a06d1c23 #fffff0b4;
+  keylines: role(paint-swatch-light) role(paint-swatch-light-soft) role(paint-swatch-shade) role(paint-swatch-light-soft);
 }
 .swatch:state(selected) {
   background: linear-gradient(to bottom, #ffedba, #ffcf66);
-  border-color: #c49332;
+  border-color: role(paint-swatch-chosen-edge);
   border-radius: 2px;
-  keylines: #fffff0 #fffff0b4 #a06d1c23 #fffff0b4;
+  keylines: role(paint-swatch-light) role(paint-swatch-light-soft) role(paint-swatch-shade) role(paint-swatch-light-soft);
 }
 .swatch:active {
   background: linear-gradient(to bottom, #f6c15b, #ffe297);
-  border-color: #dbb66d;
+  border-color: role(paint-swatch-hover-edge);
   border-radius: 2px;
 }
 
@@ -189,7 +210,7 @@ ribbon::part(tab-label):state(selected) {
 /* Dialog text: slate labels, and an error line that turns to the signal
    colour while it reports a problem. */
 .dialog-text {
-  color: #2d4258;
+  color: role(paint-dialog-ink);
 }
 .dialog-text.problem {
   color: role(signal-on-paper);
