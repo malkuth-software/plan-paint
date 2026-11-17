@@ -1,7 +1,7 @@
 {
-  "pin_note": "The one place the GUI.Forms pin is written. PIN_GUI_FORMS_MAIN_COMMIT is replaced with the merged GUI.Forms main commit (#483). The cache release is build-<commit>; add a platform's digest under caches to restore its published compiler cache (a platform without one compiles from source).",
+  "pin_note": "The one place the GUI.Forms pin is written. 30ebd0d4d5388f2866d79089334d958787a12432 is replaced with the merged GUI.Forms main commit (#483). The cache release is build-<commit>; add a platform's digest under caches to restore its published compiler cache (a platform without one compiles from source).",
   "repository": "malkuth-software/gui_forms",
-  "commit": "PIN_GUI_FORMS_MAIN_COMMIT",
+  "commit": "30ebd0d4d5388f2866d79089334d958787a12432",
   "compiler": "22.1.8",
   "caches": {}
 }
