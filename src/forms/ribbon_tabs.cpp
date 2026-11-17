@@ -833,7 +833,7 @@ std::vector<gf::RibbonTabSpec> Ribbon::build_tabs() {
     for (gf::RibbonTabSpec& tab : tabs) {
         for (const std::pair<const char*, double>& width : widths) {
             if (tab.stable_id == width.first) {
-                tab.width = width.second;
+                tab.width = stxlib::Optional<double>::of(width.second);
             }
         }
     }

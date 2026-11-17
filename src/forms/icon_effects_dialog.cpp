@@ -104,7 +104,7 @@ void EditorDialog::initialize_icon_effects() {
                 *this,
                 gf::Delegate<const std::string&>::bind<EditorDialog, &EditorDialog::effect_text_changed>(
                     *this)));
-    effect_choice_changed(0);
+    effect_choice_changed(stxlib::Optional<std::size_t>::of(0U));
 }
 void EditorDialog::effect_choice_changed(stxlib::Optional<std::size_t>) {
     if (synchronizing_) {
@@ -186,7 +186,7 @@ void EditorDialog::effect_advanced_changed(gf::ButtonBase&) {
     (*effect_choice_).selected_index = stxlib::Optional<std::size_t>::of(selected);
     synchronizing_ = false;
     if (selected != previous) {
-        effect_choice_changed(selected);
+        effect_choice_changed(stxlib::Optional<std::size_t>::of(selected));
     }
 }
 void EditorDialog::restore_icon_effect(const IconEffectSettings& settings) {
