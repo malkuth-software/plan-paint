@@ -644,7 +644,7 @@ bool Editor::spiro_pointer(const gf::PointerEvent& event, Point point) {
         return true;
     }
     if (event.action == gf::PointerAction::move && (on_wheel || on_ring || on_close || on_resize || hole >= 0)) {
-        canvas().cursor = on_resize ? gf::CursorKind::resize_diagonal_down : gf::CursorKind::hand;
+        canvas().cursor = stxlib::Optional<gf::CursorKind>::of(on_resize ? gf::CursorKind::resize_diagonal_down : gf::CursorKind::hand);
     }
     if (event.action == gf::PointerAction::down && spiro.selected_peg >= 0) {
         spiro.selected_peg = -1;

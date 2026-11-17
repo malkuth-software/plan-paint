@@ -37,9 +37,9 @@ class ZoomTrackBar final : public gf::TrackBar {
     explicit ZoomTrackBar(gf::StableId id) : TrackBar(std::move(id)) {}
     gf::SemanticDescriptor semantic_descriptor() const override {
         gf::SemanticDescriptor descriptor = TrackBar::semantic_descriptor();
-        descriptor.numeric_value = std::exp2(value.read()) * 100;
-        descriptor.minimum_value = 6.25;
-        descriptor.maximum_value = 3200;
+        descriptor.numeric_value = stxlib::Optional<double>::of(std::exp2(value.read()) * 100);
+        descriptor.minimum_value = stxlib::Optional<double>::of(6.25);
+        descriptor.maximum_value = stxlib::Optional<double>::of(3200);
         descriptor.value = std::to_string(static_cast<int>(std::lround(std::exp2(value.read()) * 100))) + "%";
         return descriptor;
     }
@@ -197,7 +197,7 @@ void Editor::initialize_control_tree() {
     // menu and recent pictures).
     rebuild_file_menu();
     file_notice_label_ = gf::make_control<gf::Label>(gf::StableId("file-change-notice"));
-    (*file_notice_label_).font = gf::FontSpec{gf::FontRole::control, 13, 600, false};
+    (*file_notice_label_).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 13, 600, false});
     add_child(file_notice_label_);
     file_reload_ = gf::make_control<gf::Button>(gf::StableId("file-reload"), tr("Reload from disk…"));
     subscriptions_.push_back((*file_reload_).clicked().subscribe(
@@ -209,7 +209,7 @@ void Editor::initialize_control_tree() {
     selection_status_ = gf::make_control<gf::Label>(gf::StableId("selection-status"));
     for (const std::shared_ptr<gf::Label>& label :
          {status_, cursor_status_, dimensions_status_, selection_status_}) {
-        (*label).font = gf::FontSpec{gf::FontRole::control, 12, 400, false, 0.08};
+        (*label).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 12, 400, false, 0.08});
         add_child(label);
     }
     tool_size_status_ = gf::make_control<gf::Button>(gf::StableId("status-tool-size"), tr("Size: 3 px"));
@@ -358,7 +358,7 @@ void Editor::arrange(gf::Rect bounds) {
     set_child_layout(zoom_in_, {1213 * scale, y + 1, 26 * scale, 25});
     for (const std::shared_ptr<gf::Label>& label :
          {status_, cursor_status_, selection_status_, dimensions_status_}) {
-        (*label).font = gf::FontSpec{gf::FontRole::control, std::clamp(12 * scale, 10.0, 12.0), 400, false};
+        (*label).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, std::clamp(12 * scale, 10.0, 12.0), 400, false});
     }
 }
 void Editor::on_paint(gf::Painter& painter, gf::Rect) {
@@ -986,7 +986,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
     if (canvas_control_stroke_ && !canvas_control_dispatch_) { return; }
     try {
         if (panning_ && event.action != gf::PointerAction::up) {
-            canvas().cursor = gf::CursorKind::hand;
+            canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::hand);
         } else {
             apply_tool_cursor(canvas(), document.tool);
         }
@@ -1005,7 +1005,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
             const bool hit = std::hypot(client.x - handle.x, client.y - handle.y) <= 14;
             if (!rotating_view_ && hit && event.action == gf::PointerAction::move &&
                 !canvas().has_pointer_capture()) {
-                canvas().cursor = gf::CursorKind::hand;
+                canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::hand);
                 canvas().invalidate(gf::Dirty::paint);
                 return;
             }
@@ -1059,7 +1059,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
             (!document.image.contains(static_cast<int>(std::floor(point.x)),
                                       static_cast<int>(std::floor(point.y))) ||
              (document.tool == Tool::Stamp && document.stamp.pixels.empty()))) {
-            canvas().cursor = gf::CursorKind::crosshair;
+            canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::crosshair);
         }
         update_cursor_status();
         if (!panning_ && (curve_handle_ >= 0 || path_node_ >= 0 || path_swap_handle_ >= 0 ||
@@ -1068,7 +1068,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
             (document.tool == Tool::Path && (edit_path_nodes || path_swap_kind_) && path_swap_segment_ >= 0 &&
              static_cast<std::size_t>(path_swap_segment_) < document.path.segments.size() &&
              hovered_curve_handle(document.path.segments[path_swap_segment_].geometry, 10) >= 0))) {
-            canvas().cursor = gf::CursorKind::hand;
+            canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::hand);
         }
         if (document.tool == Tool::Stamp || document.tool == Tool::Pencil || document.tool == Tool::Eraser ||
             document.tool == Tool::Magnifier || document.tool == Tool::Picker ||
@@ -1130,7 +1130,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
             } else if (event.action == gf::PointerAction::move) {
                 if (std::hypot(client.x - pan_start_.x, client.y - pan_start_.y) >= 4) {
                     panning_ = true;
-                    canvas().cursor = gf::CursorKind::hand;
+                    canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::hand);
                     picker_pending_ = false;
                 }
                 if (panning_) {
@@ -1204,7 +1204,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
             }
             if (event.button == gf::PointerButton::middle) {
                 panning_ = true;
-                canvas().cursor = gf::CursorKind::hand;
+                canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::hand);
                 pan_start_ = client;
                 pan_origin_ = (*canvas_).view_origin.read();
                 (*canvas_).set_pointer_capture(true);

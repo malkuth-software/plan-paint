@@ -59,7 +59,7 @@ void EditorDialog::initialize_icon_sheet() {
          {tr("All representations"), tr("Current image"), tr("Selected sequence")}) {
         (*sheet_scope_).items.append(text);
     }
-    (*sheet_scope_).selected_index = 0;
+    (*sheet_scope_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(sheet_scope_, {145, 52, 240, 28});
     label("sheet-background-label", tr("Background"), {405, 52, 115, 28});
     sheet_background_ = gf::make_control<gf::ComboBox>(gf::StableId("sheet-background"));
@@ -68,7 +68,7 @@ void EditorDialog::initialize_icon_sheet() {
          {tr("Light"), tr("Dark"), tr("Checkerboard"), tr("Transparent"), tr("Primary color")}) {
         (*sheet_background_).items.append(text);
     }
-    (*sheet_background_).selected_index = 0;
+    (*sheet_background_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(sheet_background_, {528, 52, 232, 28});
     label("sheet-columns-label", tr("Columns"), {20, 95, 76, 28});
     sheet_columns_ = number("sheet-columns", {98, 94, 64, 28}, 1, 16, 4);
@@ -87,10 +87,10 @@ void EditorDialog::initialize_icon_sheet() {
     for (const std::string& text : {tr("Fit sheet"), tr("Actual pixels"), tr("4× pixels")}) {
         (*sheet_zoom_).items.append(text);
     }
-    (*sheet_zoom_).selected_index = 0;
+    (*sheet_zoom_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(sheet_zoom_, {145, 136, 210, 28});
     sheet_status_ = gf::make_control<gf::Label>(gf::StableId("sheet-status"));
-    (*sheet_status_).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
+    (*sheet_status_).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 11, 400, false});
     put(sheet_status_, {375, 136, 385, 32});
     const std::shared_ptr<gf::FlowLayoutPanelCompat> viewport =
         gf::make_control<gf::FlowLayoutPanelCompat>(gf::StableId("sheet-viewport"));
@@ -137,13 +137,13 @@ void EditorDialog::initialize_icon_sheet() {
     for (const std::shared_ptr<gf::ComboBox>& choice : {sheet_scope_, sheet_background_}) {
         subscriptions_.push_back((*choice).selected_index_changed().subscribe(
             *this,
-            gf::Delegate<std::optional<std::size_t>>::bind<EditorDialog,
+            gf::Delegate<stxlib::Optional<std::size_t>>::bind<EditorDialog,
                                                            &EditorDialog::icon_sheet_choice_changed>(*this)));
     }
     subscriptions_.push_back(
         (*sheet_zoom_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::icon_sheet_zoom_changed>(*this)));
 }
 void EditorDialog::stop_icon_sheet() {
@@ -158,7 +158,7 @@ void EditorDialog::stop_icon_sheet() {
 void EditorDialog::icon_sheet_number_changed(double) {
     render_icon_sheet_preview();
 }
-void EditorDialog::icon_sheet_choice_changed(std::optional<std::size_t>) {
+void EditorDialog::icon_sheet_choice_changed(stxlib::Optional<std::size_t>) {
     render_icon_sheet_preview();
 }
 void EditorDialog::render_icon_sheet_preview() {
@@ -211,11 +211,11 @@ void EditorDialog::deliver_icon_sheet() {
         return;
     }
     publish_image((*sheet_job_).result, *sheet_preview_);
-    icon_sheet_zoom_changed(std::nullopt);
+    icon_sheet_zoom_changed(stxlib::Optional<std::size_t>::none());
     (*sheet_export_).enabled = true;
     (*sheet_open_).enabled = true;
 }
-void EditorDialog::icon_sheet_zoom_changed(std::optional<std::size_t>) {
+void EditorDialog::icon_sheet_zoom_changed(stxlib::Optional<std::size_t>) {
     if (!attached_window() || !sheet_job_ || !(*sheet_job_).done.load(std::memory_order_acquire) ||
         (*sheet_job_).result.pixels.empty()) {
         return;

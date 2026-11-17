@@ -88,7 +88,7 @@ void EditorDialog::initialize_icon_batch() {
     (*batch_operation_)
         .items = std::vector<std::string>{tr("Convert to ICO"), tr("Normalize sizes"), tr("Icon state variants"),
                     tr("Export representations"), tr("Stamp"), tr("Shared palette")};
-    (*batch_operation_).selected_index = 0;
+    (*batch_operation_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(batch_operation_, {260, 48, 480, 28});
     const std::size_t normal_begin = controls_.size();
     batch_policy_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-policy"));
@@ -96,7 +96,7 @@ void EditorDialog::initialize_icon_batch() {
         .items = std::vector<std::string>{tr("Add missing sizes; keep existing images"),
                     tr("Replace chosen sizes; keep other images"),
                     tr("Exact profile; remove unchecked sizes")};
-    (*batch_policy_).selected_index = 0;
+    (*batch_policy_).selected_index = stxlib::Optional<std::size_t>::of(0);
     (*batch_policy_).accessible_name = tr("Icon sizes");
     put(batch_policy_, {260, 84, 480, 28});
     for (std::size_t index = 0; index < std::size(batch_sizes); ++index) {
@@ -114,7 +114,7 @@ void EditorDialog::initialize_icon_batch() {
     }
     batch_preset_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-preset"));
     (*batch_preset_).items = {tr("Normal"), tr("Hot"), tr("Disabled")};
-    (*batch_preset_).selected_index = 2;
+    (*batch_preset_).selected_index = stxlib::Optional<std::size_t>::of(2);
     (*batch_preset_).accessible_name = tr("Preset");
     put(batch_preset_, {260, 156, 220, 28});
     label("batch-saturation-label", tr("Saturation %"), {260, 188, 150, 24});
@@ -144,7 +144,7 @@ void EditorDialog::initialize_icon_batch() {
     label("batch-collision-label", tr("Output"), {20, 282, 140, 28});
     batch_collision_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-collision"));
     (*batch_collision_).items = {tr("New output folder"), tr("Skip existing"), tr("Rename outputs"), tr("Replace existing")};
-    (*batch_collision_).selected_index = 0;
+    (*batch_collision_).selected_index = stxlib::Optional<std::size_t>::of(0);
     (*batch_collision_).accessible_name = tr("Output");
     put(batch_collision_, {165, 282, 280, 28});
     const std::shared_ptr<gf::Button> review =
@@ -178,13 +178,13 @@ void EditorDialog::initialize_icon_batch() {
     for (const std::shared_ptr<gf::ComboBox>& control : {batch_operation_, batch_policy_, batch_collision_}) {
         subscriptions_.push_back((*control).selected_index_changed().subscribe(
             *this,
-            gf::Delegate<std::optional<std::size_t>>::bind<EditorDialog, &EditorDialog::batch_choice_changed>(
+            gf::Delegate<stxlib::Optional<std::size_t>>::bind<EditorDialog, &EditorDialog::batch_choice_changed>(
                 *this)));
     }
     subscriptions_.push_back(
         (*batch_preset_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::batch_preset_changed>(*this)));
     for (const std::shared_ptr<gf::NumericUpDown>& control :
          {batch_saturation_, batch_brightness_, batch_opacity_}) {
@@ -265,7 +265,7 @@ void EditorDialog::update_batch_controls() {
     (*batch_brightness_).enabled = operation == 2;
     (*batch_opacity_).enabled = operation == 2;
 }
-void EditorDialog::batch_choice_changed(std::optional<std::size_t>) {
+void EditorDialog::batch_choice_changed(stxlib::Optional<std::size_t>) {
     invalidate_batch();
 }
 void EditorDialog::batch_number_changed(double) {
@@ -277,7 +277,7 @@ void EditorDialog::batch_text_changed(const std::string&) {
 void EditorDialog::batch_checked(bool) {
     invalidate_batch();
 }
-void EditorDialog::batch_preset_changed(std::optional<std::size_t> index) {
+void EditorDialog::batch_preset_changed(stxlib::Optional<std::size_t> index) {
     const IconStateRecipe recipe = icon_state_preset(static_cast<IconStatePreset>(index.value_or(2)));
     synchronizing_ = true;
     (*batch_saturation_).value = recipe.saturation;
@@ -420,9 +420,9 @@ void EditorDialog::batch_clicked(gf::ButtonBase& control) {
                 (*batch_stamp_path_).text = files.front();
             }
         } else if (id == "batch-remove") {
-            const std::optional<std::size_t> selected = (*batch_sources_).selected_index();
-            if (selected && *selected < (*editor).batch_sources.size()) {
-                (*editor).batch_sources.erase((*editor).batch_sources.begin() + *selected);
+            const stxlib::Optional<std::size_t> selected = (*batch_sources_).selected_index();
+            if (selected.present() && *selected.value() < (*editor).batch_sources.size()) {
+                (*editor).batch_sources.erase((*editor).batch_sources.begin() + *selected.value());
                 refresh_batch_sources();
                 invalidate_batch();
             }

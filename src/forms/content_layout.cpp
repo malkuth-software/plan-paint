@@ -87,9 +87,9 @@ std::vector<LayoutRow> layout_rows(const TextLayout& layout, const std::string& 
 }
 } // namespace
 
-std::optional<gf::ContentLayoutTransform> affine_display(const TextSession& session) {
+stxlib::Optional<gf::ContentLayoutTransform> affine_display(const TextSession& session) {
     if (!session.note && (session.style.perspective != 0 || session.style.warp != 0)) {
-        return std::nullopt;
+        return stxlib::Optional<gf::ContentLayoutTransform>::none();
     }
     // Affine: three points fix the map (display_point is a shear and a
     // scale about the box's centre, or the note's inset).
@@ -103,7 +103,7 @@ std::optional<gf::ContentLayoutTransform> affine_display(const TextSession& sess
     result.yy = unit_y.y - origin.y;
     result.dx = origin.x;
     result.dy = origin.y;
-    return result;
+    return stxlib::Optional<gf::ContentLayoutTransform>::of(result);
 }
 
 gf::ContentTextLayout content_layout(const TextSession& session, const std::string& text, std::uint64_t revision,
@@ -114,14 +114,14 @@ gf::ContentTextLayout content_layout(const TextSession& session, const std::stri
     if (layout.carets.size() != text.size() + 1) {
         return result;
     }
-    const std::optional<gf::ContentLayoutTransform> display = affine_display(session);
-    BoxMapping mapping{session, view, display.has_value()};
+    const stxlib::Optional<gf::ContentLayoutTransform> display = affine_display(session);
+    BoxMapping mapping{session, view, display.present()};
     // The caret bar is one client point wide: in text-box pixels under the
     // transform, the inverse of its mean scale.
     double caret_width = 1.0;
-    if (display) {
-        result.transform = compose(view, *display);
-        const double scale = std::sqrt(std::abs((*result.transform).determinant()));
+    if (display.present()) {
+        result.transform = stxlib::Optional<gf::ContentLayoutTransform>::of(compose(view, *display.value()));
+        const double scale = std::sqrt(std::abs((*result.transform.value()).determinant()));
         caret_width = scale > 0.0 ? 1.0 / scale : 1.0;
     }
     const gf::TextStore store(text);

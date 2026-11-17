@@ -31,7 +31,7 @@ case "$action" in
       compiler_cxx=$(cygpath -m "$compiler_cxx.exe")
     fi
     python3 scripts/fetch-gui-forms.py
-    # Since cp22 the toolkit takes FreeType, HarfBuzz, libunibreak and Skia
+    # The toolkit takes STXlib (its text stack since 2026-11-16) and Skia
     # from its pinned stx source (cmake/Stx.cmake); nothing else is fetched.
     set -- -DRAINSTAR_TOOLKIT_SOURCE_DIR="$PWD/gui_forms"
     set -- "$@" -DPAINT_RELEASE_VERSION="${PAINT_RELEASE_VERSION:-$(python3 scripts/release_version.py)}"

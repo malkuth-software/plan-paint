@@ -10,6 +10,7 @@
 #include <gui_forms/controls/ribbon.hpp>
 #include <gui_forms/controls/ribbon_gallery.hpp>
 #include <gui_forms/window.hpp>
+#include <stxlib/optional.hpp>
 #include <map>
 namespace paint::forms {
 class Editor;
@@ -242,8 +243,8 @@ class Ribbon final : public gui_forms::Control {
     void ensure_fonts();
     void options_changed(double value);
     void spiro_scale_changed(double value);
-    void choice_changed(std::optional<std::size_t> index);
-    void font_changed(std::optional<std::size_t> index);
+    void choice_changed(stxlib::Optional<std::size_t> index);
+    void font_changed(stxlib::Optional<std::size_t> index);
     void check_clicked(gui_forms::ButtonBase& check);
 
     // -- Plan Paint's own pickers (ribbon_popups.cpp) ---------------------------
@@ -257,7 +258,7 @@ class Ribbon final : public gui_forms::Control {
     // -- sticky notes (sticky_note_ribbon.cpp) --------------------------------
     void sticky_groups(gui_forms::RibbonTabSpec& tab);
     void synchronize_sticky_ribbon();
-    void sticky_paper_changed(std::optional<std::size_t> index);
+    void sticky_paper_changed(stxlib::Optional<std::size_t> index);
     void sticky_color_changed(const std::string& value);
 
     // -- gradients (gradient_controls.cpp) --------------------------------------
@@ -265,6 +266,6 @@ class Ribbon final : public gui_forms::Control {
     void synchronize_gradient();
     bool gradient_clicked(const std::string& id);
     void gradient_number_changed(double value);
-    void gradient_stop_changed(std::optional<std::size_t> index);
+    void gradient_stop_changed(stxlib::Optional<std::size_t> index);
 };
 } // namespace paint::forms

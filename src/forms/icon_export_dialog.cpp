@@ -79,7 +79,7 @@ void EditorDialog::initialize_icon_export() {
          {tr("All representations"), tr("Current image"), tr("Selected sequence")}) {
         (*export_scope_).items.append(name);
     }
-    (*export_scope_).selected_index = 0;
+    (*export_scope_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(export_scope_, {165, 52, 300, 28});
     label("export-prefix-label", tr("Filename prefix"), {20, 94, 135, 28});
     export_prefix_ = gf::make_control<gf::TextBox>(gf::StableId("export-prefix"));
@@ -94,7 +94,7 @@ void EditorDialog::initialize_icon_export() {
     for (const std::string& name : {tr("Skip existing"), tr("Rename outputs"), tr("Replace existing")}) {
         (*export_collision_).items.append(name);
     }
-    (*export_collision_).selected_index = 0;
+    (*export_collision_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(export_collision_, {165, 178, 300, 28});
     export_review_ = button("export-review", tr("Review outputs"), {560, 178, 200, 28});
     label("export-hint", tr("RGBA PNG at original dimensions. Cursor hotspots are not included."),
@@ -127,7 +127,7 @@ void EditorDialog::initialize_icon_export() {
     }
     for (const std::shared_ptr<gf::ComboBox>& control : {export_scope_, export_collision_}) {
         subscriptions_.push_back((*control).selected_index_changed().subscribe(
-            *this, gf::Delegate<std::optional<std::size_t>>::bind<
+            *this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                        EditorDialog, &EditorDialog::icon_export_choice_changed>(*this)));
     }
     subscriptions_.push_back(
@@ -153,7 +153,7 @@ void EditorDialog::stop_icon_export() {
     }
     export_job_.reset();
 }
-void EditorDialog::icon_export_choice_changed(std::optional<std::size_t>) {
+void EditorDialog::icon_export_choice_changed(stxlib::Optional<std::size_t>) {
     review_icon_export();
 }
 void EditorDialog::icon_export_text_changed(const std::string&) {

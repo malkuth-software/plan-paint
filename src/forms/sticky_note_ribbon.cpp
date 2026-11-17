@@ -17,7 +17,7 @@ void Ribbon::sticky_groups(gf::RibbonTabSpec& tab) {
                       tr("Kraft paper"), tr("Night paper")};
     paper.commands.push_back(std::move(papers));
     number(paper, "sticky-padding", tr("Padding"));
-    paper.commands.push_back(button("sticky-color-label", tr("Paper color"), -1, gf::RibbonCommandSize::small));
+    paper.commands.push_back(button("sticky-color-label", tr("Paper color"), -1, gf::RibbonCommandSize::compact));
     paper.commands.push_back(hosted("sticky-color", tr("Paper color"), gf::RibbonCommandKind::text_box, 96));
     paper.commands.back().show_label = false;
     tab.groups.push_back(std::move(paper));
@@ -27,7 +27,7 @@ void Ribbon::sticky_groups(gf::RibbonTabSpec& tab) {
     size.layouts = {paired};
     number(size, "sticky-width", tr("Width (px)"));
     number(size, "sticky-height", tr("Height (px)"));
-    size.commands.push_back(button("sticky-new-paper", tr("New paper"), -1, gf::RibbonCommandSize::small));
+    size.commands.push_back(button("sticky-new-paper", tr("New paper"), -1, gf::RibbonCommandSize::compact));
     tab.groups.push_back(std::move(size));
 }
 void Ribbon::synchronize_sticky_ribbon() {
@@ -37,7 +37,7 @@ void Ribbon::synchronize_sticky_ribbon() {
     }
     const TextSession& text = (*editor).text;
     if (sticky_paper_) {
-        (*sticky_paper_).selected_index = std::optional<std::size_t>{static_cast<std::size_t>((*text.note).paper)};
+        (*sticky_paper_).selected_index = stxlib::Optional<std::size_t>::of(static_cast<std::size_t>((*text.note).paper));
     }
     if (sticky_padding_) {
         (*sticky_padding_).value = static_cast<double>((*text.note).padding);
@@ -51,10 +51,10 @@ void Ribbon::synchronize_sticky_ribbon() {
         (*sticky_color_).text = to_hex((*text.note).paper_color);
     }
 }
-void Ribbon::sticky_paper_changed(std::optional<std::size_t> index) {
+void Ribbon::sticky_paper_changed(stxlib::Optional<std::size_t> index) {
     const std::shared_ptr<Editor> editor = editor_.lock();
-    if (!synchronizing_ && editor && (*editor).text.note && index && *index < 10) {
-        (*(*editor).text.note).paper = static_cast<int>(*index);
+    if (!synchronizing_ && editor && (*editor).text.note && index.present() && *index.value() < 10) {
+        (*(*editor).text.note).paper = static_cast<int>(*index.value());
         (*editor).refresh();
     }
 }

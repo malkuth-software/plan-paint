@@ -387,10 +387,10 @@ void Editor::paint_text_overlay(gf::Painter& painter) {
         }
     }
     // The input method's marked text, underlined along its rows.
-    const std::optional<gf::Utf8Range> composition = (*canvas_text_).composition_range();
-    if (composition) {
-        const std::size_t marked_first = (*composition).start.value();
-        const std::size_t marked_last = (*composition).end.value();
+    const stxlib::Optional<gf::Utf8Range> composition = (*canvas_text_).composition_range();
+    if (composition.present()) {
+        const std::size_t marked_first = (*composition.value()).start.value();
+        const std::size_t marked_last = (*composition.value()).end.value();
         for (const TextGlyph& glyph : text.layout.glyphs) {
             if (glyph.begin >= marked_first && glyph.begin < marked_last) {
                 const double row = static_cast<double>(glyph.y + text.layout.line_height - 1);

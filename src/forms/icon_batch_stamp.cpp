@@ -19,17 +19,17 @@ void EditorDialog::initialize_batch_stamp() {
     (*batch_stamp_anchor_)
         .items = std::vector<std::string>{tr("Top left"), tr("Top center"), tr("Top right"), tr("Middle left"), tr("Center"),
                     tr("Middle right"), tr("Bottom left"), tr("Bottom center"), tr("Bottom right")};
-    (*batch_stamp_anchor_).selected_index = 4;
+    (*batch_stamp_anchor_).selected_index = stxlib::Optional<std::size_t>::of(4);
     put(batch_stamp_anchor_, {260, 120, 150, 28});
     batch_stamp_order_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-stamp-order"));
     (*batch_stamp_order_).accessible_name = tr("Stamp");
     (*batch_stamp_order_).items = {tr("Foreground"), tr("Background")};
-    (*batch_stamp_order_).selected_index = 0;
+    (*batch_stamp_order_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(batch_stamp_order_, {420, 120, 150, 28});
     batch_stamp_scale_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-stamp-scale"));
     (*batch_stamp_scale_).accessible_name = tr("Scale");
     (*batch_stamp_scale_).items = {tr("Original size"), tr("Fit image")};
-    (*batch_stamp_scale_).selected_index = 0;
+    (*batch_stamp_scale_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(batch_stamp_scale_, {580, 120, 160, 28});
     label("batch-stamp-x-label", "X · px", {260, 152, 110, 24});
     label("batch-stamp-y-label", "Y · px", {380, 152, 110, 24});
@@ -64,7 +64,7 @@ void EditorDialog::initialize_batch_stamp() {
          {batch_stamp_anchor_, batch_stamp_order_, batch_stamp_scale_}) {
         subscriptions_.push_back((*control).selected_index_changed().subscribe(
             *this,
-            gf::Delegate<std::optional<std::size_t>>::bind<EditorDialog, &EditorDialog::batch_choice_changed>(
+            gf::Delegate<stxlib::Optional<std::size_t>>::bind<EditorDialog, &EditorDialog::batch_choice_changed>(
                 *this)));
     }
     for (const std::shared_ptr<gf::NumericUpDown>& control :

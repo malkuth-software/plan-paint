@@ -79,7 +79,7 @@ void EditorDialog::initialize_icon_targets() {
     for (const std::shared_ptr<gf::ComboBox>& control : {icon_target_source_, icon_target_depth_}) {
         subscriptions_.push_back((*control).selected_index_changed().subscribe(
             *this,
-            gf::Delegate<std::optional<std::size_t>>::bind<EditorDialog, &EditorDialog::icon_target_changed>(
+            gf::Delegate<stxlib::Optional<std::size_t>>::bind<EditorDialog, &EditorDialog::icon_target_changed>(
                 *this)));
     }
     subscriptions_.push_back(
@@ -230,11 +230,11 @@ void EditorDialog::render_icon_targets() {
             const IconTargetRow& row = icon_targets_[selected];
             (*icon_target_discard_).enabled = row.custom;
             const IconGenerationTarget& target = row.target;
-            (*icon_target_source_).selected_index = target.source_index;
+            (*icon_target_source_).selected_index = stxlib::Optional<std::size_t>::of(target.source_index);
             (*icon_target_depth_)
-                .selected_index = target.bits_per_pixel == 32  ? 0
-                                    : target.bits_per_pixel == 4 ? 1
-                                                                 : 2;
+                .selected_index = stxlib::Optional<std::size_t>::of(target.bits_per_pixel == 32  ? 0
+                                                                    : target.bits_per_pixel == 4 ? 1
+                                                                                                 : 2);
             (*icon_target_source_).enabled = row.generate && !row.removed;
             (*icon_target_depth_).enabled = row.generate && !row.removed;
             (*icon_target_replace_).enabled = target.existing_index >= 0 && !row.removed;
@@ -271,7 +271,7 @@ void EditorDialog::icon_target_selected(const gf::ListSelectionChange&) {
         render_icon_targets();
     }
 }
-void EditorDialog::icon_target_changed(std::optional<std::size_t>) {
+void EditorDialog::icon_target_changed(stxlib::Optional<std::size_t>) {
     if (icon_target_sync_) {
         return;
     }

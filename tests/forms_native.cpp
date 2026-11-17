@@ -14,6 +14,7 @@
 #include <functional>
 #include <gui_forms/controls/ribbon.hpp>
 #include <optional>
+#include <stxlib/optional.hpp>
 #include <gui_forms/paint_framebuffer.hpp>
 #include <gui_forms/timer.hpp>
 #include <iostream>
@@ -562,7 +563,7 @@ struct NativeExercise {
         // Offscreen inspection must render even while the native window is occluded.
         const bool occluded = window.occluded();
         window.set_occluded(false, gf::FrameClock::now());
-        painted = window.paint((*framebuffer).painter(), {0, 0, size.width, size.height}).has_value();
+        painted = window.paint((*framebuffer).painter(), {0, 0, size.width, size.height}).present();
         window.set_occluded(occluded, gf::FrameClock::now());
         (*framebuffer).end();
         // Every host's framebuffer is premultiplied sRGB BGRA8 since cp22.
@@ -607,7 +608,7 @@ struct NativeExercise {
             const std::shared_ptr<gf::ComboBox> last = std::dynamic_pointer_cast<gf::ComboBox>(hosted_control(window, "geometry-end"));
             if (!painted || !first || !last || !ribbon_command_bounds(window, "geometry-start") ||
                 !ribbon_command_bounds(window, "geometry-end") ||
-                (*first).selected_index.read() != 1 || (*last).selected_index.read() != 10 ||
+                (*first).selected_index.read() != stxlib::Optional<std::size_t>::of(1) || (*last).selected_index.read() != stxlib::Optional<std::size_t>::of(10) ||
                 (*last).absolute_bounds().right() > size.width) {
                 throw std::runtime_error("Native marker ribbon controls are missing or clipped; realized:" +
                                          realized_command_list(window));
@@ -625,7 +626,7 @@ struct NativeExercise {
                 const std::optional<gf::Rect> vary = ribbon_command_bounds(window, "geometry-vary");
                 if (!style || !organic || !ribbon_command_bounds(window, "geometry-stroke") ||
                     !ribbon_command_bounds(window, "geometry-organic") ||
-                    (*style).selected_index.read() != 2 || (*organic).value.read() != 3 ||
+                    (*style).selected_index.read() != stxlib::Optional<std::size_t>::of(2) || (*organic).value.read() != 3 ||
                     (*organic).absolute_bounds().right() > size.width || !vary || (*vary).right() > size.width) {
                     throw std::runtime_error("Native geometry style controls are missing or clipped");
                 }
@@ -1211,7 +1212,7 @@ struct NativeExercise {
             (*editor).open_container({paint::ContainerKind::Icon, {frame}}, "indexed-paint.ico");
             (*editor).execute("atlas-palette");
             const std::shared_ptr<gf::ComboBox> entry = std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "palette-entry"));
-            (*entry).selected_index = 1;
+            (*entry).selected_index = stxlib::Optional<std::size_t>::of(1);
             (*std::dynamic_pointer_cast<gf::Button>(find_shown(window, "palette-primary"))).perform_click();
             stroke(window, {10, 30}, {100, 90});
             (*editor).refresh();
@@ -1252,7 +1253,7 @@ struct NativeExercise {
                 const std::string path = (inputs.path / "shared.gpl").string();
                 paint::write_file_atomic(std::vector<std::uint8_t>(text.begin(), text.end()), path, "shared palette fixture");
                 const std::shared_ptr<gf::ComboBox> operation = std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "batch-operation"));
-                (*operation).selected_index = 5;
+                (*operation).selected_index = stxlib::Optional<std::size_t>::of(5);
                 const std::shared_ptr<gf::TextBox> file = std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "batch-palette-path"));
                 (*file).text = path;
             }
@@ -1263,19 +1264,19 @@ struct NativeExercise {
                 paint::save_image(badge, stamp_path);
                 const std::shared_ptr<gf::ComboBox> operation =
                     std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "batch-operation"));
-                (*operation).selected_index = 4;
+                (*operation).selected_index = stxlib::Optional<std::size_t>::of(4);
                 const std::shared_ptr<gf::TextBox> stamp =
                     std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "batch-stamp-path"));
                 (*stamp).text = stamp_path;
                 const std::shared_ptr<gf::ComboBox> scale =
                     std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "batch-stamp-scale"));
-                (*scale).selected_index = 1;
+                (*scale).selected_index = stxlib::Optional<std::size_t>::of(1);
                 const std::shared_ptr<gf::NumericUpDown> percent =
                     std::dynamic_pointer_cast<gf::NumericUpDown>(find_shown(window, "batch-stamp-percent"));
                 (*percent).value = 40;
                 const std::shared_ptr<gf::ComboBox> anchor =
                     std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "batch-stamp-anchor"));
-                (*anchor).selected_index = 8;
+                (*anchor).selected_index = stxlib::Optional<std::size_t>::of(8);
             }
             const std::shared_ptr<gf::Button> review =
                 std::dynamic_pointer_cast<gf::Button>(find_shown(window, "batch-review"));
@@ -1452,11 +1453,11 @@ struct NativeExercise {
             (*editor).open_container(source, "");
             (*editor).execute("atlas-effects");
             const std::shared_ptr<gf::ComboBox> choice = std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "effect-choice"));
-            (*choice).selected_index = 6;
+            (*choice).selected_index = stxlib::Optional<std::size_t>::of(6);
             if (advanced_effects_review) {
                 const std::shared_ptr<gf::CheckBox> advanced=std::dynamic_pointer_cast<gf::CheckBox>(find_shown(window, "effect-advanced"));
                 (*advanced).perform_click();
-                (*choice).selected_index = 9;
+                (*choice).selected_index = stxlib::Optional<std::size_t>::of(9);
                 const std::shared_ptr<gf::NumericUpDown> gamma=std::dynamic_pointer_cast<gf::NumericUpDown>(find_shown(window, "effect-value-2"));
                 (*gamma).value = 1.5;
                 const std::shared_ptr<gf::NumericUpDown> black=std::dynamic_pointer_cast<gf::NumericUpDown>(find_shown(window, "effect-value-0"));
@@ -1505,7 +1506,7 @@ struct NativeExercise {
             }
             const std::shared_ptr<gf::ComboBox> image =
                 std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "state-image"));
-            (*image).selected_index = 3;
+            (*image).selected_index = stxlib::Optional<std::size_t>::of(3);
             window.perform_layout();
             inspect_frame(window);
             (*editor).close_editor_dialog();
@@ -1542,8 +1543,8 @@ struct NativeExercise {
                     std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "palette-entry"));
                 const std::shared_ptr<gf::TextBox> rgb =
                     std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "palette-rgb"));
-                (*mode).selected_index = 1;
-                (*entry).selected_index = 7;
+                (*mode).selected_index = stxlib::Optional<std::size_t>::of(1);
+                (*entry).selected_index = stxlib::Optional<std::size_t>::of(7);
                 (*rgb).text = "#F0B020";
                 if (!(*find_shown(window, "palette-apply")).enabled.read() || !document.undo_history.empty()) {
                     throw std::runtime_error("Native indexed entry preview did not prepare without mutation");
@@ -1648,12 +1649,12 @@ struct NativeExercise {
                 std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "sheet-zoom"));
             const std::shared_ptr<gf::RasterCanvas> preview =
                 std::dynamic_pointer_cast<gf::RasterCanvas>(find_shown(window, "sheet-preview"));
-            (*zoom).selected_index = 1;
+            (*zoom).selected_index = stxlib::Optional<std::size_t>::of(1);
             window.perform_layout();
             if (std::abs((*preview).bitmap_to_client({0, 0, 1, 1}).width * window.scale() - 1) > 1e-8) {
                 throw std::runtime_error("Native actual-size proof did not map physical pixels one to one");
             }
-            (*zoom).selected_index = 0;
+            (*zoom).selected_index = stxlib::Optional<std::size_t>::of(0);
             window.perform_layout();
             inspect_frame(window);
             (*editor).close_editor_dialog();
@@ -1716,13 +1717,13 @@ struct NativeExercise {
             const std::shared_ptr<gf::ComboBox> policy =
                 std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "icon-size-policy"));
             if (!policy) { throw std::runtime_error("Native icon generation policy is unavailable"); }
-            (*policy).selected_index = 2;
+            (*policy).selected_index = stxlib::Optional<std::size_t>::of(2);
             const std::shared_ptr<gf::ListBox> targets =
                 std::dynamic_pointer_cast<gf::ListBox>(find_shown(window, "icon-target-list"));
             const std::shared_ptr<gf::ComboBox> depth =
                 std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "icon-target-depth"));
             (*targets).select_index(icon_svg_review ? 3 : 4);
-            (*depth).selected_index = 1;
+            (*depth).selected_index = stxlib::Optional<std::size_t>::of(1);
             window.perform_layout();
             inspect_frame(window);
             (*editor).close_editor_dialog();

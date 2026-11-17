@@ -52,7 +52,7 @@ void EditorDialog::initialize_dither() {
     for (const std::string& name : {tr("Crosswind"), tr("Weave"), tr("Scrambled"), tr("Drift"), tr("Posterize (no dither)")}) {
         (*dither_pattern_).items.append(name);
     }
-    (*dither_pattern_).selected_index = static_cast<std::size_t>((*editor).dither_options.pattern);
+    (*dither_pattern_).selected_index = stxlib::Optional<std::size_t>::of(static_cast<std::size_t>((*editor).dither_options.pattern));
     put(dither_pattern_, {367, 52, 228, 28});
     dither_preview_ = gf::make_control<gf::RasterCanvas>(gf::StableId("dither-preview"));
     (*dither_preview_).accessible_name = tr("Dither result preview");
@@ -72,13 +72,13 @@ void EditorDialog::initialize_dither() {
     subscriptions_.push_back(
         (*dither_pattern_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::dither_pattern_changed>(*this)));
 }
 void EditorDialog::dither_count_changed(double) {
     render_dither();
 }
-void EditorDialog::dither_pattern_changed(std::optional<std::size_t>) {
+void EditorDialog::dither_pattern_changed(stxlib::Optional<std::size_t>) {
     render_dither();
 }
 void EditorDialog::stop_dither() {

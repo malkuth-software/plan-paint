@@ -47,9 +47,9 @@ void tint_fill(gf::MaterialFillLayer& fill, int hue) {
         stop.color = interface_color(stop.color, hue);
     }
 }
-void tint_border(std::optional<gf::MaterialBorder>& border, int hue) {
-    if (border) {
-        (*border).color = interface_color((*border).color, hue);
+void tint_border(stxlib::Optional<gf::MaterialBorder>& border, int hue) {
+    if (border.present()) {
+        (*border.value()).color = interface_color((*border.value()).color, hue);
     }
 }
 void tint_recipe(gf::ControlVisualRecipe& recipe, int hue) {
@@ -101,8 +101,8 @@ void tint_rules(gf::ThemeRuleSheet& sheet, int hue) {
             if (declaration.border_image) {
                 tint_fill(*declaration.border_image, hue);
             }
-            if (declaration.drop_shadow) {
-                (*declaration.drop_shadow).color = interface_color((*declaration.drop_shadow).color, hue);
+            if (declaration.drop_shadow.present()) {
+                (*declaration.drop_shadow.value()).color = interface_color((*declaration.drop_shadow.value()).color, hue);
             }
             declaration.colour = interface_color(declaration.colour, hue);
         }

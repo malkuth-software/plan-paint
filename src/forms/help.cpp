@@ -45,9 +45,9 @@ void HelpBook::initialize_control_tree() {
     title_ = gf::make_control<gf::Label>(gf::StableId("help-title"), tr("Plan Paint Help"));
     introduction_ = gf::make_control<gf::Label>(gf::StableId("help-welcome"), tr(help_welcome));
     for (const std::shared_ptr<gf::Label>& label : {title_, introduction_}) {
-        (*label).font = gf::FontSpec{gf::FontRole::control, 18, 400, false};
+        (*label).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 18, 400, false});
         (*label).text_wrapping = gf::TextWrapping::word;
-        if (current_language().right_to_left) { (*label).alignment = gf::HorizontalAlignment::far; }
+        if (current_language().right_to_left) { (*label).alignment = gf::HorizontalAlignment::end; }
         add_child(label);
     }
     for (std::size_t i = 0; i < std::size(help_topics); ++i) {
@@ -62,9 +62,9 @@ void HelpBook::initialize_control_tree() {
             *this, gf::Delegate<gf::ButtonBase&>::bind<HelpBook, &HelpBook::toggle>(*this)));
         std::shared_ptr<gf::Label> body = gf::make_control<gf::Label>(
             gf::StableId("help-body-" + std::to_string(i)), tr(topic.body));
-        (*body).font = gf::FontSpec{gf::FontRole::control, 18, 400, false};
+        (*body).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 18, 400, false});
         (*body).text_wrapping = gf::TextWrapping::word;
-        if (current_language().right_to_left) { (*body).alignment = gf::HorizontalAlignment::far; }
+        if (current_language().right_to_left) { (*body).alignment = gf::HorizontalAlignment::end; }
         (*body).visible = topic.open;
         headers_.push_back(header);
         bodies_.push_back(body);

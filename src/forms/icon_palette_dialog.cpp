@@ -19,20 +19,20 @@ void EditorDialog::initialize_icon_palette() {
     palette_mode_ = gf::make_control<gf::ComboBox>(gf::StableId("palette-mode"));
     (*palette_mode_).accessible_name = tr("Operation");
     (*palette_mode_).items = {tr("Palette conversion"), tr("Palette entries"), tr("Shared palette")};
-    (*palette_mode_).selected_index = has_icon_palette(palette_source_) ? 1 : 0;
+    (*palette_mode_).selected_index = stxlib::Optional<std::size_t>::of(has_icon_palette(palette_source_) ? 1 : 0);
     put(palette_mode_, {180, 48, 580, 28});
     const std::size_t first_conversion = controls_.size();
     label("palette-depth-label", tr("Color depth"), {20, 88, 150, 28});
     palette_depth_ = gf::make_control<gf::ComboBox>(gf::StableId("palette-depth"));
     (*palette_depth_).accessible_name = tr("Color depth");
     (*palette_depth_).items = {"1 bpp · 2", "4 bpp · 16", "8 bpp · 256"};
-    (*palette_depth_).selected_index = 1;
+    (*palette_depth_).selected_index = stxlib::Optional<std::size_t>::of(1);
     put(palette_depth_, {180, 88, 195, 28});
     label("palette-dither-label", tr("Dithering"), {405, 88, 150, 28});
     palette_dither_ = gf::make_control<gf::ComboBox>(gf::StableId("palette-dither"));
     (*palette_dither_).accessible_name = tr("Dithering");
     (*palette_dither_).items = {tr("None"), "Floyd–Steinberg"};
-    (*palette_dither_).selected_index = 0;
+    (*palette_dither_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(palette_dither_, {565, 88, 195, 28});
     label("palette-threshold-label", tr("Alpha threshold"), {20, 128, 150, 28});
     palette_threshold_ = number("palette-threshold", {180, 128, 195, 28}, 1, 255, 128);
@@ -55,7 +55,7 @@ void EditorDialog::initialize_icon_palette() {
     }
     (*palette_entry_).items = entries;
     if (!entries.empty()) {
-        (*palette_entry_).selected_index = 0;
+        (*palette_entry_).selected_index = stxlib::Optional<std::size_t>::of(0);
     }
     put(palette_entry_, {180, 88, 195, 28});
     label("palette-rgb-label", "RGB", {405, 88, 150, 28});
@@ -108,7 +108,7 @@ void EditorDialog::initialize_icon_palette() {
     for (const std::shared_ptr<gf::ComboBox>& control : {palette_depth_, palette_dither_, palette_mode_}) {
         subscriptions_.push_back((*control).selected_index_changed().subscribe(
             *this,
-            gf::Delegate<std::optional<std::size_t>>::bind<EditorDialog,
+            gf::Delegate<stxlib::Optional<std::size_t>>::bind<EditorDialog,
                                                            &EditorDialog::palette_choice_changed>(*this)));
     }
     subscriptions_.push_back(
@@ -119,7 +119,7 @@ void EditorDialog::initialize_icon_palette() {
     subscriptions_.push_back(
         (*palette_entry_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::palette_entry_changed>(*this)));
     subscriptions_.push_back(
         (*palette_rgb_)
@@ -136,12 +136,12 @@ void EditorDialog::initialize_icon_palette() {
                 gf::Delegate<const std::string&>::bind<EditorDialog, &EditorDialog::palette_text_changed>(
                     *this)));
 }
-void EditorDialog::palette_choice_changed(std::optional<std::size_t>) {
+void EditorDialog::palette_choice_changed(stxlib::Optional<std::size_t>) {
     render_icon_palette();
 }
-void EditorDialog::palette_entry_changed(std::optional<std::size_t> selected) {
-    if (selected && has_icon_palette(palette_source_)) {
-        (*palette_rgb_).text = to_hex((*palette_source_.source).palette[*selected]);
+void EditorDialog::palette_entry_changed(stxlib::Optional<std::size_t> selected) {
+    if (selected.present() && has_icon_palette(palette_source_)) {
+        (*palette_rgb_).text = to_hex((*palette_source_.source).palette[*selected.value()]);
     }
     render_icon_palette();
 }
@@ -261,10 +261,10 @@ void EditorDialog::palette_file_clicked(gf::ButtonBase& control) {
             std::vector<Color> colors = load_icon_palette(path);
             palette_file_colors_ = std::move(colors);
             (*palette_depth_)
-                .selected_index = palette_file_colors_.size() <= 2    ? 0
-                                    : palette_file_colors_.size() <= 16 ? 1
-                                                                        : 2;
-            (*palette_mode_).selected_index = 2;
+                .selected_index = stxlib::Optional<std::size_t>::of(palette_file_colors_.size() <= 2    ? 0
+                                                                    : palette_file_colors_.size() <= 16 ? 1
+                                                                                                        : 2);
+            (*palette_mode_).selected_index = stxlib::Optional<std::size_t>::of(2);
             render_icon_palette();
         } else if (palette_result_.source && (*palette_export_).enabled.read()) {
             static_cast<void>((*editor).export_palette((*palette_result_.source).palette));

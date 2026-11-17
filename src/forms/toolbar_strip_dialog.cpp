@@ -100,12 +100,12 @@ void EditorDialog::initialize_toolbar_strip() {
     }
     strip_format_ = gf::make_control<gf::ComboBox>(gf::StableId("strip-format"));
     (*strip_format_).items = {"PNG", "BMP"};
-    (*strip_format_).selected_index = 0;
+    (*strip_format_).selected_index = stxlib::Optional<std::size_t>::of(0);
     (*strip_format_).accessible_name = tr("Output format");
     put(strip_format_, {20, 184, 140, 28});
     strip_background_ = gf::make_control<gf::ComboBox>(gf::StableId("strip-background"));
     (*strip_background_).items = {tr("Transparent"), tr("Matte RGB")};
-    (*strip_background_).selected_index = 0;
+    (*strip_background_).selected_index = stxlib::Optional<std::size_t>::of(0);
     (*strip_background_).accessible_name = tr("Background");
     put(strip_background_, {176, 184, 200, 28});
     strip_matte_ = gf::make_control<gf::TextBox>(gf::StableId("strip-matte"));
@@ -140,7 +140,7 @@ void EditorDialog::initialize_toolbar_strip() {
     }
     for (const std::shared_ptr<gf::ComboBox>& control : {strip_format_, strip_background_}) {
         subscriptions_.push_back((*control).selected_index_changed().subscribe(
-            *this, gf::Delegate<std::optional<std::size_t>>::bind<EditorDialog, &EditorDialog::strip_choice>(
+            *this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<EditorDialog, &EditorDialog::strip_choice>(
                        *this)));
     }
     for (const std::shared_ptr<gf::TextBox>& control : {strip_order_, strip_matte_}) {
@@ -166,7 +166,7 @@ void EditorDialog::invalidate_toolbar_strip() {
     (*error_).text = "";
     const bool bmp = (*strip_format_).selected_index.read().value_or(0) == 1;
     if (bmp) {
-        (*strip_background_).selected_index = 1;
+        (*strip_background_).selected_index = stxlib::Optional<std::size_t>::of(1);
     }
     (*strip_background_).enabled = !bmp;
     (*strip_matte_).enabled = bmp || (*strip_background_).selected_index.read().value_or(0) == 1;
@@ -174,7 +174,7 @@ void EditorDialog::invalidate_toolbar_strip() {
 void EditorDialog::strip_number(double) {
     invalidate_toolbar_strip();
 }
-void EditorDialog::strip_choice(std::optional<std::size_t>) {
+void EditorDialog::strip_choice(stxlib::Optional<std::size_t>) {
     invalidate_toolbar_strip();
 }
 void EditorDialog::strip_text(const std::string&) {

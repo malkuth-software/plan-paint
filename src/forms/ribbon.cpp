@@ -407,19 +407,19 @@ bool Ribbon::file_menu_open() const {
 }
 
 std::string Ribbon::selected_tab_id() const {
-    const std::optional<std::size_t> selected = (*bar_).selected_tab.read();
+    const stxlib::Optional<std::size_t> selected = (*bar_).selected_tab.read();
     const std::span<const gf::RibbonTabSpec> tabs = (*bar_).tabs();
-    if (!selected || *selected >= tabs.size()) {
+    if (selected.absent() || *selected.value() >= tabs.size()) {
         return "";
     }
-    return tabs[*selected].stable_id;
+    return tabs[*selected.value()].stable_id;
 }
 
 void Ribbon::select_tab(const std::string& tab_id) {
     const std::span<const gf::RibbonTabSpec> tabs = (*bar_).tabs();
     for (std::size_t index = 0; index < tabs.size(); ++index) {
         if (tabs[index].stable_id == tab_id && (*bar_).tab_shown(index)) {
-            (*bar_).selected_tab = std::optional<std::size_t>{index};
+            (*bar_).selected_tab = stxlib::Optional<std::size_t>::of(index);
             return;
         }
     }
@@ -769,22 +769,22 @@ void Ribbon::synchronize_values() {
     };
     for (const std::pair<std::shared_ptr<gf::ComboBox>, std::size_t>& each : choices) {
         if (each.first && each.second < (*each.first).items.read().size()) {
-            (*each.first).selected_index = std::optional<std::size_t>{each.second};
+            (*each.first).selected_index = stxlib::Optional<std::size_t>::of(each.second);
         }
     }
     if (font_) {
-        std::optional<std::size_t> font_index;
+        stxlib::Optional<std::size_t> font_index;
         if ((*editor).text.style.face_path.empty()) {
-            font_index = (*editor).text.style.mono ? 1 : 0;
+            font_index.set((*editor).text.style.mono ? 1 : 0);
         } else {
             for (std::size_t index = 0; index < font_paths_.size(); ++index) {
                 if (font_paths_[index] == (*editor).text.style.face_path) {
-                    font_index = index + 2;
+                    font_index.set(index + 2);
                     break;
                 }
             }
         }
-        if (font_index && *font_index < (*font_).items.read().size()) {
+        if (font_index.present() && *font_index.value() < (*font_).items.read().size()) {
             (*font_).selected_index = font_index;
         }
     }
@@ -1207,22 +1207,22 @@ void Ribbon::ensure_fonts() {
     }
 }
 
-void Ribbon::font_changed(std::optional<std::size_t> index) {
+void Ribbon::font_changed(stxlib::Optional<std::size_t> index) {
     const std::shared_ptr<Editor> editor = editor_.lock();
-    if (synchronizing_ || !index || !editor) {
+    if (synchronizing_ || index.absent() || !editor) {
         return;
     }
-    if (*index >= 2 && *index - 2 >= font_paths_.size()) {
+    if (*index.value() >= 2 && *index.value() - 2 >= font_paths_.size()) {
         return;
     }
-    (*editor).text.style.face_path = *index < 2 ? "" : font_paths_[*index - 2];
-    (*editor).text.style.mono = *index == 1;
+    (*editor).text.style.face_path = *index.value() < 2 ? "" : font_paths_[*index.value() - 2];
+    (*editor).text.style.mono = *index.value() == 1;
     (*editor).refresh();
 }
 
 // A hosted list changed: every shown list is read back into the editor (the
 // lists the change did not touch hold the editor's values already).
-void Ribbon::choice_changed(std::optional<std::size_t>) {
+void Ribbon::choice_changed(stxlib::Optional<std::size_t>) {
     const std::shared_ptr<Editor> editor = editor_.lock();
     if (synchronizing_ || !editor) {
         return;
@@ -1252,10 +1252,10 @@ void Ribbon::choice_changed(std::optional<std::size_t>) {
         }
     }
     if (render_quality_) {
-        const std::optional<std::size_t> chosen = (*render_quality_).selected_index.read();
+        const stxlib::Optional<std::size_t> chosen = (*render_quality_).selected_index.read();
         const std::size_t current = !document.ink.smooth ? 0 : document.ink.supersample ? 2 : 1;
-        if (chosen && *chosen < 3 && *chosen != current) {
-            (*editor).execute(render_commands[*chosen]);
+        if (chosen.present() && *chosen.value() < 3 && *chosen.value() != current) {
+            (*editor).execute(render_commands[*chosen.value()]);
         }
     }
     document.sync_curve();

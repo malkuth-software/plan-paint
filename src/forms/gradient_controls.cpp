@@ -149,7 +149,7 @@ void Ribbon::synchronize_gradient() {
     const Gradient& gradient = (*editor).fill_gradient;
     (*editor).gradient_stop = std::min((*editor).gradient_stop, gradient.stops.size() - 1);
     if (gradient_stops_ && (*editor).gradient_stop < (*gradient_stops_).items.read().size()) {
-        (*gradient_stops_).selected_index = std::optional<std::size_t>{(*editor).gradient_stop};
+        (*gradient_stops_).selected_index = stxlib::Optional<std::size_t>::of((*editor).gradient_stop);
     }
     if (gradient_angle_) {
         (*gradient_angle_).value = gradient.angle;
@@ -163,11 +163,11 @@ void Ribbon::synchronize_gradient() {
     }
     gradient_synchronizing_ = false;
 }
-void Ribbon::gradient_stop_changed(std::optional<std::size_t> index) {
+void Ribbon::gradient_stop_changed(stxlib::Optional<std::size_t> index) {
     const std::shared_ptr<Editor> editor = editor_.lock();
-    if (editor && !gradient_synchronizing_ && !synchronizing_ && index &&
-        *index < (*editor).fill_gradient.stops.size()) {
-        (*editor).gradient_stop = *index;
+    if (editor && !gradient_synchronizing_ && !synchronizing_ && index.present() &&
+        *index.value() < (*editor).fill_gradient.stops.size()) {
+        (*editor).gradient_stop = *index.value();
         (*editor).refresh();
     }
 }

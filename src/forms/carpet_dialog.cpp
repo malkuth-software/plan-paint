@@ -121,12 +121,12 @@ void EditorDialog::initialize_carpet() {
     for (int i = 0; i < carpet_preset_count; ++i) {
         (*carpet_presets_).items.append(tr(carpet_preset_name(i)));
     }
-    (*carpet_presets_).selected_index = 0;
+    (*carpet_presets_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(carpet_presets_, {22, 47, 505, 30});
     subscriptions_.push_back(
         (*carpet_presets_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::carpet_preset_changed>(*this)));
     for (int i = 0; i < 10; ++i) {
         const double y = 92 + i * 43;
@@ -209,7 +209,7 @@ void EditorDialog::carpet_changed(double) {
     }
     carpet_.hillshade = (*carpet_hillshade_).checked.read();
     synchronizing_ = true;
-    (*carpet_presets_).selected_index = 0;
+    (*carpet_presets_).selected_index = stxlib::Optional<std::size_t>::of(0);
     synchronizing_ = false;
     sync_carpet();
     render_carpet_preview();
@@ -222,7 +222,7 @@ void EditorDialog::carpet_color_changed(const std::string& value) {
     if (from_hex(value, color)) {
         carpet_.color = color;
         synchronizing_ = true;
-        (*carpet_presets_).selected_index = 0;
+        (*carpet_presets_).selected_index = stxlib::Optional<std::size_t>::of(0);
         synchronizing_ = false;
         render_carpet_preview();
     } else {
@@ -234,11 +234,11 @@ void EditorDialog::carpet_color_changed(const std::string& value) {
         }
     }
 }
-void EditorDialog::carpet_preset_changed(std::optional<std::size_t> index) {
-    if (synchronizing_ || !index || *index == 0) {
+void EditorDialog::carpet_preset_changed(stxlib::Optional<std::size_t> index) {
+    if (synchronizing_ || index.absent() || *index.value() == 0) {
         return;
     }
-    carpet_ = carpet_preset(static_cast<int>(*index) - 1);
+    carpet_ = carpet_preset(static_cast<int>(*index.value()) - 1);
     sync_carpet();
     render_carpet_preview();
 }

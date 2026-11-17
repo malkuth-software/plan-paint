@@ -8,7 +8,7 @@
 #include "text_session.hpp"
 #include <gui_forms/content/editing/content_text_layout.hpp>
 #include <cstdint>
-#include <optional>
+#include <stxlib/optional.hpp>
 #include <string>
 namespace paint::forms {
 // The layout of `text` held by `session` (TextSession::layout, in text-box
@@ -43,5 +43,5 @@ namespace paint::forms {
                                                            const gui_forms::ContentLayoutTransform& view);
 // The display mapping of `session` (TextSession::display_point) as an affine
 // map, or none where it is not affine (perspective or warp).
-[[nodiscard]] std::optional<gui_forms::ContentLayoutTransform> affine_display(const TextSession& session);
+[[nodiscard]] stxlib::Optional<gui_forms::ContentLayoutTransform> affine_display(const TextSession& session);
 } // namespace paint::forms

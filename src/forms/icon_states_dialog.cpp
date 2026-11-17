@@ -66,13 +66,13 @@ void EditorDialog::initialize_icon_states() {
     state_scope_ = gf::make_control<gf::ComboBox>(gf::StableId("state-scope"));
     (*state_scope_).accessible_name = tr("Images");
     (*state_scope_).items = {tr("All representations"), tr("Current image"), tr("Selected sequence")};
-    (*state_scope_).selected_index = 0;
+    (*state_scope_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(state_scope_, {135, 48, 240, 28});
     label("state-preset-label", tr("Preset"), {405, 48, 105, 28});
     state_preset_ = gf::make_control<gf::ComboBox>(gf::StableId("state-preset"));
     (*state_preset_).accessible_name = tr("Preset");
     (*state_preset_).items = {tr("Normal"), tr("Hot"), tr("Disabled")};
-    (*state_preset_).selected_index = 2;
+    (*state_preset_).selected_index = stxlib::Optional<std::size_t>::of(2);
     put(state_preset_, {520, 48, 240, 28});
     label("state-saturation-label", tr("Saturation %"), {20, 88, 145, 28});
     state_saturation_ = number("state-saturation", {165, 88, 80, 28}, 0, 200, 0);
@@ -84,7 +84,7 @@ void EditorDialog::initialize_icon_states() {
     state_policy_ = gf::make_control<gf::ComboBox>(gf::StableId("state-policy"));
     (*state_policy_).accessible_name = tr("Output");
     (*state_policy_).items = {"RGBA", tr("Indexed sources → DIB")};
-    (*state_policy_).selected_index = 0;
+    (*state_policy_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(state_policy_, {135, 128, 240, 28});
     label("state-image-label", tr("Preview"), {405, 128, 105, 28});
     state_image_ = gf::make_control<gf::ComboBox>(gf::StableId("state-image"));
@@ -93,7 +93,7 @@ void EditorDialog::initialize_icon_states() {
     label("state-policy-note", tr("Indexed: 1/4/8 bpp; 2→4. Alpha <128 transparent; otherwise white matte."),
           {20, 162, 740, 26});
     const std::shared_ptr<gf::Label> policy_note = std::static_pointer_cast<gf::Label>(controls_.back());
-    (*policy_note).font = gf::FontSpec{gf::FontRole::control, 11, 400, false, 0.05};
+    (*policy_note).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 11, 400, false, 0.05});
     (*policy_note).text_wrapping = gf::TextWrapping::word;
     label("state-before-label", tr("Original"), {20, 190, 355, 22});
     label("state-after-label", tr("Preview"), {405, 190, 355, 22});
@@ -130,18 +130,18 @@ void EditorDialog::initialize_icon_states() {
     for (const std::shared_ptr<gf::ComboBox>& control : {state_scope_, state_policy_}) {
         subscriptions_.push_back((*control).selected_index_changed().subscribe(
             *this,
-            gf::Delegate<std::optional<std::size_t>>::bind<EditorDialog, &EditorDialog::state_choice_changed>(
+            gf::Delegate<stxlib::Optional<std::size_t>>::bind<EditorDialog, &EditorDialog::state_choice_changed>(
                 *this)));
     }
     subscriptions_.push_back(
         (*state_preset_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::state_preset_changed>(*this)));
     subscriptions_.push_back(
         (*state_image_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::show_icon_state_image>(*this)));
 }
 void EditorDialog::stop_icon_states() {
@@ -158,10 +158,10 @@ void EditorDialog::state_number_changed(double) {
         render_icon_states();
     }
 }
-void EditorDialog::state_choice_changed(std::optional<std::size_t>) {
+void EditorDialog::state_choice_changed(stxlib::Optional<std::size_t>) {
     render_icon_states();
 }
-void EditorDialog::state_preset_changed(std::optional<std::size_t>) {
+void EditorDialog::state_preset_changed(stxlib::Optional<std::size_t>) {
     const IconStateRecipe recipe =
         icon_state_preset(static_cast<IconStatePreset>((*state_preset_).selected_index.read().value_or(2)));
     state_updating_ = true;
@@ -237,12 +237,12 @@ void EditorDialog::deliver_icon_states(const std::shared_ptr<IconStateJob>& comp
     }
     (*state_report_).text = report.str();
     (*state_image_).items = std::move(images);
-    (*state_image_).selected_index = 0;
-    show_icon_state_image(std::nullopt);
+    (*state_image_).selected_index = stxlib::Optional<std::size_t>::of(0);
+    show_icon_state_image(stxlib::Optional<std::size_t>::none());
     (*state_export_).enabled = !job.bytes.empty() && icon_state_ready(job.result);
     (*state_save_report_).enabled = !job.report.empty();
 }
-void EditorDialog::show_icon_state_image(std::optional<std::size_t>) {
+void EditorDialog::show_icon_state_image(stxlib::Optional<std::size_t>) {
     if (!state_job_ || !(*state_job_).done.load(std::memory_order_acquire)) {
         return;
     }
@@ -263,7 +263,7 @@ void EditorDialog::show_icon_state_image(std::optional<std::size_t>) {
 }
 void EditorDialog::state_clicked(gf::ButtonBase& control) {
     if (control.stable_id().value() == "state-reset") {
-        state_preset_changed(std::nullopt);
+        state_preset_changed(stxlib::Optional<std::size_t>::none());
         return;
     }
     const std::shared_ptr<Editor> editor = editor_.lock();

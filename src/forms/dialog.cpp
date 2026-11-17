@@ -24,7 +24,7 @@ gf::Color ui_color(Color color) {
 } // namespace
 ColorPlane::ColorPlane(gf::StableId id, std::weak_ptr<EditorDialog> dialog, bool hue_strip)
     : Control(std::move(id)), dialog_(std::move(dialog)), hue_strip_(hue_strip) {
-    cursor = gf::CursorKind::crosshair;
+    cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::crosshair);
     accessible_name = hue_strip ? tr("Hue") : tr("Saturation and value");
 }
 void ColorPlane::on_paint(gf::Painter& painter, gf::Rect) {
@@ -212,11 +212,12 @@ void EditorDialog::put(gf::Control::Ptr control, gf::Rect bounds) {
     add_child(control);
 }
 void EditorDialog::style_label(gf::Label& control, bool heading) {
-    control.font = gf::FontSpec{gf::FontRole::control, heading ? 14.0 : 13.0, static_cast<std::uint16_t>(heading ? 600 : 400),
-                    false, 0.05};
+    const gf::FontSpec font{gf::FontRole::control, heading ? 14.0 : 13.0,
+                            static_cast<std::uint16_t>(heading ? 600 : 400), false, 0.05};
+    control.font = stxlib::Optional<gf::FontSpec>::of(font);
     static_cast<void>(control.add_class("dialog-text"));
     if (current_language().right_to_left && kind_ != EditorDialogKind::english_help) {
-        control.alignment = gf::HorizontalAlignment::far;
+        control.alignment = gf::HorizontalAlignment::end;
     }
 }
 void EditorDialog::label(const std::string& id, const std::string& text, gf::Rect bounds, bool heading) {
@@ -446,7 +447,7 @@ void EditorDialog::initialize_control_tree() {
             (*language_).items.append(choices[index].name);
             if (choices[index].tag == (*editor).settings.language) { language_index = index + 1; }
         }
-        (*language_).selected_index = language_index;
+        (*language_).selected_index = stxlib::Optional<std::size_t>::of(language_index);
         put(language_, {530, 96, 216, 32});
         label("settings-language-hint", tr("Language changes take effect after restarting Plan Paint."), {530, 143, 216, 88});
         (*std::static_pointer_cast<gf::Label>(controls_.back())).text_wrapping = gf::TextWrapping::word;
@@ -471,13 +472,13 @@ void EditorDialog::initialize_control_tree() {
         for (int index = 0; index < canvas_backing_count; ++index) {
             (*background_).items.append(tr(canvas_backing_name(static_cast<CanvasBacking>(index))));
         }
-        (*background_).selected_index = static_cast<std::size_t>((*editor).settings.canvas_backing);
+        (*background_).selected_index = stxlib::Optional<std::size_t>::of(static_cast<std::size_t>((*editor).settings.canvas_backing));
         put(background_, {230, 96, 230, 30});
         label("settings-alpha-label", tr("Transparency display"), {24, 134, 200, 28});
         alpha_background_ = gf::make_control<gf::ComboBox>(gf::StableId("settings-alpha-background"));
         (*alpha_background_).items.append(tr("Checkerboard"));
         (*alpha_background_).items.append(tr("Solid color"));
-        (*alpha_background_).selected_index = (*editor).settings.solid_transparency ? 1 : 0;
+        (*alpha_background_).selected_index = stxlib::Optional<std::size_t>::of((*editor).settings.solid_transparency ? 1 : 0);
         put(alpha_background_, {230, 134, 230, 30});
         label("settings-alpha-color-label", tr("Solid color (hex)"), {24, 172, 200, 28});
         alpha_background_color_ = gf::make_control<gf::TextBox>(gf::StableId("settings-alpha-color"));
@@ -488,7 +489,7 @@ void EditorDialog::initialize_control_tree() {
         shape_gesture_ = gf::make_control<gf::ComboBox>(gf::StableId("settings-shape-gesture"));
         (*shape_gesture_).items.append(tr("Click, move, click"));
         (*shape_gesture_).items.append(tr("Click, hold, release"));
-        (*shape_gesture_).selected_index = (*editor).settings.drag_shapes ? 1 : 0;
+        (*shape_gesture_).selected_index = stxlib::Optional<std::size_t>::of((*editor).settings.drag_shapes ? 1 : 0);
         put(shape_gesture_, {230, 210, 230, 30});
         rotate_view_ = gf::make_control<gf::CheckBox>(gf::StableId("settings-rotate-view"),
                                                       tr("Enable canvas rotation handle"));
@@ -562,7 +563,7 @@ void EditorDialog::initialize_control_tree() {
                 }
             }
             (*printer_).items = std::move(names);
-            (*printer_).selected_index = selected;
+            (*printer_).selected_index = stxlib::Optional<std::size_t>::of(selected);
             put(printer_, {170, 214, 370, 30});
             label("copies-label", tr("Copies"), {20, 258, 140, 28});
             atlas_numbers_.push_back(number("print-copies", {170, 258, 140, 30}, 1, 999, settings.copies));
@@ -633,12 +634,12 @@ void EditorDialog::initialize_control_tree() {
         (*icon_policy_).items.append(tr("Add missing sizes; keep existing images"));
         (*icon_policy_).items.append(tr("Choose replacements individually"));
         (*icon_policy_).items.append(tr("Exact profile; remove unchecked sizes"));
-        (*icon_policy_).selected_index = 0;
+        (*icon_policy_).selected_index = stxlib::Optional<std::size_t>::of(0);
         put(icon_policy_, {136, 138, 264, 28});
         subscriptions_.push_back(
             (*icon_policy_)
                 .selected_index_changed()
-                .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+                .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                       EditorDialog, &EditorDialog::icon_policy_changed>(*this)));
         label("icon-policy-hint",
               tr("Choose a target to set its source and depth. Check each replacement explicitly."),
@@ -700,7 +701,7 @@ void EditorDialog::initialize_control_tree() {
         skew_vertical_ = number("skew-vertical", {148, 376, 176, 30}, -80, 80, 0, 1);
     }
     error_ = gf::make_control<gf::Label>(gf::StableId("dialog-error"));
-    (*error_).font = gf::FontSpec{gf::FontRole::control, 12, 400, false};
+    (*error_).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 12, 400, false});
     // The error line is slate dialog text, in the signal colour while it
     // reports a problem (the package's .dialog-text.problem).
     static_cast<void>((*error_).add_class("dialog-text"));
@@ -927,7 +928,7 @@ std::vector<int> EditorDialog::chosen_icon_sizes() const {
 void EditorDialog::icon_size_clicked(gf::ButtonBase&) {
     refresh_icon_plan();
 }
-void EditorDialog::icon_policy_changed(std::optional<std::size_t>) {
+void EditorDialog::icon_policy_changed(stxlib::Optional<std::size_t>) {
     refresh_icon_plan();
 }
 void EditorDialog::atlas_changed(double) {

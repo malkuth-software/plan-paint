@@ -94,12 +94,12 @@ void EditorDialog::initialize_numeric_transform() {
     numeric_sampling_ = gf::make_control<gf::ComboBox>(gf::StableId("transform-sampling"));
     (*numeric_sampling_).accessible_name = tr("Sampling");
     (*numeric_sampling_).items = {tr("CONV* point"), tr("CONV* minification"), tr("CONV* area")};
-    (*numeric_sampling_).selected_index = 1;
+    (*numeric_sampling_).selected_index = stxlib::Optional<std::size_t>::of(1);
     put(numeric_sampling_, {175, 382, 380, 28});
     subscriptions_.push_back(
         (*numeric_sampling_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::numeric_transform_choice>(*this)));
     numeric_status_ = gf::make_control<gf::Label>(gf::StableId("transform-status"));
     put(numeric_status_, {20, 416, 740, 24});
@@ -137,7 +137,7 @@ void EditorDialog::invalidate_numeric_transform() {
 void EditorDialog::numeric_transform_number(double) {
     invalidate_numeric_transform();
 }
-void EditorDialog::numeric_transform_choice(std::optional<std::size_t>) {
+void EditorDialog::numeric_transform_choice(stxlib::Optional<std::size_t>) {
     invalidate_numeric_transform();
 }
 void EditorDialog::start_numeric_transform() {

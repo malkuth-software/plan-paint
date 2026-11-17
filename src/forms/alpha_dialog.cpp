@@ -22,7 +22,7 @@ void EditorDialog::initialize_alpha_tools() {
     alpha_view_ = gf::make_control<gf::ComboBox>(gf::StableId("alpha-view"));
     (*alpha_view_).accessible_name = tr("Preview");
     (*alpha_view_).items = {tr("Alpha"), tr("Color")};
-    (*alpha_view_).selected_index = 0;
+    (*alpha_view_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(alpha_view_, {530, 48, 230, 28});
     label("alpha-before-label", tr("Original"), {20, 88, 355, 24});
     label("alpha-after-label", tr("Preview"), {405, 88, 355, 24});
@@ -60,10 +60,10 @@ void EditorDialog::initialize_alpha_tools() {
     subscriptions_.push_back(
         (*alpha_view_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::alpha_view_changed>(*this)));
 }
-void EditorDialog::alpha_view_changed(std::optional<std::size_t>) {
+void EditorDialog::alpha_view_changed(stxlib::Optional<std::size_t>) {
     render_alpha_tools();
 }
 void EditorDialog::render_alpha_tools() {

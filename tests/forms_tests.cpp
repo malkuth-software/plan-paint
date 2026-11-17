@@ -23,6 +23,7 @@
 #include <gui_forms/diagnostics/invalidation_overlay/invalidation_overlay.hpp>
 #include <iostream>
 #include <optional>
+#include <stxlib/optional.hpp>
 #include <span>
 #include <stdexcept>
 #include <thread>
@@ -1719,14 +1720,14 @@ void icon_sheet_preview_and_export() {
         std::dynamic_pointer_cast<gf::RasterCanvas>(find_control(window, "sheet-preview"));
     const std::shared_ptr<gf::ComboBox> zoom =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "sheet-zoom"));
-    (*zoom).selected_index = 1;
+    (*zoom).selected_index = stxlib::Optional<std::size_t>::of(1);
     window.perform_layout();
     require(std::abs((*preview).bitmap_to_client({0, 0, 1, 1}).width * window.scale() - 1) < 1e-8,
             "actual-pixel proof must map one image pixel to one physical display pixel");
     const std::shared_ptr<gf::ComboBox> background =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "sheet-background"));
-    (*background).selected_index = 1;
-    (*background).selected_index = 3;
+    (*background).selected_index = stxlib::Optional<std::size_t>::of(1);
+    (*background).selected_index = stxlib::Optional<std::size_t>::of(3);
     await_icon_sheet(window);
     services.path = (std::filesystem::temp_directory_path() / "rainstar-icon-contact-sheet.png").string();
     routed_button(window, "sheet-export");
@@ -1735,11 +1736,11 @@ void icon_sheet_preview_and_export() {
     std::filesystem::remove(services.path);
     const std::shared_ptr<gf::ComboBox> scope =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "sheet-scope"));
-    (*scope).selected_index = 2;
+    (*scope).selected_index = stxlib::Optional<std::size_t>::of(2);
     await_icon_sheet(window);
     require(!enabled(window, "sheet-export") && !enabled(window, "sheet-open"),
             "empty selected sequence must not export or open a stale preview");
-    (*scope).selected_index = 0;
+    (*scope).selected_index = stxlib::Optional<std::size_t>::of(0);
     routed_button(window, "dialog-cancel");
     static_cast<void>(window.drain_posted_work());
     require(!window.find("sheet-preview") && editor.document.revision == revision &&
@@ -1773,7 +1774,7 @@ void icon_sheet_new_document() {
     await_icon_sheet(window);
     const std::shared_ptr<gf::ComboBox> background =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "sheet-background"));
-    (*background).selected_index = 3;
+    (*background).selected_index = stxlib::Optional<std::size_t>::of(3);
     await_icon_sheet(window);
     services.path = (std::filesystem::temp_directory_path() / "paint-contact-new-document.png").string();
     routed_button(window, "sheet-export");
@@ -1878,7 +1879,7 @@ void icon_representation_export() {
             "default collision policy would overwrite existing PNGs");
     const std::shared_ptr<gf::ComboBox> policy =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "export-collision"));
-    (*policy).selected_index = 1;
+    (*policy).selected_index = stxlib::Optional<std::size_t>::of(1);
     await_icon_export(window);
     require(enabled(window, "export-run") &&
                 (*manifest).text.read().find("001-2.png") != std::string::npos,
@@ -2033,7 +2034,7 @@ void icon_batch_contracts() {
     require(enabled(window, "batch-run") && std::filesystem::is_empty(root) &&
                 (*manifest).text.read().find("Plan Paint output") != std::string::npos,
             "new-folder review discloses the full child path without creating it");
-    (*output_mode).selected_index = 1;
+    (*output_mode).selected_index = stxlib::Optional<std::size_t>::of(1);
     require(!enabled(window, "batch-run"), "changing output mode revokes the review");
     routed_button(window, "batch-review");
     await_batch(window);
@@ -2045,11 +2046,11 @@ void icon_batch_contracts() {
             "Enter in batch settings cannot execute the job");
     const std::shared_ptr<gf::ComboBox> operation =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "batch-operation"));
-    (*operation).selected_index = 2;
+    (*operation).selected_index = stxlib::Optional<std::size_t>::of(2);
     require(!enabled(window, "batch-run") && enabled(window, "batch-preset") &&
                 !enabled(window, "batch-size-16"),
             "operation invalidates review and switches applicable fields");
-    (*operation).selected_index = 0;
+    (*operation).selected_index = stxlib::Optional<std::size_t>::of(0);
     routed_button(window, "batch-review");
     await_batch(window);
     const std::uint64_t revision = editor.document.revision;
@@ -2066,7 +2067,7 @@ void icon_batch_contracts() {
     routed_button(window, "batch-report");
     require(std::filesystem::exists(root / "report.json"),
             "batch result report saves through the native dialog");
-    (*operation).selected_index = 4;
+    (*operation).selected_index = stxlib::Optional<std::size_t>::of(4);
     window.perform_layout();
     require(shown(window, "batch-stamp-path") && !shown(window, "batch-policy") &&
                 !shown(window, "batch-opacity-label"),
@@ -2106,7 +2107,7 @@ void icon_batch_contracts() {
     require(stamped.get(0, 0).a == 255 && editor.document.revision == revision &&
                 editor.document.undo_history.size() == history,
             "stamp file output applies the matte without changing document history");
-    (*operation).selected_index = 5;
+    (*operation).selected_index = stxlib::Optional<std::size_t>::of(5);
     require(shown(window, "batch-palette-path") && !shown(window, "batch-stamp-path"),
             "shared palette exposes its own conversion fields");
     const std::string palette_text = paint::encode_icon_palette({{0, 0, 0, 255}, {255, 255, 255, 255}});
@@ -2130,7 +2131,7 @@ void icon_batch_contracts() {
     const paint::ImageContainer shared = paint::load_container((root / "app-icon-1-icon-1-palette.ico").string());
     require(paint::has_icon_palette(shared.frames[0]) && editor.document.revision == revision,
             "shared batch emits indexed ICO without document mutation");
-    (*operation).selected_index = 0;
+    (*operation).selected_index = stxlib::Optional<std::size_t>::of(0);
     require(!shown(window, "batch-stamp-path") && shown(window, "batch-policy"),
             "leaving stamp operation restores profile fields");
     routed_button(window, "batch-review");
@@ -2191,9 +2192,9 @@ void icon_states_contracts() {
             "state report accounts for both source representations");
     const std::shared_ptr<gf::ComboBox> preset =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "state-preset"));
-    (*preset).selected_index = 0;
-    (*preset).selected_index = 1;
-    (*preset).selected_index = 2;
+    (*preset).selected_index = stxlib::Optional<std::size_t>::of(0);
+    (*preset).selected_index = stxlib::Optional<std::size_t>::of(1);
+    (*preset).selected_index = stxlib::Optional<std::size_t>::of(2);
     await_icon_states(window);
     services.path = (root / "family-disabled.cur").string();
     routed_button(window, "state-export");
@@ -2226,17 +2227,17 @@ void icon_states_contracts() {
             "recipe previews and exports do not modify source or Undo history");
     const std::shared_ptr<gf::ComboBox> scope =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "state-scope"));
-    (*scope).selected_index = 2;
+    (*scope).selected_index = stxlib::Optional<std::size_t>::of(2);
     await_icon_states(window);
     require(!enabled(window, "state-export"), "empty selected sequence blocks export");
-    (*scope).selected_index = 0;
+    (*scope).selected_index = stxlib::Optional<std::size_t>::of(0);
     await_icon_states(window);
     editor.document.image.set(0, 0, {0, 0, 255, 255});
     services.path = (root / "snapshot.cur").string();
     routed_button(window, "state-export");
     require(paint::equal(paint::load_container(services.path).frames[0].image.get(0, 0), {54, 54, 54, 70}),
             "preview and exported bytes use the same frozen source");
-    (*preset).selected_index = 1;
+    (*preset).selected_index = stxlib::Optional<std::size_t>::of(1);
     editor.close_editor_dialog();
     static_cast<void>(window.drain_posted_work());
     require(!window.find("state-after"), "closing cancels worker and late delivery cannot reopen dialog");
@@ -2259,7 +2260,7 @@ void icon_states_contracts() {
             "one failed representation blocks family export and remains reportable");
     const std::shared_ptr<gf::ComboBox> image =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "state-image"));
-    (*image).selected_index = 2;
+    (*image).selected_index = stxlib::Optional<std::size_t>::of(2);
     const std::shared_ptr<gf::RasterCanvas> preview =
         std::dynamic_pointer_cast<gf::RasterCanvas>(find_control(window, "state-after"));
     require(!(*preview).bitmap.read(), "failed representation does not show another image's output");
@@ -2267,8 +2268,8 @@ void icon_states_contracts() {
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "state-scope"));
     const std::shared_ptr<gf::ComboBox> policy =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "state-policy"));
-    (*selected).selected_index = 2;
-    (*policy).selected_index = 1;
+    (*selected).selected_index = stxlib::Optional<std::size_t>::of(2);
+    (*policy).selected_index = stxlib::Optional<std::size_t>::of(1);
     await_icon_states(window);
     require(enabled(window, "state-export"), "explicit scope can omit unsupported artwork");
     services.path = (root / "ordered-family").string();
@@ -2302,7 +2303,7 @@ void indexed_canvas_contracts() {
     editor.canvas().set_zoom(8);
     editor.execute("atlas-palette");
     const std::shared_ptr<gf::ComboBox> entry = std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "palette-entry"));
-    (*entry).selected_index = 1;
+    (*entry).selected_index = stxlib::Optional<std::size_t>::of(1);
     routed_button(window, "palette-primary");
     require(editor.icon_index_paint && editor.icon_primary_index == 1 && editor.document.undo_history.empty(),
             "palette chooser selects an exact paint index without editing artwork");
@@ -2458,14 +2459,14 @@ void icon_palette_contracts() {
     editor.execute("atlas-palette");
     const std::shared_ptr<gf::ComboBox> mode =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "palette-mode"));
-    (*mode).selected_index = 1;
+    (*mode).selected_index = stxlib::Optional<std::size_t>::of(1);
     require(!shown(window, "palette-depth") && shown(window, "palette-entry"),
             "entry editing replaces conversion controls");
     const std::shared_ptr<gf::ComboBox> entry =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "palette-entry"));
     const std::shared_ptr<gf::TextBox> rgb =
         std::dynamic_pointer_cast<gf::TextBox>(find_control(window, "palette-rgb"));
-    (*entry).selected_index = 1;
+    (*entry).selected_index = stxlib::Optional<std::size_t>::of(1);
     (*rgb).text = "not-rgb";
     require(!enabled(window, "palette-apply"), "invalid entry RGB disables Apply");
     (*rgb).text = "#A02050";
@@ -2486,10 +2487,10 @@ void icon_palette_contracts() {
     editor.execute("atlas-palette");
     const std::shared_ptr<gf::ComboBox> conversion_mode =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "palette-mode"));
-    (*conversion_mode).selected_index = 0;
+    (*conversion_mode).selected_index = stxlib::Optional<std::size_t>::of(0);
     const std::shared_ptr<gf::ComboBox> depth =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "palette-depth"));
-    (*depth).selected_index = 2;
+    (*depth).selected_index = stxlib::Optional<std::size_t>::of(2);
     require(enabled(window, "palette-apply"), "changing depth prepares a new representation");
     editor.document.checkpoint();
     editor.document.image.set(1, 0, {1, 2, 3, 4});
@@ -2628,7 +2629,7 @@ void icon_validation_controls() {
     routed_button(window,"validation-check"); await_validation(window);
     require((*report).text.read().find("Missing profile sizes: 0")!=std::string::npos,"custom profile is explicit");
     const std::shared_ptr<gf::ComboBox> depth=std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "validation-depth"));
-    (*depth).selected_index = 2; routed_button(window,"validation-check"); await_validation(window);
+    (*depth).selected_index = stxlib::Optional<std::size_t>::of(2); routed_button(window,"validation-check"); await_validation(window);
     require((*report).text.read().find("Missing profile sizes: 16")!=std::string::npos,"depth requirement uses saved output depth");
     const std::filesystem::path path=std::filesystem::temp_directory_path()/
         ("paint-validation-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())+".json");
@@ -2679,7 +2680,7 @@ void toolbar_strip_controls() {
     require(exported.width==4 && exported.height==4 && paint::equal(exported.get(1,1),sheet.get(3,1)),"PNG exports explicit repeated sequence");
     std::filesystem::remove(path);
     const std::shared_ptr<gf::ComboBox> format=std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "strip-format"));
-    (*format).selected_index = 1;
+    (*format).selected_index = stxlib::Optional<std::size_t>::of(1);
     require(!enabled(window, "strip-background") && !enabled(window, "strip-export"),"BMP forces matte and requires new preview");
     const std::shared_ptr<gf::TextBox> matte=std::dynamic_pointer_cast<gf::TextBox>(find_control(window, "strip-matte"));
     (*matte).text = "#123456"; routed_button(window,"strip-preview"); await_strip(window);
@@ -2763,7 +2764,7 @@ void icon_effect_controls() {
     editor.execute("atlas-effects");
     const std::shared_ptr<gf::ComboBox> choice = std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "effect-choice"));
     require(bool(choice) && !enabled(window, "effect-apply"), "neutral effect opens without an edit");
-    (*choice).selected_index = 6;
+    (*choice).selected_index = stxlib::Optional<std::size_t>::of(6);
     const std::shared_ptr<gf::TextBox> color = std::dynamic_pointer_cast<gf::TextBox>(find_control(window, "effect-color"));
     const std::shared_ptr<gf::TextBox> status = std::dynamic_pointer_cast<gf::TextBox>(find_control(window, "effect-status"));
     require(enabled(window, "effect-apply") && (*status).text.read().find("clipped") != std::string::npos &&
@@ -2776,7 +2777,7 @@ void icon_effect_controls() {
             "closing preview cancels without modifying pixels");
     editor.execute("atlas-effects");
     const std::shared_ptr<gf::ComboBox> grayscale = std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "effect-choice"));
-    (*grayscale).selected_index = 2;
+    (*grayscale).selected_index = stxlib::Optional<std::size_t>::of(2);
     routed_button(window,"effect-apply");
     require(editor.document.undo_history.size() == history + 1 && !window.find("effect-choice"), "Apply closes and adds one Undo step");
     const paint::Color pixel = editor.document.image.get(14,8);
@@ -2787,7 +2788,7 @@ void icon_effect_controls() {
     require(paint::equal(editor.document.image.get(14,8),first.image.get(14,8)), "Undo restores source artwork");
     editor.execute("atlas-effects");
     const std::shared_ptr<gf::ComboBox> stale = std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "effect-choice"));
-    (*stale).selected_index = 2;
+    (*stale).selected_index = stxlib::Optional<std::size_t>::of(2);
     editor.document.checkpoint(); editor.document.image.set(0,0,{100,20,30,255});
     routed_button(window,"effect-apply");
     require(bool(window.find("effect-choice")) && paint::equal(editor.document.image.get(0,0), {100,20,30,255}),
@@ -2806,7 +2807,7 @@ void advanced_effect_controls() {
     require((*choice).items.read().size()==8 && !enabled(window, "effect-repeat"),"basic effects remain prominent and empty repeat is disabled");
     routed_button(window,"effect-advanced");
     require((*choice).items.read().size()==15,"Advanced exposes every additional effect");
-    (*choice).selected_index = 9;
+    (*choice).selected_index = stxlib::Optional<std::size_t>::of(9);
     const std::shared_ptr<gf::NumericUpDown> black=std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "effect-value-0"));
     const std::shared_ptr<gf::NumericUpDown> white=std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "effect-value-1"));
     const std::shared_ptr<gf::NumericUpDown> gamma=std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "effect-value-2"));
@@ -2824,7 +2825,7 @@ void advanced_effect_controls() {
     routed_button(window,"effect-repeat");
     const std::shared_ptr<gf::ComboBox> repeated=std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "effect-choice"));
     const std::shared_ptr<gf::NumericUpDown> repeated_gamma=std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "effect-value-2"));
-    require((*repeated).selected_index.read()==9 && (*repeated_gamma).value.read()==1.25 && paint::equal(editor.document.image.get(0,0),frame.image.get(0,0)),
+    require((*repeated).selected_index.read()== stxlib::Optional<std::size_t>::of(9) && (*repeated_gamma).value.read()==1.25 && paint::equal(editor.document.image.get(0,0),frame.image.get(0,0)),
             "repeat restores advanced controls without applying before review");
     routed_button(window,"effect-apply");
     const paint::Image expected=paint::render_icon_effect(frame.image,saved).image;
@@ -2832,9 +2833,9 @@ void advanced_effect_controls() {
     editor.execute("atlas-effects");
     routed_button(window,"effect-advanced");
     const std::shared_ptr<gf::ComboBox> advanced=std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "effect-choice"));
-    (*advanced).selected_index = 14;
+    (*advanced).selected_index = stxlib::Optional<std::size_t>::of(14);
     routed_button(window,"effect-advanced");
-    require((*advanced).selected_index.read()==0 && !enabled(window, "effect-apply"),"hiding Advanced resets an advanced preview safely");
+    require((*advanced).selected_index.read()== stxlib::Optional<std::size_t>::of(0) && !enabled(window, "effect-apply"),"hiding Advanced resets an advanced preview safely");
     editor.close_editor_dialog();
     require((*editor.last_icon_effect).effect==paint::IconEffect::Levels,"canceled previews do not replace last applied effect");
 }
@@ -2976,12 +2977,12 @@ void geometry_style_controls() {
     const std::shared_ptr<gf::ComboBox> style = std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "geometry-stroke"));
     const std::shared_ptr<gf::NumericUpDown> organic = std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "geometry-organic"));
     require(style && organic && shown(window, "geometry-stroke") && shown(window, "geometry-organic"), "geometry ribbon lost style controls");
-    (*style).selected_index = 1;
+    (*style).selected_index = stxlib::Optional<std::size_t>::of(1);
     fixture.drag(10, 30, 110, 30);
     require(!white(editor.document.image.get(20, 30)) && white(editor.document.image.get(32, 30)),
             "ribbon dashed style did not render a mark followed by a gap");
     editor.execute("undo");
-    (*style).selected_index = 2;
+    (*style).selected_index = stxlib::Optional<std::size_t>::of(2);
     fixture.drag(10, 30, 110, 30);
     require(!white(editor.document.image.get(10, 30)) && white(editor.document.image.get(16, 30)),
             "ribbon dotted style did not render a dot followed by a gap");
@@ -3005,8 +3006,8 @@ void geometry_marker_controls() {
     const std::shared_ptr<gf::ComboBox> first = std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "geometry-start"));
     const std::shared_ptr<gf::ComboBox> last = std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "geometry-end"));
     require(first && last && shown(window, "geometry-start") && shown(window, "geometry-end"), "line ribbon must expose both endpoints");
-    (*first).selected_index = static_cast<std::size_t>(paint::EndpointMarker::Circle);
-    (*last).selected_index = static_cast<std::size_t>(paint::EndpointMarker::ZeroMany);
+    (*first).selected_index = stxlib::Optional<std::size_t>::of(static_cast<std::size_t>(paint::EndpointMarker::Circle));
+    (*last).selected_index = stxlib::Optional<std::size_t>::of(static_cast<std::size_t>(paint::EndpointMarker::ZeroMany));
     fixture.drag(10, 30, 110, 30);
     require(white(editor.document.image.get(16, 30)) && !white(editor.document.image.get(110, 37)),
             "independent ribbon markers did not draw the hollow circle and crow's foot");
@@ -3080,7 +3081,7 @@ void sticky_note_contracts() {
     const std::shared_ptr<gf::NumericUpDown> width = std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "sticky-width"));
     (*width).value = 96;
     const std::shared_ptr<gf::ComboBox> paper = std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "sticky-paper"));
-    (*paper).selected_index = 8;
+    (*paper).selected_index = stxlib::Optional<std::size_t>::of(8);
     const std::shared_ptr<gf::TextBox> color = std::dynamic_pointer_cast<gf::TextBox>(find_control(window, "sticky-color"));
     (*color).text = "#BBDDEE";
     require(editor.text.bounds.w == 96 && (*editor.text.note).paper == 8 &&
@@ -3406,7 +3407,7 @@ void icon_generation_review_and_cancel() {
                 (*summary).text.read().find("Keep: 3") != std::string::npos &&
                 (*summary).text.read().find("Add: 2") != std::string::npos,
             "icon generation defaults to preserving existing artwork with a live plan");
-    (*policy).selected_index = 2;
+    (*policy).selected_index = stxlib::Optional<std::size_t>::of(2);
     const std::shared_ptr<gf::TextBox> manifest =
         std::dynamic_pointer_cast<gf::TextBox>(find_control(window, "icon-size-manifest"));
     require(manifest && (*manifest).read_only.read() &&
@@ -3427,7 +3428,7 @@ void icon_generation_review_and_cancel() {
     editor.execute("atlas-icons");
     window.perform_layout();
     policy = std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "icon-size-policy"));
-    (*policy).selected_index = 2;
+    (*policy).selected_index = stxlib::Optional<std::size_t>::of(2);
     routed_button(window, "dialog-ok");
     require(editor.document.atlas.count() == 4 && editor.document.undo_history.size() == history + 1,
             "accept applies the reviewed exact profile as one transaction");
@@ -3490,21 +3491,21 @@ void explicit_icon_target_controls() {
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "icon-size-policy"));
     require(list && input && depth && replace && !(*replace).checked.read(),
             "per-target controls start by retaining every existing representation");
-    (*policy).selected_index = 1;
+    (*policy).selected_index = stxlib::Optional<std::size_t>::of(1);
     require(!(*replace).checked.read() && !(*input).enabled.read(),
             "replacement policy alone cannot select existing artwork for replacement");
     (*list).select_index(1);
     routed_button(window, "icon-target-replace");
-    (*input).selected_index = 0;
-    (*depth).selected_index = 1;
+    (*input).selected_index = stxlib::Optional<std::size_t>::of(0);
+    (*depth).selected_index = stxlib::Optional<std::size_t>::of(1);
     for (int size : {16, 32, 48, 256}) {
         routed_button(window, "icon-size-" + std::to_string(size));
     }
     (*std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "icon-custom-width"))).value = 20;
     (*std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "icon-custom-height"))).value = 12;
     routed_button(window, "icon-target-add");
-    (*input).selected_index = 2;
-    (*depth).selected_index = 2;
+    (*input).selected_index = stxlib::Optional<std::size_t>::of(2);
+    (*depth).selected_index = stxlib::Optional<std::size_t>::of(2);
     require(editor.document.undo_history.empty() && editor.document.atlas.count() == 3 &&
                 window.find("icon-target-before") && window.find("icon-target-after"),
             "target selection and custom previews do not mutate the document");
@@ -3826,9 +3827,9 @@ void text_caret_deadlines_damage_only_the_transformed_caret() {
         editor.paint_canvas_overlay(overlay, {});
         require(!overlay.text_caret_points.empty(), "active text paints a caret");
         PreviewPainter initial;
-        const std::optional<gf::PaintReceipt> receipt = window.paint(initial);
-        if (receipt) {
-            static_cast<void>(window.notify_presented(*receipt));
+        const stxlib::Optional<gf::PaintReceipt> receipt = window.paint(initial);
+        if (receipt.present()) {
+            static_cast<void>(window.notify_presented(*receipt.value()));
         }
         static_cast<void>(window.take_damage());
         const gf::FramePollResult frame =
@@ -3890,12 +3891,12 @@ void transforms_preview_before_release() {
     require(rotation.image.value && std::abs(editor.rotation_angle - 2) < 0.01 &&
                 rotation.image_bounds.width > 25 && rotation.image_bounds.height > 20,
             "first two degrees of rotation publish pixels without waiting for the worker");
-    std::optional<gf::ImageResourceView> pixels = (*fixture.window).image_resources().find(rotation.image);
-    require(pixels.has_value(), "rotation preview owns a live image resource");
+    stxlib::Optional<gf::ImageResourceView> pixels = (*fixture.window).image_resources().find(rotation.image);
+    require(pixels.present(), "rotation preview owns a live image resource");
     int visible = 0;
-    for (std::size_t i = 0; i + 3 < (*pixels).encoded.size(); i += 4) {
-        if ((*pixels).encoded[i] == std::byte{170} && (*pixels).encoded[i + 1] == std::byte{110} &&
-            (*pixels).encoded[i + 2] == std::byte{40} && (*pixels).encoded[i + 3] == std::byte{255}) {
+    for (std::size_t i = 0; i + 3 < (*pixels.value()).encoded.size(); i += 4) {
+        if ((*pixels.value()).encoded[i] == std::byte{170} && (*pixels.value()).encoded[i + 1] == std::byte{110} &&
+            (*pixels.value()).encoded[i + 2] == std::byte{40} && (*pixels.value()).encoded[i + 3] == std::byte{255}) {
             ++visible;
         }
     }
@@ -3919,9 +3920,9 @@ void selection_handles_repaint_during_capture() {
         editor.canvas().set_view(2, {-8, -6});
         editor.refresh();
         PreviewPainter initial;
-        std::optional<gf::PaintReceipt> receipt = window.paint(initial);
-        if (receipt) {
-            static_cast<void>(window.notify_presented(*receipt));
+        stxlib::Optional<gf::PaintReceipt> receipt = window.paint(initial);
+        if (receipt.present()) {
+            static_cast<void>(window.notify_presented(*receipt.value()));
         }
         double x = 30 + handles[handle][0] * 40, y = 25 + handles[handle][1] * 30;
         fixture.pointer(gf::PointerAction::down, x, y);
@@ -3945,9 +3946,9 @@ void selection_handles_repaint_during_capture() {
                     drawn = true;
                 }
             }
-            require(receipt.has_value() && drawn,
+            require(receipt.present() && drawn,
                     "retained window repaint includes the new resize image before mouse-up");
-            static_cast<void>(window.notify_presented(*receipt));
+            static_cast<void>(window.notify_presented(*receipt.value()));
             int width = 40 + (handles[handle][0] == 0.5 ? 0 : static_cast<int>(delta));
             int height = 30 + (handles[handle][1] == 0.5 ? 0 : static_cast<int>(delta));
             std::shared_ptr<gf::Label> status =
@@ -3979,8 +3980,8 @@ void large_selection_preview_workload() {
     }
     PreviewPainter painter;
     editor.paint_canvas_overlay(painter, {});
-    std::optional<gf::ImageResourceView> resource = (*fixture.window).image_resources().find(painter.image);
-    require(resource && (*resource).encoded.size() <= 4 * 1051000,
+    stxlib::Optional<gf::ImageResourceView> resource = (*fixture.window).image_resources().find(painter.image);
+    require(resource.present() && (*resource.value()).encoded.size() <= 4 * 1051000,
             "large selection live preview stays bounded to approximately one megapixel");
     require(editor.document.selection.image.width == 900 && editor.document.undo_history.size() == undo,
             "continuous large preview does not resample the source or add history");
@@ -4515,7 +4516,7 @@ void centered_circle_and_materials() {
     const std::shared_ptr<gf::ComboBox> rendering =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "render-quality"));
     require(rendering != nullptr, "the tool tab hosts the rendering choice");
-    (*rendering).selected_index = 0;
+    (*rendering).selected_index = stxlib::Optional<std::size_t>::of(0);
     require(!editor.document.ink.smooth, "Crisp is a working rendering choice");
     require(shown(window, "tool-size") && shown(window, "outline") &&
                 shown(window, "fill") && shown(window, "render-quality") &&
@@ -4625,7 +4626,7 @@ void dither_dialog_and_brush() {
     require(window.find("dither-preview")!=nullptr,"Dither command opens preview dialog");
     const std::shared_ptr<gf::NumericUpDown> count=std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "dither-colors"));
     const std::shared_ptr<gf::ComboBox> pattern=std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "dither-pattern"));
-    (*count).value = 8;(*pattern).selected_index = 3;await_carpet(fixture);
+    (*count).value = 8;(*pattern).selected_index = stxlib::Optional<std::size_t>::of(3);await_carpet(fixture);
     require(editor.document.undo_history.size()==history && std::memcmp(before.pixels.data(),editor.document.image.pixels.data(),before.pixels.size()*sizeof(paint::Color))==0,"Dither preview does not edit document or history");
     routed_button(window,"dialog-ok");
     require(editor.document.undo_history.size()==history+1 && editor.dither_options.pattern==paint::DitherPattern::Drift,"Dither applies once and remembers pattern");
@@ -4796,15 +4797,15 @@ void rendering_quality_controls() {
     open_tab(*fixture.window, "tool-tab");
     const std::shared_ptr<gf::ComboBox> quality =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(*fixture.window, "render-quality"));
-    require(quality && shown(*fixture.window, "render-quality") && (*quality).selected_index.read() == 1,
+    require(quality && shown(*fixture.window, "render-quality") && (*quality).selected_index.read() == stxlib::Optional<std::size_t>::of(1),
             "rendering quality choices are not reachable or Smooth is not the default");
-    (*quality).selected_index = 2;
+    (*quality).selected_index = stxlib::Optional<std::size_t>::of(2);
     require(editor.document.ink.smooth && editor.document.ink.supersample,
             "4x choice does not select supersampling");
-    (*quality).selected_index = 0;
+    (*quality).selected_index = stxlib::Optional<std::size_t>::of(0);
     require(!editor.document.ink.smooth && !editor.document.ink.supersample,
             "Crisp choice does not disable smoothing");
-    (*quality).selected_index = 1;
+    (*quality).selected_index = stxlib::Optional<std::size_t>::of(1);
     require(editor.document.ink.smooth && !editor.document.ink.supersample,
             "Smooth choice does not restore the original rendering");
 }
@@ -5975,7 +5976,7 @@ void english_language_recovery() {
                 (*require_button(window, "dialog-cancel")).text.read() == "Cancel", "escape dialog buttons remain English");
         const std::shared_ptr<gf::Label> question = std::dynamic_pointer_cast<gf::Label>(find_control(window, "english-help-question"));
         require(question && (*question).text.read() == "Is English your language?" &&
-                (*question).alignment.read() == gf::HorizontalAlignment::near, "English question stays left aligned in RTL UI");
+                (*question).alignment.read() == gf::HorizontalAlignment::start, "English question stays left aligned in RTL UI");
         (*require_button(window, "dialog-cancel")).perform_click();
         require(editor.settings.language == language, "Cancel preserves language");
         (*help).perform_click();
@@ -6040,11 +6041,11 @@ void scroll_distance_bounds_and_settings() {
     (*distance).value = 2.5;
     std::shared_ptr<gf::ComboBox> backing =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "settings-background"));
-    (*backing).selected_index = static_cast<std::size_t>(paint::CanvasBacking::BrownFelt);
+    (*backing).selected_index = stxlib::Optional<std::size_t>::of(static_cast<std::size_t>(paint::CanvasBacking::BrownFelt));
     std::shared_ptr<gf::ComboBox> gesture =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "settings-shape-gesture"));
     require(gesture && (*gesture).selected_index.read().value_or(0) == 1, "settings exposes active drag option");
-    (*gesture).selected_index = 0;
+    (*gesture).selected_index = stxlib::Optional<std::size_t>::of(0);
     routed_button(window, "dialog-cancel");
     require(editor.settings.drag_shapes && editor.settings.scroll_distance == 6 &&
                 editor.settings.canvas_backing == paint::CanvasBacking::PaleFelt,
@@ -6061,15 +6062,15 @@ void scroll_distance_bounds_and_settings() {
     distance = std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "settings-scroll"));
     (*distance).value = 2.5;
     backing = std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "settings-background"));
-    (*backing).selected_index = static_cast<std::size_t>(paint::CanvasBacking::TanFelt);
+    (*backing).selected_index = stxlib::Optional<std::size_t>::of(static_cast<std::size_t>(paint::CanvasBacking::TanFelt));
     const paint::Image unchanged = editor.document.image;
     const std::shared_ptr<gf::ComboBox> alpha_background =
         std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "settings-alpha-background"));
     const std::shared_ptr<gf::TextBox> alpha_color =
         std::dynamic_pointer_cast<gf::TextBox>(find_control(window, "settings-alpha-color"));
     gesture = std::dynamic_pointer_cast<gf::ComboBox>(find_control(window, "settings-shape-gesture"));
-    (*gesture).selected_index = 0;
-    (*alpha_background).selected_index = 1;
+    (*gesture).selected_index = stxlib::Optional<std::size_t>::of(0);
+    (*alpha_background).selected_index = stxlib::Optional<std::size_t>::of(1);
     (*alpha_color).text = "#ED82C1";
     routed_button(window, "dialog-ok");
     paint::EditorSettings reloaded;
@@ -6914,10 +6915,10 @@ gf::ContentTextLayout canvas_text_layout(paint::TextSession& session, const std:
 }
 // A layout box in the editor's local coordinates (through the transform, if any).
 gf::Rect local_box(const gf::ContentTextLayout& layout, gf::Rect box) {
-    if (!layout.transform) {
+    if (layout.transform.absent()) {
         return box;
     }
-    const gf::Rect result = gf::map_content_box(*layout.transform, box).bounds();
+    const gf::Rect result = gf::map_content_box(*layout.transform.value(), box).bounds();
     return result;
 }
 void canvas_text_content_layout() {
@@ -6951,7 +6952,7 @@ void canvas_text_content_layout() {
     const gf::ContentTextLayout doubled = canvas_text_layout(session, words, 2.0);
     const gf::Rect single_box = local_box(wrapped, wrapped.clusters[1].bounds);
     const gf::Rect double_box = local_box(doubled, doubled.clusters[1].bounds);
-    require(wrapped.transform && (*wrapped.transform).axis_aligned() &&
+    require(wrapped.transform.present() && (*wrapped.transform.value()).axis_aligned() &&
                 std::abs(double_box.x - 2.0 * single_box.x) < 1e-9 &&
                 std::abs(double_box.width - 2.0 * single_box.width) < 1e-9,
             "the editor's coordinates scale with the zoom");
@@ -6959,12 +6960,12 @@ void canvas_text_content_layout() {
     // shearing transform, so the editor's quads follow the slanted text.
     session.style.skew = 0.35;
     const gf::ContentTextLayout skewed = canvas_text_layout(session, "Slanted\ntext", 1.5);
-    require(skewed.transform && !(*skewed.transform).axis_aligned() &&
-                std::abs((*skewed.transform).yy - 1.5) < 1e-12,
+    require(skewed.transform.present() && !(*skewed.transform.value()).axis_aligned() &&
+                std::abs((*skewed.transform.value()).yy - 1.5) < 1e-12,
             "skewed text submits its shear as the layout's transform");
     {
         const paint::Point display = session.display_point({10.0, 20.0});
-        const gf::Point mapped = (*skewed.transform).map({10.0, 20.0});
+        const gf::Point mapped = (*skewed.transform.value()).map({10.0, 20.0});
         require(std::abs(mapped.x - 1.5 * display.x) < 1e-9 && std::abs(mapped.y - 1.5 * display.y) < 1e-9,
                 "the layout's transform is the display mapping followed by the view");
     }
@@ -6972,7 +6973,8 @@ void canvas_text_content_layout() {
     session.style.perspective = -0.6;
     session.style.warp = 0.3;
     const gf::ContentTextLayout bent = canvas_text_layout(session, "Bent\ntext", 1.5);
-    require(!bent.transform && !paint::forms::affine_display(session), "warped text submits bounding boxes");
+    const stxlib::Optional<gf::ContentLayoutTransform> bent_display = paint::forms::affine_display(session);
+    require(bent.transform.absent() && bent_display.absent(), "warped text submits bounding boxes");
     session.style.skew = session.style.perspective = session.style.warp = 0;
     session.edit.content = "BO";
     session.refresh({0, 0, 0, 255}, {255, 255, 255, 255});

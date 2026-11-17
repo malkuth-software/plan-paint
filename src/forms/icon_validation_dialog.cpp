@@ -54,7 +54,7 @@ void EditorDialog::initialize_icon_validation() {
     validation_depth_ = gf::make_control<gf::ComboBox>(gf::StableId("validation-depth"));
     (*validation_depth_).accessible_name = tr("Color depth");
     (*validation_depth_).items = {"32 bpp", "8 bpp", "4 bpp", tr("Any depth")};
-    (*validation_depth_).selected_index = 0;
+    (*validation_depth_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(validation_depth_, {540, 78, 220, 28});
     validation_report_ = gf::make_control<gf::TextBox>(gf::StableId("validation-report"));
     (*validation_report_).read_only = true;
@@ -84,7 +84,7 @@ void EditorDialog::initialize_icon_validation() {
     subscriptions_.push_back(
         (*validation_depth_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::validation_choice>(*this)));
 }
 void EditorDialog::stop_icon_validation() {
@@ -106,7 +106,7 @@ void EditorDialog::invalidate_icon_validation() {
 void EditorDialog::validation_text(const std::string&) {
     invalidate_icon_validation();
 }
-void EditorDialog::validation_choice(std::optional<std::size_t>) {
+void EditorDialog::validation_choice(stxlib::Optional<std::size_t>) {
     invalidate_icon_validation();
 }
 void EditorDialog::start_icon_validation() {

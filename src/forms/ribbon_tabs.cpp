@@ -56,7 +56,7 @@ gf::MenuItemSpec submenu(const std::string& id, const std::string& text, std::ve
 // A small command with an image may leave its label out (RB decision 30);
 // before the images load, it keeps its label, which set_tabs accepts.
 void icon_only(gf::RibbonCommandSpec& command) {
-    if (command.image.value != 0U && command.size == Size::small) {
+    if (command.image.value != 0U && command.size == Size::compact) {
         command.show_label = false;
     }
 }
@@ -118,7 +118,7 @@ gf::RibbonCommandSpec Ribbon::hosted(const std::string& id, const std::string& t
     gf::RibbonCommandSpec spec;
     spec.stable_id = id;
     spec.kind = kind;
-    spec.size = Size::small;
+    spec.size = Size::compact;
     spec.text = text;
     spec.width = width;
     return spec;
@@ -136,7 +136,7 @@ void Ribbon::hint(gf::RibbonGroupSpec& target, const std::string& id, const std:
         gf::RibbonCommandSpec spec;
         spec.stable_id = line == 1 ? id : id + "-" + std::to_string(line);
         spec.kind = Kind::label;
-        spec.size = Size::small;
+        spec.size = Size::compact;
         spec.text = text.substr(start, end - start);
         target.commands.push_back(std::move(spec));
         start = end + 1;
@@ -147,7 +147,7 @@ void Ribbon::hint(gf::RibbonGroupSpec& target, const std::string& id, const std:
 // that moves keyboard focus to the field: hosted commands show no label of
 // their own (their text is the field's accessible name).
 void Ribbon::number(gf::RibbonGroupSpec& target, const std::string& id, const std::string& text, double width) {
-    target.commands.push_back(button(id + "-label", text, -1, Size::small));
+    target.commands.push_back(button(id + "-label", text, -1, Size::compact));
     target.commands.push_back(hosted(id, text, Kind::numeric_up_down, width > 0 ? width : number_width));
     // The label command above names the field; the field draws no second
     // label of its own (its text stays its accessible name).
@@ -214,9 +214,9 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     quick.layouts = {paired_rows()};
     // The original's block: Save on the upper row, Undo and Redo side by
     // side beneath it.
-    quick.commands.push_back(button("save", tr("Save"), 14, Size::small));
-    gf::RibbonCommandSpec undo = button("undo", tr("Undo (Ctrl/Command+Z)"), 15, Size::small);
-    gf::RibbonCommandSpec redo = button("redo", tr("Redo (Ctrl/Command+Y)"), 16, Size::small);
+    quick.commands.push_back(button("save", tr("Save"), 14, Size::compact));
+    gf::RibbonCommandSpec undo = button("undo", tr("Undo (Ctrl/Command+Z)"), 15, Size::compact);
+    gf::RibbonCommandSpec redo = button("redo", tr("Redo (Ctrl/Command+Y)"), 16, Size::compact);
     icon_only(undo);
     icon_only(redo);
     redo.beside_previous = true;
@@ -232,7 +232,7 @@ gf::RibbonTabSpec Ribbon::home_tab() {
 
     // The upper row, left to right: Select, Crop, Resize, Rotate, Cut, Copy;
     // the lower row: Pencil, Fill, Text, Eraser, Color picker, Magnifier.
-    gf::RibbonCommandSpec select = button("tool-0", tr("Select"), 3, Size::small, Kind::split);
+    gf::RibbonCommandSpec select = button("tool-0", tr("Select"), 3, Size::compact, Kind::split);
     select.drop_down = {menu_item("tool-0", tr("Rectangular selection")),
                         menu_item("lasso-free", tr("Free-form selection")),
                         menu_item("lasso-tight", tr("Tightening lasso")),
@@ -242,21 +242,21 @@ gf::RibbonTabSpec Ribbon::home_tab() {
                         menu_item("invert-selection", tr("Invert selection")),
                         menu_item("transparent-selection", tr("Transparent selection")),
                         menu_item("selection-dither", tr("Dither / posterize…"))};
-    gf::RibbonCommandSpec rotate = button("rotate-menu", tr("Rotate"), 6, Size::small, Kind::drop_down);
+    gf::RibbonCommandSpec rotate = button("rotate-menu", tr("Rotate"), 6, Size::compact, Kind::drop_down);
     rotate.drop_down = {menu_item("rotate-right", tr("Rotate right 90°")),
                         menu_item("rotate-left", tr("Rotate left 90°")),
                         menu_item("rotate-180", tr("Rotate 180°")),
                         menu_item("flip-horizontal", tr("Flip horizontal")),
                         menu_item("flip-vertical", tr("Flip vertical")),
                         menu_item("numeric-transform", tr("Transform") + "…")};
-    gf::RibbonCommandSpec fill = button("tool-3", tr("Fill with color"), 8, Size::small, Kind::split);
+    gf::RibbonCommandSpec fill = button("tool-3", tr("Fill with color"), 8, Size::compact, Kind::split);
     fill.drop_down = {menu_item("bucket-solid", tr("Solid / material fill")),
                       menu_item("bucket-gradient", tr("Use gradient"))};
-    gf::RibbonCommandSpec eraser = button("tool-4", tr("Eraser"), 10, Size::small, Kind::split);
+    gf::RibbonCommandSpec eraser = button("tool-4", tr("Eraser"), 10, Size::compact, Kind::split);
     eraser.drop_down = {menu_item("eraser-0", tr("Hard eraser")), menu_item("eraser-1", tr("Soft eraser")),
                         menu_item("eraser-2", tr("Blur")), menu_item("eraser-3", tr("Sharpen")),
                         menu_item("eraser-4", tr("Smudge"))};
-    gf::RibbonCommandSpec picker = button("tool-5", tr("Color picker"), -1, Size::small, Kind::toggle);
+    gf::RibbonCommandSpec picker = button("tool-5", tr("Color picker"), -1, Size::compact, Kind::toggle);
     if (attached_window()) {
         std::map<std::string, gf::ImageId>::iterator found = images_.find("dropper");
         if (found == images_.end()) {
@@ -271,17 +271,17 @@ gf::RibbonTabSpec Ribbon::home_tab() {
         }
     }
     gf::RibbonCommandSpec upper[] = {std::move(select),
-                                     button("crop", tr("Crop"), 4, Size::small),
-                                     button("resize", tr("Resize"), 5, Size::small),
+                                     button("crop", tr("Crop"), 4, Size::compact),
+                                     button("resize", tr("Resize"), 5, Size::compact),
                                      std::move(rotate),
-                                     button("cut", tr("Cut"), 1, Size::small),
-                                     button("copy", tr("Copy"), 2, Size::small)};
-    gf::RibbonCommandSpec lower[] = {button("tool-2", tr("Pencil"), 7, Size::small, Kind::toggle),
+                                     button("cut", tr("Cut"), 1, Size::compact),
+                                     button("copy", tr("Copy"), 2, Size::compact)};
+    gf::RibbonCommandSpec lower[] = {button("tool-2", tr("Pencil"), 7, Size::compact, Kind::toggle),
                                      std::move(fill),
-                                     button("text", tr("Text"), 9, Size::small, Kind::toggle),
+                                     button("text", tr("Text"), 9, Size::compact, Kind::toggle),
                                      std::move(eraser),
                                      std::move(picker),
-                                     button("tool-6", tr("Magnifier"), 12, Size::small, Kind::toggle)};
+                                     button("tool-6", tr("Magnifier"), 12, Size::compact, Kind::toggle)};
     static_assert(std::size(upper) == std::size(lower));
     gf::RibbonGroupSpec tools = group("tools", tr("Tools"));
     // Two rows filled column by column: each upper command, then the tool
@@ -292,7 +292,7 @@ gf::RibbonTabSpec Ribbon::home_tab() {
         tools.commands.push_back(std::move(upper[column]));
         tools.commands.push_back(std::move(lower[column]));
     }
-    tools.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 2), collapsed_layout()};
+    tools.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::compact, 2), collapsed_layout()};
     tab.groups.push_back(std::move(tools));
 
     gf::RibbonGroupSpec brushes = group("brushes", tr("Brushes"));
@@ -322,22 +322,22 @@ gf::RibbonTabSpec Ribbon::home_tab() {
                        menu_item("guide-clear", tr("Unset guide"))};
     brushes.commands.push_back(std::move(guide));
     brushes.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::large, 3),
-                       sized_layout(gf::RibbonGroupSize::medium, 4, Size::small, 2)};
+                       sized_layout(gf::RibbonGroupSize::medium, 4, Size::compact, 2)};
     tab.groups.push_back(std::move(brushes));
 
     gf::RibbonGroupSpec shapes = group("shapes", tr("Shapes"));
     shapes.commands.push_back(gallery_command("shapes-gallery", shapes_));
-    shapes.commands.push_back(button("edge-switch", tr("Edge"), -1, Size::small, Kind::toggle));
-    shapes.commands.push_back(button("fill-switch", tr("Fill"), -1, Size::small, Kind::toggle));
+    shapes.commands.push_back(button("edge-switch", tr("Edge"), -1, Size::compact, Kind::toggle));
+    shapes.commands.push_back(button("fill-switch", tr("Fill"), -1, Size::compact, Kind::toggle));
     // Edge, Fill and Size stand in one column beside the shapes, as in the
     // original.
-    shapes.commands.push_back(button("size-menu", tr("Size"), 23, Size::small));
+    shapes.commands.push_back(button("size-menu", tr("Size"), 23, Size::compact));
     // Collapsed, the group shows its first shape (its first command is the
     // gallery, which has no image of its own).
     if (shapes_.gallery && !(*shapes_.gallery).items().empty()) {
         shapes.image = (*shapes_.gallery).items()[0].image;
     }
-    shapes.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3), collapsed_layout()};
+    shapes.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::compact, 3), collapsed_layout()};
     tab.groups.push_back(std::move(shapes));
 
 
@@ -359,7 +359,7 @@ gf::RibbonTabSpec Ribbon::home_tab() {
     // The colours fold last: Primary and Alt stay on the plane at the
     // minimum window, as in the original.
     colors.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::large, 3),
-                      sized_layout(gf::RibbonGroupSize::medium, 4, Size::small, 3)};
+                      sized_layout(gf::RibbonGroupSize::medium, 4, Size::compact, 3)};
     tab.groups.push_back(std::move(colors));
     // The minimum window keeps the tools, brushes, path, stamp, guide and
     // the colours on the plane: galleries give way first, then the shapes
@@ -407,8 +407,8 @@ gf::RibbonTabSpec Ribbon::materials_tab() {
     tab.stable_id = "patterns-tab";
     tab.text = tr("Materials");
     gf::RibbonGroupSpec apply = group("apply-to", tr("Apply to"));
-    apply.commands.push_back(button("material-edge", tr("Primary"), -1, Size::small, Kind::toggle));
-    apply.commands.push_back(button("material-fill", tr("Alt"), -1, Size::small, Kind::toggle));
+    apply.commands.push_back(button("material-edge", tr("Primary"), -1, Size::compact, Kind::toggle));
+    apply.commands.push_back(button("material-fill", tr("Alt"), -1, Size::compact, Kind::toggle));
     apply.commands.push_back(hosted("alt-carries-body", tr("Alt carries body"), Kind::check_box));
     tab.groups.push_back(std::move(apply));
     gf::RibbonGroupSpec brushes = group("material-brushes", tr("Brushes"));
@@ -418,7 +418,7 @@ gf::RibbonTabSpec Ribbon::materials_tab() {
     tab.groups.push_back(std::move(brushes));
     gf::RibbonGroupSpec patterns = group("material-patterns", tr("Patterns"));
     patterns.commands.push_back(gallery_command("patterns-gallery", patterns_));
-    patterns.commands.push_back(button("edit-custom-pattern", tr("Edit custom pattern…"), -1, Size::small));
+    patterns.commands.push_back(button("edit-custom-pattern", tr("Edit custom pattern…"), -1, Size::compact));
     tab.groups.push_back(std::move(patterns));
     gf::RibbonGroupSpec grain = group("grain", tr("Grain"));
     grain.layouts = {paired_rows()};
@@ -426,7 +426,7 @@ gf::RibbonTabSpec Ribbon::materials_tab() {
     number(grain, "paper-tooth", tr("Paper tooth"));
     number(grain, "paint-load", tr("Paint load"));
     number(grain, "grain-angle", tr("Grain angle"));
-    grain.commands.push_back(button("new-grain", tr("New"), -1, Size::small));
+    grain.commands.push_back(button("new-grain", tr("New"), -1, Size::compact));
     tab.groups.push_back(std::move(grain));
     // The grain settings stay on the plane: the pattern gallery gives up
     // columns (nine to four) and then the brushes (four to two) first.
@@ -504,23 +504,23 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
         settings.commands.push_back(hosted("dither-brush-noise", tr("Brightness / saturation noise"), Kind::check_box));
     }
     if (brush && family == BrushFamily::Carpet) {
-        settings.commands.push_back(button("carpet-settings", tr("Carpet settings…"), -1, Size::small));
+        settings.commands.push_back(button("carpet-settings", tr("Carpet settings…"), -1, Size::compact));
     }
     if (selection) {
         settings.commands.push_back(hosted("transparent-selection", tr("Transparent selection"), Kind::check_box));
         // Transparent selection above two pairs: Select all and Invert,
         // then Crop and Delete (the original's rows).
-        settings.commands.push_back(button("context-select-all", tr("Select all"), -1, Size::small));
-        settings.commands.push_back(button("context-invert-selection", tr("Invert"), -1, Size::small));
+        settings.commands.push_back(button("context-select-all", tr("Select all"), -1, Size::compact));
+        settings.commands.push_back(button("context-invert-selection", tr("Invert"), -1, Size::compact));
         settings.commands.back().beside_previous = true;
-        settings.commands.push_back(button("context-crop", tr("Crop"), 4, Size::small));
-        settings.commands.push_back(button("context-delete", tr("Delete"), -1, Size::small));
+        settings.commands.push_back(button("context-crop", tr("Crop"), 4, Size::compact));
+        settings.commands.push_back(button("context-delete", tr("Delete"), -1, Size::compact));
         settings.commands.back().beside_previous = true;
     }
     if (tool == Tool::Guide) {
         // One row, as in the original: Clear guide, Set guide, Protect body.
-        settings.commands.push_back(button("guide-clear", tr("Clear guide"), -1, Size::small));
-        settings.commands.push_back(button("guide-set", tr("Set guide"), -1, Size::small));
+        settings.commands.push_back(button("guide-clear", tr("Clear guide"), -1, Size::compact));
+        settings.commands.push_back(button("guide-set", tr("Set guide"), -1, Size::compact));
         settings.commands.back().beside_previous = true;
         settings.commands.push_back(hosted("guide-fill", tr("Protect body"), Kind::check_box));
         settings.commands.back().beside_previous = true;
@@ -539,21 +539,21 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
     if (tool == Tool::Stamp) {
         if (placement) {
             hint(settings, "stamp-placement-hint", tr("Position preview; Apply to paint. Escape cancels."));
-            settings.commands.push_back(button("context-stamp-apply", tr("Apply"), -1, Size::small));
-            settings.commands.push_back(button("context-stamp-cancel", tr("Cancel"), -1, Size::small));
+            settings.commands.push_back(button("context-stamp-apply", tr("Apply"), -1, Size::compact));
+            settings.commands.push_back(button("context-stamp-cancel", tr("Cancel"), -1, Size::compact));
         } else {
             gf::RibbonCommandSpec shapes =
                 button("stamp-shapes-menu", stamp_shape_name(document.stamp_shape),
                        100 + static_cast<int>(stamp_geometry_shape(document.stamp_shape)), Size::large);
             settings.commands.push_back(std::move(shapes));
             settings.commands.push_back(hosted("stamp-transparent", tr("Transparent stamp"), Kind::check_box));
-            settings.commands.push_back(button("context-stamp-clear", tr("Clear stamp"), -1, Size::small));
-            settings.commands.push_back(button("context-stamp-add", tr("Add material"), -1, Size::small));
+            settings.commands.push_back(button("context-stamp-clear", tr("Clear stamp"), -1, Size::compact));
+            settings.commands.push_back(button("context-stamp-add", tr("Add material"), -1, Size::compact));
         }
     }
     if (!settings.commands.empty()) {
         // The original's tool settings stood in three rows.
-        settings.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 3)};
+        settings.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::compact, 3)};
         tab.groups.push_back(std::move(settings));
     }
 
@@ -588,7 +588,7 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
     if (brush && family == BrushFamily::Heal) {
         gf::RibbonGroupSpec heal = group("heal", tr("Healing"));
         heal.layouts = {paired_rows()};
-        heal.commands.push_back(button("heal-source", tr("Set source"), -1, Size::small, Kind::toggle));
+        heal.commands.push_back(button("heal-source", tr("Set source"), -1, Size::compact, Kind::toggle));
         number(heal, "heal-hardness", tr("Hardness"));
         number(heal, "heal-correction", tr("Color match"));
         heal.commands.push_back(hosted("heal-clone", tr("Clone exactly"), Kind::check_box));
@@ -601,8 +601,8 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
         shape.layouts = {paired_rows()};
         number(shape, "geometry-corners", tr("Corner radius (px)"));
         number(shape, "geometry-organic", tr("Organic"));
-        shape.commands.push_back(button("geometry-vary", tr("Vary"), -1, Size::small));
-        shape.commands.push_back(button("geometry-stroke-label", tr("Stroke style"), -1, Size::small));
+        shape.commands.push_back(button("geometry-vary", tr("Vary"), -1, Size::compact));
+        shape.commands.push_back(button("geometry-stroke-label", tr("Stroke style"), -1, Size::compact));
         shape.commands.push_back(hosted("geometry-stroke", tr("Stroke style"), Kind::combo_box, 140));
         shape.commands.back().choices = {tr("Solid"), tr("Dashed"), tr("Dotted")};
         const Shape current = document.shape;
@@ -612,10 +612,10 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
                                                    tr("Diamond"),     tr("Circle"),      tr("Bar"),
                                                    tr("Exactly one"), tr("Many"),        tr("Zero or one"),
                                                    tr("One or more"), tr("Zero or more")};
-            shape.commands.push_back(button("geometry-start-label", tr("Start marker"), -1, Size::small));
+            shape.commands.push_back(button("geometry-start-label", tr("Start marker"), -1, Size::compact));
             shape.commands.push_back(hosted("geometry-start", tr("Start marker"), Kind::combo_box, 160));
             shape.commands.back().choices = markers;
-            shape.commands.push_back(button("geometry-end-label", tr("End marker"), -1, Size::small));
+            shape.commands.push_back(button("geometry-end-label", tr("End marker"), -1, Size::compact));
             shape.commands.push_back(hosted("geometry-end", tr("End marker"), Kind::combo_box, 160));
             shape.commands.back().choices = markers;
         }
@@ -633,8 +633,8 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
         mesh.commands.push_back(button("context-reshape", tr("Start mesh"), 21, Size::large));
         tab.groups.push_back(std::move(mesh));
         gf::RibbonGroupSpec finish = group("finish", tr("Finish"));
-        finish.commands.push_back(button("warp-place", tr("Place"), -1, Size::small));
-        finish.commands.push_back(button("warp-cancel", tr("Cancel"), -1, Size::small));
+        finish.commands.push_back(button("warp-place", tr("Place"), -1, Size::compact));
+        finish.commands.push_back(button("warp-cancel", tr("Cancel"), -1, Size::compact));
         // The handle guide beside Place and Cancel, as in the original.
         hint(finish, "warp-hint",
              tr("Gold edge handles skew; square handles resize.\nDrag the rotation handle to turn. "
@@ -659,7 +659,7 @@ gf::RibbonTabSpec Ribbon::text_tab() {
         // font group's check boxes fold into three rows (the size field's
         // label then stands above it under the family box) before the
         // sticky groups give way.
-        font.layouts.push_back(sized_layout(gf::RibbonGroupSize::medium, 0, Size::small, 3));
+        font.layouts.push_back(sized_layout(gf::RibbonGroupSize::medium, 0, Size::compact, 3));
     }
     gf::RibbonCommandSpec faces = hosted("text-font", tr("Font family"), Kind::combo_box, 200);
     faces.choices = {"Portsmouth", "Portsmouth Mono"};
@@ -704,13 +704,13 @@ gf::RibbonTabSpec Ribbon::text_tab() {
     gf::RibbonGroupSpec finish = group("text-finish", tr("Finish text"));
     // The original's two-by-two block: Place text and Cancel on the upper
     // row, Fit height and Reset below (stacks fill column by column).
-    finish.commands.push_back(button("text-place", tr("Place text"), -1, Size::small));
-    finish.commands.push_back(button("text-fit", tr("Fit height"), -1, Size::small));
-    finish.commands.push_back(button("text-cancel", tr("Cancel"), -1, Size::small));
+    finish.commands.push_back(button("text-place", tr("Place text"), -1, Size::compact));
+    finish.commands.push_back(button("text-fit", tr("Fit height"), -1, Size::compact));
+    finish.commands.push_back(button("text-cancel", tr("Cancel"), -1, Size::compact));
     if (!sticky) {
-        finish.commands.push_back(button("text-reset-effects", tr("Reset"), -1, Size::small));
+        finish.commands.push_back(button("text-reset-effects", tr("Reset"), -1, Size::compact));
     }
-    finish.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::small, 2)};
+    finish.layouts = {sized_layout(gf::RibbonGroupSize::large, 0, Size::compact, 2)};
     tab.groups.push_back(std::move(finish));
     // Finishing and the font stay on the plane longest: the transform, the
     // letter treatment and the colours fold into buttons first.
@@ -737,36 +737,36 @@ gf::RibbonTabSpec Ribbon::spiro_tab() {
         guides.commands.push_back(button("spiro-guide-" + std::to_string(guide), tr(spiro_guides()[guide].name), -1,
                                          Size::large, Kind::toggle));
     }
-    guides.commands.push_back(button("spiro-guides-menu", tr("More"), -1, Size::small));
+    guides.commands.push_back(button("spiro-guides-menu", tr("More"), -1, Size::compact));
     tab.groups.push_back(std::move(guides));
     gf::RibbonGroupSpec inserts = group("spiro-inserts", tr("Inserts"));
     for (int insert : {1, spiro_default_insert, 2}) {
         inserts.commands.push_back(button("spiro-insert-" + std::to_string(insert),
                                           tr(spiro_inserts()[insert].name), -1, Size::large, Kind::toggle));
     }
-    inserts.commands.push_back(button("spiro-inserts-menu", tr("More"), -1, Size::small));
+    inserts.commands.push_back(button("spiro-inserts-menu", tr("More"), -1, Size::compact));
     tab.groups.push_back(std::move(inserts));
     gf::RibbonGroupSpec pegs = group("spiro-pegs", tr("Pegs · drag into a hole"));
     pegs.commands.push_back(button("spiro-peg-1", tr("Fine peg"), -1, Size::large));
     pegs.commands.push_back(button("spiro-peg-2", tr("Medium peg"), -1, Size::large));
     pegs.commands.push_back(button("spiro-peg-4", tr("Bold peg"), -1, Size::large));
-    pegs.commands.push_back(button("spiro-brushes-menu", tr("Peg medium"), -1, Size::small));
+    pegs.commands.push_back(button("spiro-brushes-menu", tr("Peg medium"), -1, Size::compact));
     tab.groups.push_back(std::move(pegs));
     gf::RibbonGroupSpec operate = group("spiro-operate-group", tr("Load and operate"));
-    operate.commands.push_back(button("spiro-fill", tr("Fill pegs"), 8, Size::small, Kind::toggle));
-    operate.commands.push_back(button("spiro-remove", tr("Remove insert"), -1, Size::small));
-    operate.commands.push_back(button("spiro-outside", tr("Roll outside"), -1, Size::small, Kind::toggle));
-    operate.commands.push_back(button("spiro-operate", tr("Operate"), -1, Size::small, Kind::toggle));
-    operate.commands.push_back(button("spiro-center", tr("Center guide"), -1, Size::small));
-    operate.commands.push_back(button("spiro-deselect", tr("Deselect peg"), -1, Size::small));
+    operate.commands.push_back(button("spiro-fill", tr("Fill pegs"), 8, Size::compact, Kind::toggle));
+    operate.commands.push_back(button("spiro-remove", tr("Remove insert"), -1, Size::compact));
+    operate.commands.push_back(button("spiro-outside", tr("Roll outside"), -1, Size::compact, Kind::toggle));
+    operate.commands.push_back(button("spiro-operate", tr("Operate"), -1, Size::compact, Kind::toggle));
+    operate.commands.push_back(button("spiro-center", tr("Center guide"), -1, Size::compact));
+    operate.commands.push_back(button("spiro-deselect", tr("Deselect peg"), -1, Size::compact));
     tab.groups.push_back(std::move(operate));
     gf::RibbonGroupSpec wheel = group("spiro-wheel", tr("Wheel"));
     wheel.layouts = {paired_rows()};
     number(wheel, "spiro-scale", tr("Scale"));
-    wheel.commands.push_back(button("spiro-lift", tr("Lift wheel"), -1, Size::small, Kind::toggle));
-    wheel.commands.push_back(button("spiro-holes-menu", tr("Choose hole"), -1, Size::small));
-    wheel.commands.push_back(button("spiro-load-primary", tr("Load Primary"), -1, Size::small));
-    wheel.commands.push_back(button("spiro-load-alt", tr("Load Alt"), -1, Size::small));
+    wheel.commands.push_back(button("spiro-lift", tr("Lift wheel"), -1, Size::compact, Kind::toggle));
+    wheel.commands.push_back(button("spiro-holes-menu", tr("Choose hole"), -1, Size::compact));
+    wheel.commands.push_back(button("spiro-load-primary", tr("Load Primary"), -1, Size::compact));
+    wheel.commands.push_back(button("spiro-load-alt", tr("Load Alt"), -1, Size::compact));
     tab.groups.push_back(std::move(wheel));
     return tab;
 }
@@ -789,19 +789,19 @@ gf::RibbonTabSpec Ribbon::gradient_tab() {
             stop.choices.push_back(tr("Stop ") + std::to_string(index + 1));
         }
     }
-    stops.commands.push_back(button("gradient-stop-label", tr("Stop"), -1, Size::small));
+    stops.commands.push_back(button("gradient-stop-label", tr("Stop"), -1, Size::compact));
     stops.commands.push_back(std::move(stop));
     number(stops, "gradient-position", tr("Position (%)"));
-    stops.commands.push_back(button("gradient-edit-color", tr("Color…"), -1, Size::small));
-    stops.commands.push_back(button("gradient-add", tr("Add"), -1, Size::small));
-    stops.commands.push_back(button("gradient-remove", tr("Remove"), -1, Size::small));
+    stops.commands.push_back(button("gradient-edit-color", tr("Color…"), -1, Size::compact));
+    stops.commands.push_back(button("gradient-add", tr("Add"), -1, Size::compact));
+    stops.commands.push_back(button("gradient-remove", tr("Remove"), -1, Size::compact));
     tab.groups.push_back(std::move(stops));
     gf::RibbonGroupSpec direction = group("gradient-direction", tr("Direction"));
     direction.layouts = {paired_rows()};
-    direction.commands.push_back(button("gradient-linear", tr("Linear"), -1, Size::small, Kind::toggle));
-    direction.commands.push_back(button("gradient-radial", tr("Circular"), -1, Size::small, Kind::toggle));
+    direction.commands.push_back(button("gradient-linear", tr("Linear"), -1, Size::compact, Kind::toggle));
+    direction.commands.push_back(button("gradient-radial", tr("Circular"), -1, Size::compact, Kind::toggle));
     number(direction, "gradient-angle", tr("Angle (°)"));
-    direction.commands.push_back(button("gradient-reverse", tr("Reverse"), -1, Size::small));
+    direction.commands.push_back(button("gradient-reverse", tr("Reverse"), -1, Size::compact));
     tab.groups.push_back(std::move(direction));
     return tab;
 }
@@ -980,10 +980,10 @@ void Ribbon::bind_hosted() {
         }
         entry.control = control;
         entry.changed = (*control).selected_index_changed().subscribe(
-            *this, id == "text-font"       ? gf::Delegate<std::optional<std::size_t>>::bind<Ribbon, &Ribbon::font_changed>(*this)
-                   : id == "sticky-paper"  ? gf::Delegate<std::optional<std::size_t>>::bind<Ribbon, &Ribbon::sticky_paper_changed>(*this)
-                   : id == "gradient-stop" ? gf::Delegate<std::optional<std::size_t>>::bind<Ribbon, &Ribbon::gradient_stop_changed>(*this)
-                                           : gf::Delegate<std::optional<std::size_t>>::bind<Ribbon, &Ribbon::choice_changed>(*this));
+            *this, id == "text-font"       ? gf::Delegate<stxlib::Optional<std::size_t>>::bind<Ribbon, &Ribbon::font_changed>(*this)
+                   : id == "sticky-paper"  ? gf::Delegate<stxlib::Optional<std::size_t>>::bind<Ribbon, &Ribbon::sticky_paper_changed>(*this)
+                   : id == "gradient-stop" ? gf::Delegate<stxlib::Optional<std::size_t>>::bind<Ribbon, &Ribbon::gradient_stop_changed>(*this)
+                                           : gf::Delegate<stxlib::Optional<std::size_t>>::bind<Ribbon, &Ribbon::choice_changed>(*this));
     }
     sticky_color_ = nullptr;
     for (const std::pair<const std::string, Kind>& each : present) {

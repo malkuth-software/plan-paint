@@ -31,7 +31,7 @@ void IconPanel::initialize_control_tree() {
     for (std::size_t index = 0; index < std::size(group_names); ++index) {
         const std::shared_ptr<gf::Label> group = gf::make_control<gf::Label>(
             gf::StableId("icon-group-" + std::to_string(index)), group_names[index]);
-        (*group).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
+        (*group).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 11, 400, false});
         (*group).alignment = gf::HorizontalAlignment::center;
         (*group).use_mnemonic = false;
         groups_.push_back(group);
@@ -44,7 +44,7 @@ void IconPanel::initialize_control_tree() {
     (*strip_).item_spacing = {4, 0};
     add_child(strip_);
     status_ = gf::make_control<gf::Label>(gf::StableId("icon-status"));
-    (*status_).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
+    (*status_).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 11, 400, false});
     add_child(status_);
 }
 void IconPanel::arrange(gf::Rect bounds) {

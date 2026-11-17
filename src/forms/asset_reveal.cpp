@@ -81,9 +81,9 @@ void EditorDialog::deliver_asset_reveal(std::shared_ptr<AssetRevealJob> job) {
         asset_reveal_thread_.join();
     }
     asset_reveal_job_.reset();
-    const std::optional<std::size_t> selected = (*asset_list_).selected_index();
+    const stxlib::Optional<std::size_t> selected = (*asset_list_).selected_index();
     (*asset_reveal_)
-        .enabled = (*asset_list_).enabled.read() && selected && *selected < asset_listing_.entries.size();
+        .enabled = (*asset_list_).enabled.read() && selected.present() && *selected.value() < asset_listing_.entries.size();
     if ((*job).generation != asset_generation_) {
         return;
     }

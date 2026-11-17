@@ -45,7 +45,7 @@ void EditorDialog::initialize_icon_effects() {
     (*effect_choice_)
         .items = std::vector<std::string>{tr("Brightness / contrast"), tr("Hue / saturation"), tr("Grayscale"), tr("Opacity %"),
                     tr("Blur"), tr("Sharpen"), tr("Shadow"), tr("Fit artwork within image")};
-    (*effect_choice_).selected_index = 0;
+    (*effect_choice_).selected_index = stxlib::Optional<std::size_t>::of(0);
     (*effect_choice_).accessible_name = tr("Effects");
     put(effect_choice_, {350, 48, 410, 28});
     label("effect-before-label", tr("Original"), {20, 84, 355, 24});
@@ -95,7 +95,7 @@ void EditorDialog::initialize_icon_effects() {
     subscriptions_.push_back(
         (*effect_choice_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::effect_choice_changed>(*this)));
     subscriptions_.push_back(
         (*effect_color_)
@@ -106,7 +106,7 @@ void EditorDialog::initialize_icon_effects() {
                     *this)));
     effect_choice_changed(0);
 }
-void EditorDialog::effect_choice_changed(std::optional<std::size_t>) {
+void EditorDialog::effect_choice_changed(stxlib::Optional<std::size_t>) {
     if (synchronizing_) {
         return;
     }
@@ -183,7 +183,7 @@ void EditorDialog::effect_advanced_changed(gf::ButtonBase&) {
     const std::size_t selected = previous < choices.size() ? previous : 0;
     synchronizing_ = true;
     (*effect_choice_).items = std::move(choices);
-    (*effect_choice_).selected_index = selected;
+    (*effect_choice_).selected_index = stxlib::Optional<std::size_t>::of(selected);
     synchronizing_ = false;
     if (selected != previous) {
         effect_choice_changed(selected);
@@ -192,7 +192,7 @@ void EditorDialog::effect_advanced_changed(gf::ButtonBase&) {
 void EditorDialog::restore_icon_effect(const IconEffectSettings& settings) {
     (*effect_advanced_).checked = settings.effect >= IconEffect::Gamma;
     effect_advanced_changed(*effect_advanced_);
-    (*effect_choice_).selected_index = static_cast<std::size_t>(settings.effect);
+    (*effect_choice_).selected_index = stxlib::Optional<std::size_t>::of(static_cast<std::size_t>(settings.effect));
     effect_choice_changed({});
     std::array<double, 5> values{};
     switch (settings.effect) {

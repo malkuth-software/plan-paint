@@ -63,7 +63,7 @@ void Ribbon::open_popup(const std::string& id) {
     std::shared_ptr<gf::Panel> panel = gf::make_control<gf::Panel>(gf::StableId("ribbon-popup-content"));
     gf::SurfaceMaterial material;
     material.fills = {gf::MaterialFillLayer::solid(gf::Color::rgba(250, 252, 255))};
-    material.border = gf::MaterialBorder{gf::Color::rgba(141, 164, 190), 1};
+    material.border = stxlib::Optional<gf::MaterialBorder>::of(gf::MaterialBorder{gf::Color::rgba(141, 164, 190), 1});
     material.shadows.push_back({{0, 3}, 7, 0, gf::Color::rgba(30, 50, 75, 60), false});
     (*panel).set_authored_surface_material(material);
     double width = 232, height = 10;

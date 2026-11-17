@@ -240,7 +240,7 @@ void AtlasPanel::initialize_control_tree() {
     (*strip_).item_spacing = {4, 0};
     add_child(strip_);
     status_ = gf::make_control<gf::Label>(gf::StableId(std::string_view(gallery_ ? "gallery-status" : "atlas-status")));
-    (*status_).font = gf::FontSpec{gf::FontRole::control, 11, 400, false};
+    (*status_).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 11, 400, false});
     add_child(status_);
     wrap_ = gf::make_control<gf::CheckBox>(gf::StableId(std::string_view(gallery_ ? "gallery-atlas-wrap" : "atlas-wrap")),
                                            tr("Warp edges"));

@@ -17,12 +17,12 @@ void EditorDialog::initialize_batch_palette() {
     batch_palette_depth_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-palette-depth"));
     (*batch_palette_depth_).accessible_name = tr("Color depth");
     (*batch_palette_depth_).items = {"1 bpp · 2", "4 bpp · 16", "8 bpp · 256"};
-    (*batch_palette_depth_).selected_index = 2;
+    (*batch_palette_depth_).selected_index = stxlib::Optional<std::size_t>::of(2);
     put(batch_palette_depth_, {260, 142, 225, 28});
     batch_palette_dither_ = gf::make_control<gf::ComboBox>(gf::StableId("batch-palette-dither"));
     (*batch_palette_dither_).accessible_name = tr("Dithering");
     (*batch_palette_dither_).items = {tr("None"), "Floyd–Steinberg"};
-    (*batch_palette_dither_).selected_index = 0;
+    (*batch_palette_dither_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(batch_palette_dither_, {505, 142, 235, 28});
     label("batch-palette-threshold-label", tr("Alpha threshold"), {260, 174, 225, 24});
     label("batch-palette-matte-label", tr("Matte RGB"), {505, 174, 235, 24});
@@ -43,7 +43,7 @@ void EditorDialog::initialize_batch_palette() {
     for (const std::shared_ptr<gf::ComboBox>& control : {batch_palette_depth_, batch_palette_dither_}) {
         subscriptions_.push_back((*control).selected_index_changed().subscribe(
             *this,
-            gf::Delegate<std::optional<std::size_t>>::bind<EditorDialog, &EditorDialog::batch_choice_changed>(
+            gf::Delegate<stxlib::Optional<std::size_t>>::bind<EditorDialog, &EditorDialog::batch_choice_changed>(
                 *this)));
     }
     subscriptions_.push_back(

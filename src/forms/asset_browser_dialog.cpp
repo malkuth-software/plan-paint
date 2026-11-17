@@ -103,7 +103,7 @@ void EditorDialog::initialize_asset_browser() {
     asset_filter_ = gf::make_control<gf::ComboBox>(gf::StableId("asset-filter"));
     (*asset_filter_).accessible_name = tr("Asset type");
     (*asset_filter_).items = {tr("All images"), "ICO", "CUR", tr("Bitmap images"), "SVG"};
-    (*asset_filter_).selected_index = 0;
+    (*asset_filter_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(asset_filter_, {380, 88, 160, 28});
     label("asset-bookmark-label", tr("Bookmarks"), {20, 128, 85, 28});
     asset_bookmark_ = gf::make_control<gf::ComboBox>(gf::StableId("asset-bookmark"));
@@ -152,17 +152,17 @@ void EditorDialog::initialize_asset_browser() {
     subscriptions_.push_back(
         (*asset_filter_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::asset_filter_changed>(*this)));
     subscriptions_.push_back(
         (*asset_representations_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::asset_representation_changed>(*this)));
     subscriptions_.push_back(
         (*asset_bookmark_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::asset_bookmark_changed>(*this)));
     subscriptions_.push_back((*asset_list_)
                                  .selection_changed()
@@ -242,11 +242,11 @@ void EditorDialog::request_assets(bool scan) {
         synchronizing_ = false;
         asset_listing_ = {};
     } else {
-        const std::optional<std::size_t> selected = (*asset_list_).selected_index();
-        if (!selected || *selected >= asset_listing_.entries.size()) {
+        const stxlib::Optional<std::size_t> selected = (*asset_list_).selected_index();
+        if (selected.absent() || *selected.value() >= asset_listing_.entries.size()) {
             return;
         }
-        (*request).path = asset_listing_.entries[*selected].path;
+        (*request).path = asset_listing_.entries[*selected.value()].path;
     }
     clear_asset_preview();
     (*error_).text = "";
@@ -312,7 +312,7 @@ void EditorDialog::deliver_asset_browser(std::shared_ptr<const AssetBrowserResul
             }
             synchronizing_ = true;
             (*asset_representations_).items = std::move(labels);
-            (*asset_representations_).selected_index = (*asset_preview_).preferred;
+            (*asset_representations_).selected_index = stxlib::Optional<std::size_t>::of((*asset_preview_).preferred);
             synchronizing_ = false;
             show_asset_representation();
             (*asset_batch_).enabled = true;
@@ -355,12 +355,12 @@ void EditorDialog::show_asset_representation() {
     }
     (*asset_details_).text = text;
 }
-void EditorDialog::asset_representation_changed(std::optional<std::size_t>) {
+void EditorDialog::asset_representation_changed(stxlib::Optional<std::size_t>) {
     if (!synchronizing_) {
         show_asset_representation();
     }
 }
-void EditorDialog::asset_filter_changed(std::optional<std::size_t>) {
+void EditorDialog::asset_filter_changed(stxlib::Optional<std::size_t>) {
     if (!synchronizing_) {
         request_assets(true);
     }
@@ -379,8 +379,8 @@ void EditorDialog::asset_selected(const gf::ListSelectionChange& selection) {
     }
     ++asset_generation_;
     clear_asset_preview();
-    if (selection.active_index && *selection.active_index < asset_listing_.entries.size()) {
-        const AssetEntry& entry = asset_listing_.entries[*selection.active_index];
+    if (selection.active_index.present() && *selection.active_index.value() < asset_listing_.entries.size()) {
+        const AssetEntry& entry = asset_listing_.entries[*selection.active_index.value()];
         if (entry.kind == AssetKind::Folder) {
             (*asset_open_).enabled = true;
             (*asset_copy_).enabled = true;
@@ -394,7 +394,8 @@ void EditorDialog::asset_selected(const gf::ListSelectionChange& selection) {
     }
 }
 void EditorDialog::asset_activated(std::size_t index) {
-    if (index >= asset_listing_.entries.size() || (*asset_list_).selected_index() != index) {
+    const stxlib::Optional<std::size_t> selected = (*asset_list_).selected_index();
+    if (index >= asset_listing_.entries.size() || selected != stxlib::Optional<std::size_t>::of(index)) {
         return;
     }
     if (asset_listing_.entries[index].kind != AssetKind::Folder && !asset_preview_) {
@@ -406,10 +407,10 @@ void EditorDialog::asset_activated(std::size_t index) {
         asset_clicked(*asset_open_);
     }
 }
-void EditorDialog::asset_bookmark_changed(std::optional<std::size_t> index) {
-    if (!synchronizing_ && index && *index < asset_bookmarks_.size()) {
+void EditorDialog::asset_bookmark_changed(stxlib::Optional<std::size_t> index) {
+    if (!synchronizing_ && index.present() && *index.value() < asset_bookmarks_.size()) {
         synchronizing_ = true;
-        (*asset_location_).text = asset_bookmarks_[*index];
+        (*asset_location_).text = asset_bookmarks_[*index.value()];
         (*asset_search_).text = "";
         synchronizing_ = false;
         request_assets(true);
@@ -452,11 +453,11 @@ void EditorDialog::asset_clicked(gf::ButtonBase& control) {
                     updated.push_back(asset_listing_.directory);
                 }
             } else {
-                const std::optional<std::size_t> selected = (*asset_bookmark_).selected_index.read();
-                if (!selected || *selected >= updated.size()) {
+                const stxlib::Optional<std::size_t> selected = (*asset_bookmark_).selected_index.read();
+                if (selected.absent() || *selected.value() >= updated.size()) {
                     return;
                 }
-                updated.erase(updated.begin() + static_cast<std::ptrdiff_t>(*selected));
+                updated.erase(updated.begin() + static_cast<std::ptrdiff_t>(*selected.value()));
             }
             save_asset_bookmarks(updated, (*editor).asset_bookmark_path);
             asset_bookmarks_ = std::move(updated);
@@ -464,11 +465,11 @@ void EditorDialog::asset_clicked(gf::ButtonBase& control) {
             (*asset_bookmark_).items = asset_bookmarks_;
             synchronizing_ = false;
         } else {
-            const std::optional<std::size_t> selected = (*asset_list_).selected_index();
-            if (!selected || *selected >= asset_listing_.entries.size() || !(*asset_list_).enabled.read()) {
+            const stxlib::Optional<std::size_t> selected = (*asset_list_).selected_index();
+            if (selected.absent() || *selected.value() >= asset_listing_.entries.size() || !(*asset_list_).enabled.read()) {
                 return;
             }
-            const AssetEntry entry = asset_listing_.entries[*selected];
+            const AssetEntry entry = asset_listing_.entries[*selected.value()];
             if (id == "asset-reveal") {
                 start_asset_reveal(entry.path);
             } else if (id == "asset-copy") {
