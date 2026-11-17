@@ -1058,6 +1058,34 @@ struct NativeExercise {
                 throw std::runtime_error("Editor dialog kind " + std::to_string(index) + "'s window outlived it");
             }
         }
+        // Settings after a Canvas surround choice (the owner's report of
+        // 2026-11-13 to 2026-11-17: open Settings, change Canvas surround,
+        // press OK or Cancel, and the dialog does not close). The surround
+        // list lifts into the dialog window's warm Popup, which stays open,
+        // hidden, for the window's life; GUI.Forms refused to destroy a
+        // window that owned any live window, so DestroyDialogWindow did
+        // nothing and the modal loop never ended.
+        (*editor).execute("settings");
+        gf::Window* settings = (*editor).dialog_window();
+        const std::shared_ptr<gf::ComboBox> surround = settings == nullptr ? nullptr
+            : std::dynamic_pointer_cast<gf::ComboBox>((*settings).find("settings-background"));
+        if (surround == nullptr) {
+            throw std::runtime_error("The Settings dialog has no Canvas surround list in its own window");
+        }
+        (*settings).perform_layout();
+        (*surround).dropped_down = true;
+        const std::size_t windows_while_dropped = windows.window_count();
+        (*surround).selected_index =
+            stxlib::Optional<std::size_t>::of(static_cast<std::size_t>(paint::CanvasBacking::TanFelt));
+        (*surround).dropped_down = false;
+        // Cancel ("dialog-cancel" calls close_editor_dialog).
+        (*editor).close_editor_dialog();
+        drain_all(window);
+        if (windows.window_count() != 1) {
+            throw std::runtime_error("The Settings dialog's window outlived Cancel after a Canvas surround choice (" +
+                                     std::to_string(windows.window_count()) + " windows; " +
+                                     std::to_string(windows_while_dropped) + " while the list was down)");
+        }
         (*editor).execute("about");
         gf::Window* dialog = (*editor).dialog_window();
         if (dialog == nullptr || dialog == &window || windows.window_count() != 2) {
