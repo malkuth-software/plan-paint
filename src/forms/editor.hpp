@@ -155,13 +155,20 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     CanvasWorkStatistics work_statistics_;
     gui_forms::FrameRequestToken display_request_, preparation_request_;
     gui_forms::FrameTime next_display_{}, preparation_deadline_{};
-    void render_display();
+    // The pending display request is the rest render after a pan by a
+    // fraction of a unit; a change of view replaces it with a frame.
+    bool settling_display_ = false;
+    // Renders the rotated frame for the current view; exact refuses a frame
+    // left a fraction of a unit from the view (the rest render).
+    void render_display(bool exact);
     // Fills the rotated view's pixels in the area {left, top, columns, rows}
     // of the frame (inside rendered_size_), from the source at the current
-    // angle, zoom and origin; the rest of rotated_pixels_ is untouched.
+    // angle and zoom and the frame's origin (rendered_origin_); the rest of
+    // rotated_pixels_ is untouched.
     void render_rotated_area(const Editor& editor, bool prepared, int left, int top, int columns, int rows);
     // Moves rotated_pixels_ by (shift_x, shift_y) whole units, each smaller
-    // than the frame's side, and renders the bands the move exposed.
+    // than the frame's side, and renders the bands the move exposed; the
+    // caller has moved rendered_origin_ by as much.
     void shift_rotated_frame(const Editor& editor, bool prepared, int shift_x, int shift_y);
     // The bitmap's origin in client units as RasterCanvas places it (its
     // content offset): a pan's scroll copy moves the painted canvas by the
@@ -183,8 +190,9 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     gui_forms::Size rendered_size_;
     // The rotated frame's pixels (owned here, reused frame to frame; its
     // length is rendered width * height * 4) and view_anchor() when they
-    // were rendered: paint_rotated draws the frame moved by the anchor's
-    // change since, which is what a scroll copy did to the painted canvas.
+    // were rendered, less the frame's residual offset from the view:
+    // paint_rotated draws the frame moved by the anchor's change since,
+    // which is what a scroll copy did to the painted canvas.
     std::vector<std::byte> rotated_pixels_;
     gui_forms::Point rendered_anchor_;
     bool view_worker_initialized_ = false;

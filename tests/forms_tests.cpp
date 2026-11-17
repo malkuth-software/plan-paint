@@ -5862,6 +5862,45 @@ void rotated_pan_shifts_the_frame_and_damages_the_handle() {
     }
     (*framebuffer).end();
 }
+// The owner: a turned view showed its CONV resampling only after a pause,
+// and panning a turned canvas by fractions of a unit (points on a scaled
+// display, a trackpad) rendered the whole frame on every step. The first
+// turn prepares the CONV field at once. A fractional pan shifts the frame by
+// the nearest whole units and draws it offset by the rest; at rest an exact
+// render replaces it, equal to a whole render at the view's origin.
+void rotated_view_prepares_at_once_and_pans_by_fractions() {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::Window& window = *fixture.window;
+    const gf::OffscreenAttachment attachment(test_raster(), window);
+    editor.settings.rotate_view = true;
+    editor.document.image.set(35, 35, {20, 70, 110, 255});
+    const std::uint64_t preparations = editor.canvas().work_statistics().view_preparations;
+    editor.rotate_view(0.35);
+    require(editor.canvas().work_statistics().view_preparations == preparations + 1,
+            "the first turn prepares the CONV field at once");
+    editor.canvas().set_view(1, {-40, -30});
+    settle_rotated_frame(fixture);
+    const paint::forms::CanvasWorkStatistics before = editor.canvas().work_statistics();
+    editor.canvas().set_view_origin({-38.5, -31.25});
+    static_cast<void>(window.poll_frame_schedule(gf::FrameClock::now() + std::chrono::milliseconds(20)));
+    const paint::forms::CanvasWorkStatistics moved = editor.canvas().work_statistics();
+    require(moved.view_renders == before.view_renders && moved.view_shifts == before.view_shifts + 1,
+            "a fractional pan of a turned view shifts the frame instead of rendering it again");
+    require(editor.canvas().view_busy(), "a frame left a fraction of a unit from the view awaits its rest render");
+    drain_canvas_work(fixture);
+    require(editor.canvas().work_statistics().view_renders == moved.view_renders + 1 && !editor.canvas().view_busy(),
+            "at rest one exact render replaces the shifted frame");
+    const std::span<const std::byte> kept = editor.canvas().rendered_view_pixels();
+    const std::vector<std::byte> rested(kept.begin(), kept.end());
+    editor.canvas().set_view(2, {-38.5, -31.25});
+    settle_rotated_frame(fixture);
+    editor.canvas().set_view(1, {-38.5, -31.25});
+    settle_rotated_frame(fixture);
+    const std::span<const std::byte> whole = editor.canvas().rendered_view_pixels();
+    require(whole.size() == rested.size() && std::equal(whole.begin(), whole.end(), rested.begin()),
+            "the rest render equals a whole render at the view's origin");
+}
 void canvas_work_is_coalesced_and_stamp_is_cached() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
@@ -7284,6 +7323,7 @@ int main(int argc, char** argv) {
         rotated_frames_use_published_images();
         canvas_work_is_coalesced_and_stamp_is_cached();
         rotated_pan_shifts_the_frame_and_damages_the_handle();
+        rotated_view_prepares_at_once_and_pans_by_fractions();
         backing_change_renders_off_paint();
         persistent_selection_painting();
         selection_holes_flood_and_floating_paste();
