@@ -157,6 +157,34 @@ jobs:
       - name: Install Linux compiler and desktop libraries
         if: runner.os == 'Linux'
         run: sh template_harness/harness/install_linux_ci_packages.sh paint "$RUNNER_TEMP/apt-archives"
+      # dav1d (libavif's AV1 decoder, built from pinned source) builds with meson,
+      # and its x86-64 assembly with nasm.
+      - name: Install meson and nasm
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends meson nasm
+      # GUI.Forms links the harness's static LLVM 22.1.8 runtime on Linux (one
+      # module, GUI.Forms 2026-11-15; gui_forms/cmake/llvm22.cmake refuses a
+      # build without GUI_FORMS_LLVM_RUNTIME): restore it, or build it with the
+      # packages' clang 22 as GUI.Forms' own CI does.
+      - name: Select the Linux LLVM runtime
+        id: linux-runtime
+        if: runner.os == 'Linux'
+        run: |
+          directory="$(python3 template_harness/harness/linux_runtime_manifest.py --directory-name)"
+          echo "GUI_FORMS_LLVM_RUNTIME=$PWD/.build/toolchain/$directory" >> "$GITHUB_ENV"
+          echo "directory=$directory" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        if: runner.os == 'Linux'
+        with:
+          path: .build/toolchain/${{ steps.linux-runtime.outputs.directory }}
+          key: linux-llvm-runtime-v1-${{ steps.linux-runtime.outputs.directory }}-${{ hashFiles('template_harness/harness/build_linux_runtimes.py', 'template_harness/harness/linux_runtime_manifest.py') }}
+      - name: Build the static Linux LLVM runtime
+        if: runner.os == 'Linux'
+        run: |
+          if [ ! -f "$GUI_FORMS_LLVM_RUNTIME/runtime-manifest.json" ]; then
+            python3 template_harness/harness/build_linux_runtimes.py --work "$RUNNER_TEMP/llvm-runtimes" --prefix "$GUI_FORMS_LLVM_RUNTIME" --jobs 4
+          fi
+          python3 template_harness/harness/linux_runtime_manifest.py "$GUI_FORMS_LLVM_RUNTIME"
       - uses: actions/cache/save@v4
         if: runner.os == 'Linux' && github.event_name == 'push' && steps.linux-packages.outputs.cache-hit != 'true'
         with:
