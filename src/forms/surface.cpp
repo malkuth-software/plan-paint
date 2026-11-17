@@ -357,14 +357,14 @@ void PaintCanvas::on_paint(gf::Painter& painter, gf::Rect damage) {
     // worker delivered it (request_backing), its plain colour until then.
     const CanvasBacking choice = chosen_backing();
     if (backing_ready()) {
-        // The felt's tiles are counted from the sheet's corner, so that the
-        // surround moves with the sheet: the pattern starts whole tiles left
-        // of and above the canvas and is clipped to it.
+        // The felt's tiles are counted from backing_anchor_, which pans
+        // carry with the sheet and turns and zooms leave still (apply_view):
+        // the pattern starts whole tiles left of and above the canvas and is
+        // clipped to it.
         const double tile = canvas_backing_tile_size(loaded_backing_);
         const double pixels = loaded_backing_ == CanvasBacking::PaleFelt ? 128 : 512;
-        const gf::Rect corner = RasterCanvas::bitmap_to_client({0, 0, 1, 1});
-        const double anchor_x = corner.x - tile * std::ceil((corner.x - bounds.x) / tile);
-        const double anchor_y = corner.y - tile * std::ceil((corner.y - bounds.y) / tile);
+        const double anchor_x = backing_anchor_.x - tile * std::ceil((backing_anchor_.x - bounds.x) / tile);
+        const double anchor_y = backing_anchor_.y - tile * std::ceil((backing_anchor_.y - bounds.y) / tile);
         const gf::Rect pattern{anchor_x, anchor_y, bounds.right() - anchor_x, bounds.bottom() - anchor_y};
         painter.save();
         painter.clip_rect(bounds);
@@ -698,7 +698,21 @@ void PaintCanvas::apply_view(double scale, gui_drawing::PointF origin) {
     const bool handle = editor && (*editor).settings.rotate_view;
     const gf::Point handle_before = handle ? rotation_handle() : gf::Point{};
     const gf::Point anchor_before = view_anchor();
+    // The surround lies under the sheet: a pan moves the view over both (the
+    // scroll copy moves them together), but turning or zooming the sheet
+    // leaves the surround where it is.
+    const bool pan = scale == zoom.read() && view_angle == backing_angle_;
     RasterCanvas::set_view(scale, origin);
+    const gf::Point anchor_moved = view_anchor();
+    if (pan) {
+        backing_anchor_ = {backing_anchor_.x + (anchor_moved.x - anchor_before.x),
+                           backing_anchor_.y + (anchor_moved.y - anchor_before.y)};
+    } else {
+        backing_angle_ = view_angle;
+        // A turn at the same zoom reaches RasterCanvas as a pan, whose copy
+        // would carry the surround with the sheet: repaint instead.
+        invalidate(gf::Dirty::paint);
+    }
     if (editor && (*editor).text.active) {
         // The canvas text's editor follows the box on screen.
         (*editor).sync_canvas_text();

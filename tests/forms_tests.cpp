@@ -2476,6 +2476,22 @@ void icon_palette_contracts() {
     }
     require(bounds_of(window, "atlas-frames").width >= 220,
             "minimum-width Atlas retains room for two representation thumbnails");
+    // The owner: Dismiss reference covered Gallery and Compare, leaving a
+    // sliver of Compare to click. No two Atlas controls overlap.
+    const char* placed[] = {"atlas-grid",     "atlas-icons",     "atlas-cursors",       "atlas-whole",
+                            "atlas-leave",    "atlas-previous",  "atlas-next",          "atlas-hotspot",
+                            "atlas-gallery",  "atlas-compare",   "atlas-export",        "atlas-alpha-tools",
+                            "atlas-palette",  "atlas-states",    "atlas-wrap",          "atlas-alpha",
+                            "atlas-reference-clear", "atlas-frames", "atlas-status"};
+    for (const char* first : placed) {
+        for (const char* second : placed) {
+            if (std::string_view(first) >= std::string_view(second)) {
+                continue;
+            }
+            const gf::Rect overlap = gf::Rect::intersection(bounds_of(window, first), bounds_of(window, second));
+            require(overlap.empty(), "no two Atlas controls overlap");
+        }
+    }
     routed_button(window, "atlas-palette");
     window.perform_layout();
     const gf::Rect close = bounds_of(window, "dialog-cancel");
@@ -3819,8 +3835,13 @@ class PreviewPainter final : public gf::Painter {
     }
     // The tiled images (the canvas surround).
     std::vector<gf::ImageId> patterned_images;
-    void fill_image_pattern(gf::ImageId id, gf::Size, gf::Rect, gf::Size, gf::ImagePatternWrap, double) override {
+    std::vector<gf::Rect> pattern_bounds;
+    std::vector<gf::Size> pattern_tiles;
+    void fill_image_pattern(gf::ImageId id, gf::Size, gf::Rect bounds, gf::Size tile, gf::ImagePatternWrap,
+                            double) override {
         patterned_images.push_back(id);
+        pattern_bounds.push_back(bounds);
+        pattern_tiles.push_back(tile);
     }
 };
 void live_canvas_damage_opacity_and_reuse() {
@@ -5752,6 +5773,44 @@ void drain_canvas_work(Fixture& fixture) {
 // A change of setting renders the tile on a worker; paint never loads or
 // replaces an image and shows the material's plain colour until the worker
 // delivers, which replaces the image outside paint.
+// The owner: turning the view or zooming with the window's zoom controls
+// moved the surround, which lies under the sheet and should stay still. Its
+// tiles keep their place through a turn and a zoom and follow a pan.
+double surround_phase(paint::forms::Editor& editor, double& tile) {
+    PreviewPainter painter;
+    editor.canvas().on_paint(painter, editor.canvas().client_rectangle());
+    require(!painter.pattern_bounds.empty(), "the surround draws its tile");
+    tile = painter.pattern_tiles.back().width;
+    const double x = painter.pattern_bounds.back().x, y = painter.pattern_bounds.back().y;
+    const double phase_x = x - tile * std::floor(x / tile), phase_y = y - tile * std::floor(y / tile);
+    return phase_x * 4096 + phase_y;
+}
+void surround_stays_under_turns_and_zooms() {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::Window& window = *fixture.window;
+    window.perform_layout();
+    editor.settings.rotate_view = true;
+    editor.settings.canvas_backing = paint::CanvasBacking::PaleFelt;
+    editor.canvas().request_backing();
+    const gf::FrameTime deadline = gf::FrameClock::now() + std::chrono::seconds(60);
+    while (!editor.canvas().backing_ready()) {
+        static_cast<void>(window.drain_posted_work());
+        require(gf::FrameClock::now() < deadline, "the surround's worker delivers its tile");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    double tile = 0;
+    const double resting = surround_phase(editor, tile);
+    editor.rotate_view(0.4);
+    require(surround_phase(editor, tile) == resting, "turning the view leaves the surround still");
+    editor.canvas().set_zoom(editor.canvas().zoom.read() * 1.5);
+    require(surround_phase(editor, tile) == resting, "zooming leaves the surround still");
+    editor.rotate_view(0);
+    require(surround_phase(editor, tile) == resting, "turning back leaves the surround still");
+    const gui_drawing::PointF origin = editor.canvas().view_origin.read();
+    editor.canvas().set_view_origin({origin.x + 7 / editor.canvas().zoom.read(), origin.y});
+    require(surround_phase(editor, tile) != resting, "a pan moves the surround with the sheet");
+}
 void backing_change_renders_off_paint() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
@@ -7364,6 +7423,7 @@ int main(int argc, char** argv) {
         rotated_pan_shifts_the_frame_and_damages_the_handle();
         rotated_view_prepares_at_once_and_pans_by_fractions();
         rotated_view_edit_resamples_locally();
+        surround_stays_under_turns_and_zooms();
         backing_change_renders_off_paint();
         persistent_selection_painting();
         selection_holes_flood_and_floating_paste();

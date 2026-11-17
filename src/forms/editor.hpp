@@ -211,6 +211,11 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     // which is what a scroll copy did to the painted canvas.
     std::vector<std::byte> rotated_pixels_;
     gui_forms::Point rendered_anchor_;
+    // The surround's tile origin in client units: it follows pans only, so
+    // turning or zooming the view leaves the surround still; and the view
+    // angle it was last placed for.
+    gui_forms::Point backing_anchor_;
+    double backing_angle_ = 0;
     void paint_rotated(gui_forms::Painter& painter, const Editor& editor);
 
     CanvasBacking loaded_backing_ = CanvasBacking::Count;

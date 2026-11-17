@@ -267,15 +267,21 @@ void AtlasPanel::arrange(gf::Rect bounds) {
     for (std::size_t i = 0; i < buttons_.size(); ++i) {
         set_child_layout(buttons_[i], (*buttons_[i]).requested_bounds());
     }
-    set_child_layout(buttons_[8], {bounds.width - 96, bounds.height - 22, 88, 20});
-    set_child_layout(buttons_[9], {bounds.width - 192, bounds.height - 22, 88, 20});
-    set_child_layout(buttons_[10], {bounds.width - 288, bounds.height - 22, 88, 20});
+    // Three columns: the command grid, the frames (the strip above, the
+    // status and Gallery, Compare and Export along the bottom) and the
+    // options. The bottom row's buttons end where the options column begins,
+    // so none lies under an option; the status takes what is left of the row.
     const double controls = std::min(324.0, bounds.width * 0.42);
     const double options = std::min(190.0, bounds.width * 0.22);
-    set_child_layout(
-        strip_, {controls + 6, 4, std::max(1.0, bounds.width - controls - options - 18), bounds.height - 26});
-    set_child_layout(status_,
-                     {controls + 6, bounds.height - 22, std::max(1.0, bounds.width - controls - 304), 20});
+    const double middle_left = controls + 6, middle_right = bounds.width - options - 12;
+    const double middle = std::max(1.0, middle_right - middle_left);
+    const double button = middle >= 3 * 88 + 8 + 60 ? 88 : 80;
+    const double row = bounds.height - 22;
+    set_child_layout(buttons_[8], {middle_right - button, row, button, 20});
+    set_child_layout(buttons_[9], {middle_right - 2 * button - 4, row, button, 20});
+    set_child_layout(buttons_[10], {middle_right - 3 * button - 8, row, button, 20});
+    set_child_layout(strip_, {middle_left, 4, middle, bounds.height - 26});
+    set_child_layout(status_, {middle_left, row, std::max(1.0, middle_right - 3 * button - 14 - middle_left), 20});
     set_child_layout(wrap_, {bounds.width - options - 6, 3, options, 25});
     set_child_layout(alpha_, {bounds.width - options - 6, 31, options, 25});
     set_child_layout(clear_reference_, {bounds.width - options - 6, 59, options, 25});
