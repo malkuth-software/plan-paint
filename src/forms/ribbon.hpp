@@ -90,6 +90,11 @@ class Ribbon final : public gui_forms::Control {
     // Inspection: the Command behind the ribbon command `id` (its text,
     // description, enabled and checked state), or null for an unknown ID.
     std::shared_ptr<gui_forms::Command> command_for(const std::string& id) const;
+    // The tool tab's authored width (the original strip's 142 units). A
+    // diagnostic seam for the native tab-hover probe, which narrows it to
+    // tell whether the width is what changes the hovered selected tab's
+    // look; the tabs are given to the bar again at once.
+    void set_tool_tab_width(double width);
 
   protected:
     void on_attached_to_window() override;
@@ -148,6 +153,7 @@ class Ribbon final : public gui_forms::Control {
     // The structure last given to set_tabs (tab, group and command IDs and
     // tab texts); set_tabs runs only when it changes.
     std::string tabs_signature_;
+    double tool_tab_width_ = 142;
     // Which preview set the brush gallery shows ("edge", "fill", "dynamic").
     std::string brush_images_;
     // The materials and custom colours the generated images show now.

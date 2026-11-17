@@ -9,10 +9,14 @@
 #include "paths.hpp"
 #include "plan_paint_theme.hpp"
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <gui_forms/controls/ribbon.hpp>
+#include <gui_forms/engine/part_table/engine_part_table.hpp>
 #include <optional>
 #include <stxlib/optional.hpp>
 #include <gui_forms/paint_framebuffer.hpp>
@@ -194,6 +198,41 @@ struct NativeRecoveryDirectory {
     }
 };
 struct NativeExercise;
+// --tab-hover: the settle timer's tick after a hover (TabHoverProbe).
+struct TabHoverTick {
+    NativeExercise* exercise = nullptr;
+    void operator()() const;
+};
+// A Metrics counter GUI.Forms may not have yet (engine_built_in_fallbacks
+// and engine_raster_failures arrived with claude/483-plan-paint-bugs
+// 7cfc1fe8d): its value, or none on an older SDK, so the probe builds
+// against SDK 31b48906e as well.
+template <typename Snapshot> std::optional<std::uint64_t> built_in_fallbacks(const Snapshot& metrics) {
+    if constexpr (requires(const Snapshot& value) { value.engine_built_in_fallbacks; }) {
+        return metrics.engine_built_in_fallbacks;
+    } else {
+        return std::nullopt;
+    }
+}
+template <typename Snapshot> std::optional<std::uint64_t> raster_failures(const Snapshot& metrics) {
+    if constexpr (requires(const Snapshot& value) { value.engine_raster_failures; }) {
+        return metrics.engine_raster_failures;
+    } else {
+        return std::nullopt;
+    }
+}
+std::string counter_text(std::optional<std::uint64_t> value) {
+    const std::string text = value.has_value() ? std::to_string(*value) : std::string("n/a");
+    return text;
+}
+// Whether `colour` lies within `tolerance` of `red`, `green`, `blue` on
+// every channel.
+bool near_colour(paint::Color colour, int red, int green, int blue, int tolerance) {
+    const bool near = std::abs(static_cast<int>(colour.r) - red) <= tolerance &&
+                      std::abs(static_cast<int>(colour.g) - green) <= tolerance &&
+                      std::abs(static_cast<int>(colour.b) - blue) <= tolerance;
+    return near;
+}
 // Inside the modal dialog's nested loop: the dialog has its own window, a
 // second window of the run; then it closes, which ends the loop.
 struct ModalDialogProbe {
@@ -224,6 +263,26 @@ struct NativeExercise {
          icon_ribbon_review = false, icon_batch_review = false, icon_stamp_review = false, icon_indexed_review = false, icon_shared_review = false, icon_index_paint_review = false;
     bool geometry_styles_review = false, markers_review = false;
     bool pan_probe = false;
+    // --tab-hover: the owner's steps for the Pencil tab (2026-11-17): choose
+    // the Pencil tool, click the tool tab ("Pencil"), hover it; then the
+    // same on the Home tab for comparison. Each hovered tab settles for
+    // 200 ms, the ribbon is captured to a PNG and the engine's counters are
+    // printed before and after the hover. PAINT_TOOL_TAB_WIDTH sets the
+    // tool tab's authored width (142) for a variant run;
+    // PAINT_TAB_HOVER_DIR names the captures' directory (the temporary
+    // directory otherwise). The probe fails when the hovered selected
+    // Pencil tab shows the menu-item hot plate (#D5E9FA floor, #488BC4
+    // edge): the built-in recipe of the tab's hover layer.
+    bool tab_hover_probe = false;
+    bool tab_hover_done = false;
+    std::string tab_hover_failure;
+    std::string tab_hover_id;
+    gf::Window* tab_hover_window = nullptr;
+    gf::ApplicationWindowHandle tab_hover_handle;
+    gf::MetricsSnapshot tab_hover_metrics{};
+    gf::RasterCacheStatistics tab_hover_cache{};
+    std::unique_ptr<gf::Timer> tab_hover_timer;
+    gf::SubscriptionToken tab_hover_tick;
     // --dialog-window: an editor dialog opens as a second, owned window, and
     // runs modally through show_modal. A failure found inside the nested
     // loop is kept here and reported after the run.
@@ -1007,6 +1066,155 @@ struct NativeExercise {
             throw std::runtime_error("Native pan probe close failed");
         }
     }
+    // The window rectangle of the ribbon tab `id`, or none when it is not
+    // shown.
+    std::optional<gf::Rect> ribbon_tab_rect(gf::Window& window, const std::string& id) {
+        const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(find_shown(window, "ribbon-bar"));
+        if (!bar) {
+            return std::nullopt;
+        }
+        const gf::Rect origin = (*bar).absolute_bounds();
+        for (const gf::Ribbon::Tab& tab : (*bar).realized_tabs()) {
+            if (tab.stable_id == id) {
+                const gf::Rect local = tab.parts.tab.bounds;
+                const gf::Rect placed{origin.x + local.x, origin.y + local.y, local.width, local.height};
+                return placed;
+            }
+        }
+        return std::nullopt;
+    }
+    void tab_hover_run(gf::Window& window, gf::ApplicationWindowHandle handle) {
+        tab_hover_window = &window;
+        tab_hover_handle = handle;
+        const char* width = std::getenv("PAINT_TOOL_TAB_WIDTH");
+        if (width && *width) {
+            const std::shared_ptr<paint::forms::Ribbon> ribbon =
+                std::dynamic_pointer_cast<paint::forms::Ribbon>(find_shown(window, "ribbon"));
+            if (ribbon) {
+                (*ribbon).set_tool_tab_width(std::clamp(std::atof(width), 20.0, 400.0));
+            }
+        }
+        (*editor).choose_tool(paint::Tool::Pencil);
+        (*editor).refresh();
+        window.perform_layout();
+        tab_hover_begin("tool-tab");
+    }
+    void tab_hover_fail(const std::string& failure) {
+        if (tab_hover_failure.empty()) {
+            tab_hover_failure = failure;
+        }
+        if (tab_hover_timer) {
+            (*tab_hover_timer).stop();
+        }
+        static_cast<void>(tab_hover_handle.request_close());
+    }
+    // Clicks the tab, then hovers it; the settle timer captures it.
+    void tab_hover_begin(const std::string& id) {
+        gf::Window& window = *tab_hover_window;
+        tab_hover_id = id;
+        const std::optional<gf::Rect> shown = ribbon_tab_rect(window, id);
+        if (!shown) {
+            tab_hover_fail("Tab hover probe: the ribbon shows no " + id);
+            return;
+        }
+        const gf::Point press{(*shown).x + (*shown).width / 2, (*shown).y + (*shown).height / 2};
+        static_cast<void>(window.dispatch_pointer({gf::PointerAction::down, gf::PointerButton::primary, press}));
+        static_cast<void>(window.dispatch_pointer({gf::PointerAction::up, gf::PointerButton::primary, press}));
+        window.perform_layout();
+        if (!ribbon_tab_selected(window, id)) {
+            tab_hover_fail("Tab hover probe: a click did not select " + id);
+            return;
+        }
+        // The selected tab stands taller: hover the centre of where it is now.
+        const std::optional<gf::Rect> selected = ribbon_tab_rect(window, id);
+        const gf::Rect bounds = selected ? *selected : *shown;
+        const gf::Point hover{bounds.x + bounds.width / 2, bounds.y + bounds.height / 2};
+        tab_hover_metrics = window.metrics_snapshot();
+        tab_hover_cache = window.engine_parts().cache_statistics();
+        static_cast<void>(window.dispatch_pointer({gf::PointerAction::move, gf::PointerButton::none, hover}));
+        tab_hover_timer = std::make_unique<gf::Timer>(window, std::chrono::milliseconds(200));
+        const TabHoverTick tick{this};
+        tab_hover_tick = (*tab_hover_timer).tick().subscribe(tick);
+        (*tab_hover_timer).start();
+    }
+    void tab_hover_settled() {
+        (*tab_hover_timer).stop();
+        gf::Window& window = *tab_hover_window;
+        window.perform_layout();
+        const std::optional<gf::Rect> shown = ribbon_tab_rect(window, tab_hover_id);
+        const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(find_shown(window, "ribbon-bar"));
+        if (!shown || !bar) {
+            tab_hover_fail("Tab hover probe: " + tab_hover_id + " is gone after its hover");
+            return;
+        }
+        // Whether the tab is still hot: the real pointer, elsewhere, may
+        // have taken the hover away during the settle.
+        bool hot = false;
+        for (const gf::Ribbon::Tab& tab : (*bar).realized_tabs()) {
+            if (tab.stable_id == tab_hover_id) {
+                hot = tab.states.hot;
+            }
+        }
+        bool painted = false;
+        const gf::Size client = window.client_size();
+        const paint::Image frame = render_snapshot(window, client, painted);
+        const double scale = client.width > 0 ? frame.width / client.width : 1.0;
+        const gf::Rect ribbon = (*bar).absolute_bounds();
+        const paint::Rect region{static_cast<int>(std::floor(ribbon.x * scale)), static_cast<int>(std::floor(ribbon.y * scale)),
+                                 static_cast<int>(std::ceil(ribbon.width * scale)),
+                                 static_cast<int>(std::ceil(ribbon.height * scale))};
+        const paint::Image captured = paint::cropped(frame, region);
+        const char* directory = std::getenv("PAINT_TAB_HOVER_DIR");
+        const std::filesystem::path folder = directory && *directory ? paint::path_from_utf8(directory)
+                                                                     : std::filesystem::temp_directory_path();
+        const char* width = std::getenv("PAINT_TOOL_TAB_WIDTH");
+        const std::string variant = width && *width ? std::string("-w") + width : std::string();
+        const std::filesystem::path capture = folder / ("plan-paint-tab-hover-" + tab_hover_id + variant + ".png");
+        paint::save_image(captured, paint::path_to_utf8(capture));
+        // The hot plate's colours over the hovered tab.
+        std::size_t edge = 0;
+        std::size_t floor = 0;
+        const int left = static_cast<int>(std::floor((*shown).x * scale));
+        const int top = static_cast<int>(std::floor((*shown).y * scale));
+        const int right = static_cast<int>(std::ceil(((*shown).x + (*shown).width) * scale));
+        const int bottom = static_cast<int>(std::ceil(((*shown).y + (*shown).height) * scale));
+        for (int y = std::max(0, top); y < std::min(frame.height, bottom); ++y) {
+            for (int x = std::max(0, left); x < std::min(frame.width, right); ++x) {
+                const paint::Color pixel = frame.get(x, y);
+                if (near_colour(pixel, 0x48, 0x8b, 0xc4, 8)) { ++edge; }
+                if (near_colour(pixel, 0xd5, 0xe9, 0xfa, 3)) { ++floor; }
+            }
+        }
+        const gf::MetricsSnapshot after = window.metrics_snapshot();
+        const gf::RasterCacheStatistics cache = window.engine_parts().cache_statistics();
+        const gf::MetricsSnapshot& before = tab_hover_metrics;
+        std::cout << "Tab hover probe " << tab_hover_id << " (width " << (*shown).width << ", painted "
+                  << (painted ? "yes" : "no") << ", hot " << (hot ? "yes" : "no")
+                  << "): engine_primitive_refusals " << before.engine_primitive_refusals
+                  << " -> " << after.engine_primitive_refusals << ", engine_dither_degradations "
+                  << before.engine_dither_degradations << " -> " << after.engine_dither_degradations
+                  << ", engine_built_in_fallbacks " << counter_text(built_in_fallbacks(before)) << " -> "
+                  << counter_text(built_in_fallbacks(after)) << ", engine_raster_failures "
+                  << counter_text(raster_failures(before)) << " -> " << counter_text(raster_failures(after))
+                  << ", keyframe_demand_bakes " << tab_hover_cache.keyframe_demand_bakes << " -> "
+                  << cache.keyframe_demand_bakes << ", keyframe_hits " << tab_hover_cache.keyframe_hits << " -> "
+                  << cache.keyframe_hits << ", bakes " << tab_hover_cache.bakes << " -> " << cache.bakes
+                  << "; hot-plate pixels: edge " << edge << ", floor " << floor << "; capture "
+                  << paint::path_to_utf8(capture) << "\n"
+                  << std::flush;
+        const std::size_t tab_pixels_across = static_cast<std::size_t>(std::max(0, right - left));
+        if (tab_hover_id == "tool-tab") {
+            if (floor >= 16 || edge >= tab_pixels_across / 2) {
+                tab_hover_fail("The hovered selected Pencil tab shows the menu-item hot plate (#D5E9FA floor " +
+                               std::to_string(floor) + " px, #488BC4 edge " + std::to_string(edge) + " px)");
+                return;
+            }
+            tab_hover_begin("home-tab");
+            return;
+        }
+        tab_hover_done = true;
+        static_cast<void>(tab_hover_handle.request_close());
+    }
     // An editor dialog in a window of its own: first driven from this loop
     // (modal_dialogs off), then modally through show_modal.
     void dialog_window_run(gf::Window& window, gf::ApplicationWindowHandle handle) {
@@ -1145,6 +1353,11 @@ struct NativeExercise {
         }
         if (dialog_window_review) {
             dialog_window_run(window, handle);
+            entered = true;
+            return;
+        }
+        if (tab_hover_probe) {
+            tab_hover_run(window, handle);
             entered = true;
             return;
         }
@@ -1889,6 +2102,13 @@ struct WindowsFixtureReady {
 };
 #endif
 } // namespace
+void TabHoverTick::operator()() const {
+    try {
+        (*exercise).tab_hover_settled();
+    } catch (const std::exception& failure) {
+        (*exercise).tab_hover_fail(failure.what());
+    }
+}
 void DialogWindowStart::operator()() const {
     try {
         (*exercise).dialog_window_checks(*window, handle);
@@ -1990,6 +2210,10 @@ int main(int argc, char** argv) {
         exercise.bugs = argc > 1 && std::string(argv[1]) == "--bugs";
         exercise.pan_probe = argc > 1 && std::string(argv[1]) == "--pan-probe";
         exercise.dialog_window_review = argc > 1 && std::string(argv[1]) == "--dialog-window";
+        exercise.tab_hover_probe = argc > 1 && std::string(argv[1]) == "--tab-hover";
+        if (exercise.tab_hover_probe) {
+            exercise.keep_open = false;
+        }
         // Owned windows need the Application run (its window set), not the
         // single-window fixture host the other argument modes use.
         if (exercise.dialog_window_review) {
@@ -2051,6 +2275,12 @@ int main(int argc, char** argv) {
         }
         if (!exercise.dialog_failure.empty()) {
             throw std::runtime_error(exercise.dialog_failure);
+        }
+        if (!exercise.tab_hover_failure.empty()) {
+            throw std::runtime_error(exercise.tab_hover_failure);
+        }
+        if (exercise.tab_hover_probe && !exercise.tab_hover_done) {
+            throw std::runtime_error("The tab hover probe did not finish");
         }
         if (exercise.dialog_window_review && !exercise.modal_seen) {
             throw std::runtime_error("The modal dialog never ran its loop");

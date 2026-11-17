@@ -864,7 +864,7 @@ std::vector<gf::RibbonTabSpec> Ribbon::build_tabs() {
     // The original tab row's widths (the earlier strip's tab buttons); the
     // contextual text and spirograph tabs keep their labels' widths.
     const std::pair<const char*, double> widths[] = {{"home-tab", 61},  {"view-tab", 63},   {"patterns-tab", 100},
-                                                     {"tool-tab", 142}, {"atlas-tab", 72},  {"icon-tab", 72},
+                                                     {"tool-tab", tool_tab_width_}, {"atlas-tab", 72},  {"icon-tab", 72},
                                                      {"gradient-tab", 105}};
     for (gf::RibbonTabSpec& tab : tabs) {
         for (const std::pair<const char*, double>& width : widths) {
@@ -876,11 +876,16 @@ std::vector<gf::RibbonTabSpec> Ribbon::build_tabs() {
     return tabs;
 }
 
+void Ribbon::set_tool_tab_width(double width) {
+    tool_tab_width_ = width;
+    apply_tabs();
+}
+
 // Gives set_tabs the structure for the editor's state when it differs from
 // the last, then binds the hosted controls it made.
 void Ribbon::apply_tabs() {
     std::vector<gf::RibbonTabSpec> tabs = build_tabs();
-    std::string signature;
+    std::string signature = "w" + std::to_string(tool_tab_width_);
     for (const gf::RibbonTabSpec& tab : tabs) {
         signature += "|" + tab.stable_id + "=" + tab.text;
         for (const gf::RibbonGroupSpec& each : tab.groups) {

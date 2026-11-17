@@ -193,6 +193,13 @@ if(APPLE OR WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set_tests_properties(paint-clipboard-native PROPERTIES SKIP_RETURN_CODE 77 RUN_SERIAL TRUE TIMEOUT 90)
   add_test(NAME paint-healing-native COMMAND paint-forms-native-tests --healing)
   add_test(NAME paint-dialog-window-native COMMAND paint-forms-native-tests --dialog-window)
+  # The owner's hovered selected Pencil tab (2026-11-17): fails while the
+  # tab shows the menu-item hot plate; prints the engine's counters and
+  # writes the ribbon captures (PAINT_TAB_HOVER_DIR, PAINT_TOOL_TAB_WIDTH).
+  add_test(NAME paint-tab-hover-native COMMAND paint-forms-native-tests --tab-hover)
+  add_test(NAME paint-tab-hover-narrow-native COMMAND paint-forms-native-tests --tab-hover)
+  set_tests_properties(paint-tab-hover-narrow-native PROPERTIES ENVIRONMENT "PAINT_TOOL_TAB_WIDTH=100")
+  set_tests_properties(paint-tab-hover-native paint-tab-hover-narrow-native PROPERTIES RUN_SERIAL TRUE TIMEOUT 90)
   add_test(NAME paint-icon-production-native COMMAND paint-forms-native-tests --icon-production)
   add_test(NAME paint-icon-svg-native COMMAND paint-forms-native-tests --icon-svg)
   add_test(NAME paint-icon-formats-native COMMAND paint-forms-native-tests --icon-formats)
