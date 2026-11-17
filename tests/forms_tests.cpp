@@ -5901,6 +5901,45 @@ void rotated_view_prepares_at_once_and_pans_by_fractions() {
     require(whole.size() == rested.size() && std::equal(whole.begin(), whole.end(), rested.begin()),
             "the rest render equals a whole render at the view's origin");
 }
+// The owner: the CONV view came back seconds after a stroke, which
+// recompiled the whole picture. The view's surface recompiles only the cells
+// an edit reads and the next frame resamples only the view over the edit;
+// that frame equals a whole render of the edited picture.
+void rotated_view_edit_resamples_locally() {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::Window& window = *fixture.window;
+    const gf::OffscreenAttachment attachment(test_raster(), window);
+    editor.settings.rotate_view = true;
+    editor.rotate_view(0.35);
+    editor.canvas().set_view(2, {-20, -10});
+    settle_rotated_frame(fixture);
+    const paint::forms::CanvasWorkStatistics before = editor.canvas().work_statistics();
+    fixture.drag(40, 30, 46, 32);
+    settle_rotated_frame(fixture);
+    const paint::forms::CanvasWorkStatistics after = editor.canvas().work_statistics();
+    const gf::Rect viewport = editor.canvas().client_rectangle();
+    const double frame = std::ceil(viewport.width) * std::ceil(viewport.height);
+    int inked = 0;
+    for (const paint::Color color : editor.document.image.pixels) {
+        inked += white(color) ? 0 : 1;
+    }
+    require(inked > 0, "the stroke drew");
+    require(after.view_preparations == before.view_preparations && after.view_renders == before.view_renders,
+            "an edit neither rebuilds the surface nor renders the whole frame");
+    const std::uint64_t resampled = after.view_resampled_pixels - before.view_resampled_pixels;
+    require(resampled > 0 && static_cast<double>(resampled) < frame / 20,
+            "an edit resamples only the view over it");
+    const std::span<const std::byte> kept = editor.canvas().rendered_view_pixels();
+    const std::vector<std::byte> edited(kept.begin(), kept.end());
+    editor.canvas().set_view(4, {-20, -10});
+    settle_rotated_frame(fixture);
+    editor.canvas().set_view(2, {-20, -10});
+    settle_rotated_frame(fixture);
+    const std::span<const std::byte> whole = editor.canvas().rendered_view_pixels();
+    require(whole.size() == edited.size() && std::equal(whole.begin(), whole.end(), edited.begin()),
+            "the edited frame equals a whole render of the edited picture");
+}
 void canvas_work_is_coalesced_and_stamp_is_cached() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
@@ -5929,8 +5968,8 @@ void canvas_work_is_coalesced_and_stamp_is_cached() {
             "moving stroke does not repeatedly prepare obsolete source images");
     fixture.pointer(gf::PointerAction::up, 99, 48.7);
     drain_canvas_work(fixture);
-    require(editor.canvas().work_statistics().view_preparations == preparations + 1,
-            "release prepares the latest completed stroke exactly once");
+    require(editor.canvas().work_statistics().view_preparations == preparations,
+            "a stroke recompiles only its own cells: no whole CONV surface is prepared on release");
     require(!white(editor.document.image.get(99, 48)), "batched rendering preserves the stroke endpoint");
     editor.choose_tool(paint::Tool::Stamp);
     fixture.click(35, 35);
@@ -5961,7 +6000,7 @@ void canvas_work_is_coalesced_and_stamp_is_cached() {
                 editor.canvas().work_statistics().view_renders == idle.view_renders &&
                 editor.canvas().work_statistics().stamp_renders == idle.stamp_renders,
             "settled canvas and stamp leave no recurring work timer");
-    std::cout << "Canvas work: 120 rotations -> 1 render; 80 stroke moves -> 1 preparation; "
+    std::cout << "Canvas work: 120 rotations -> 1 render; 80 stroke moves -> no whole preparation; "
                  "stamp reuse and idle-work checks passed.\n";
 }
 void interface_colors_and_spacing() {
@@ -7324,6 +7363,7 @@ int main(int argc, char** argv) {
         canvas_work_is_coalesced_and_stamp_is_cached();
         rotated_pan_shifts_the_frame_and_damages_the_handle();
         rotated_view_prepares_at_once_and_pans_by_fractions();
+        rotated_view_edit_resamples_locally();
         backing_change_renders_off_paint();
         persistent_selection_painting();
         selection_holes_flood_and_floating_paste();
