@@ -13,15 +13,26 @@ endif()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # The harness bootstrap's smoke build (projects/plan-paint.toml): only the
 # codec-free warp kernel and its test, so a fresh workspace proves its
-# toolchain and compiler cache without the image codecs or GUI.Forms.
+# toolchain and compiler cache without the image codecs or GUI.Forms. The
+# warp kernel samples stx_conv's surface: when stx_conv is not on
+# CMAKE_PREFIX_PATH (a workspace without the toolkit), only the image code is
+# compiled and there is no test.
 option(PLAN_PAINT_SMOKE "Build only the codec-free warp kernel and its test" OFF)
 if(PLAN_PAINT_SMOKE)
   enable_testing()
-  add_library(paint_smoke_core STATIC src/image.cpp src/warp.cpp)
-  target_include_directories(paint_smoke_core PUBLIC src)
-  add_executable(paint-warp-tests tests/warp_tests.cpp)
-  target_link_libraries(paint-warp-tests PRIVATE paint_smoke_core)
-  add_test(NAME paint-warp COMMAND paint-warp-tests)
+  find_package(stx_conv CONFIG QUIET)
+  if(TARGET stx_conv::stx_conv)
+    add_library(paint_smoke_core STATIC src/image.cpp src/warp.cpp src/canvas_surface.cpp)
+    target_include_directories(paint_smoke_core PUBLIC src)
+    target_link_libraries(paint_smoke_core PUBLIC stx_conv::stx_conv)
+    add_executable(paint-warp-tests tests/warp_tests.cpp)
+    target_link_libraries(paint-warp-tests PRIVATE paint_smoke_core)
+    add_test(NAME paint-warp COMMAND paint-warp-tests)
+  else()
+    message(STATUS "stx_conv not found: the smoke build compiles the image code only")
+    add_library(paint_smoke_core STATIC src/image.cpp)
+    target_include_directories(paint_smoke_core PUBLIC src)
+  endif()
   return()
 endif()
 option(RAINSTAR_LEGACY_UI "Build the deprecated SDL/ImGui frontend (not released)" OFF)

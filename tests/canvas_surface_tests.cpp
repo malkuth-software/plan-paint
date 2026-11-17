@@ -1,5 +1,6 @@
 #include "canvas_surface.hpp"
 #include <stx_conv/surface.hpp>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -142,6 +143,67 @@ void areas_render_like_the_whole_frame() {
         require(paint::equal(whole[i], parts[i]), "an area renders as the whole frame does");
     }
 }
+// The slab integral over a polygon inside one cell agrees with dense
+// midpoint integration of the projected surface: on smooth colour (closed
+// form), at a hard translucent edge (projected fallback) and in the half
+// pixels beyond the first and last centres (constant extension).
+void cell_integral_matches_dense_integration() {
+    const paint::Image image = document(23, 19);
+    paint::CanvasSurface surface;
+    surface.build(image);
+    struct Case {
+        paint::Point points[4];
+        int count;
+    };
+    const Case cases[] = {
+        {{{8.1, 3.05}, {8.9, 3.3}, {8.6, 3.95}, {8.2, 3.7}}, 4},   // inside the red block (smooth)
+        {{{4.05, 6.1}, {4.95, 6.2}, {4.5, 6.9}, {4.1, 6.8}}, 4},   // across the block's edge
+        {{{1.1, 15.2}, {1.9, 15.9}, {1.2, 16.0}, {1.05, 15.6}}, 3}, // translucent row
+        {{{-0.45, 2.1}, {-0.05, 2.4}, {-0.3, 2.9}, {-0.4, 2.5}}, 4}, // left half pixel
+        {{{21.1, 18.05}, {21.9, 18.2}, {21.5, 18.45}, {21.2, 18.4}}, 4}, // bottom half pixel
+        {{{12.0, 9.0}, {13.0, 9.0}, {13.0, 10.0}, {12.0, 10.0}}, 4}, // a whole cell
+    };
+    for (const Case& test : cases) {
+        const paint::WarpSample integral =
+            surface.integrate_cell_polygon(std::span<const paint::Point>(test.points, test.count));
+        // Dense midpoint rule over the polygon's box, inside the polygon only.
+        double left = 1e9, right = -1e9, top = 1e9, bottom = -1e9;
+        for (int i = 0; i < test.count; ++i) {
+            left = std::min(left, test.points[i].x);
+            right = std::max(right, test.points[i].x);
+            top = std::min(top, test.points[i].y);
+            bottom = std::max(bottom, test.points[i].y);
+        }
+        const int divisions = 600;
+        const double du = (right - left) / divisions, dv = (bottom - top) / divisions;
+        double sums[4] = {};
+        for (int j = 0; j < divisions; ++j) {
+            for (int i = 0; i < divisions; ++i) {
+                const paint::Point point{left + (i + 0.5) * du, top + (j + 0.5) * dv};
+                int positive = 0, negative = 0;
+                for (int k = 0; k < test.count; ++k) {
+                    const paint::Point a = test.points[k], b = test.points[(k + 1) % test.count];
+                    const double side = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x);
+                    positive += side > 0 ? 1 : 0;
+                    negative += side < 0 ? 1 : 0;
+                }
+                const bool inside = positive == 0 || negative == 0;
+                if (!inside) {
+                    continue;
+                }
+                const paint::WarpSample value = surface.sample_premultiplied(point);
+                sums[0] += value.r * du * dv;
+                sums[1] += value.g * du * dv;
+                sums[2] += value.b * du * dv;
+                sums[3] += value.a * du * dv;
+            }
+        }
+        const double tolerance = 2e-4;
+        require(std::abs(integral.r - sums[0]) < tolerance && std::abs(integral.g - sums[1]) < tolerance &&
+                    std::abs(integral.b - sums[2]) < tolerance && std::abs(integral.a - sums[3]) < tolerance,
+                "the cell integral matches dense integration of the projected surface");
+    }
+}
 void sizes_are_checked() {
     paint::CanvasSurface surface;
     paint::Image narrow;
@@ -173,9 +235,10 @@ int main() {
         surface_equals_stx_conv();
         local_update_is_exact();
         areas_render_like_the_whole_frame();
+        cell_integral_matches_dense_integration();
         sizes_are_checked();
-        std::cout << "Canvas surface: stx_conv's surface bit for bit, exact local updates, area renders and "
-                     "size limits passed.\n";
+        std::cout << "Canvas surface: stx_conv's surface bit for bit, exact local updates, area renders, cell "
+                     "integrals and size limits passed.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
