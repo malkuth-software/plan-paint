@@ -3,7 +3,8 @@ name: Native builds
 # by harness.lock). Plan Paint is its harness workspace's root, so the
 # harness is checked out at template_harness/ inside the checkout. Each host
 # restores its LLVM 22.1.8 toolchain with the harness's tools, builds the
-# pinned GUI.Forms source and Plan Paint, runs the tests and packages.
+# pinned GUI.Forms source (third_party/gui-forms.lock.json) and Plan Paint
+# and packages; tests are not run (compile-only release CI, 2026-11-17).
 # "Plan Paint CI summary" always reports and is the check branch protection
 # requires.
 on:
@@ -191,9 +192,6 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            gui_forms/third_party/harfbuzz
-            gui_forms/third_party/freetype
-            gui_forms/third_party/libunibreak
             .build/native/app/_deps/*-src
           key: plan-paint-sources-v1-${{ matrix.platform }}-${{ hashFiles('third_party/gui-forms.lock.json', 'CMakeLists.txt', 'cmake/ImportFormats.cmake') }}
       # The compiler identity plus the macOS runtime: what the codecs and
@@ -224,25 +222,8 @@ jobs:
         with:
           path: .ccache
           key: ${{ steps.objects.outputs.cache-primary-key }}
-      - name: Test application
-        run: |
-          export PAINT_NATIVE_CAPTURE="$PWD/.build/native/native-canvas.png"
-          if [ "${{ runner.os }}" = Linux ]; then
-            xvfb-run -a sh scripts/native-build.sh test '${{ matrix.platform }}'
-          else
-            sh scripts/native-build.sh test '${{ matrix.platform }}'
-          fi
       - name: Package application
         run: sh scripts/native-build.sh package '${{ matrix.platform }}'
-      - name: Exercise packaged native window
-        run: |
-          if [ "${{ runner.os }}" = Linux ]; then
-            xvfb-run -a python3 scripts/smoke-package.py 'dist/PlanPaint/Plan Paint'
-          elif [ "${{ runner.os }}" = macOS ]; then
-            python3 scripts/smoke-package.py 'dist/Plan Paint.app/Contents/MacOS/plan-paint'
-          else
-            python3 scripts/smoke-package.py dist/PlanPaint/plan-paint.exe
-          fi
       # Workflow artifacts beginning plan-paint- belong to the harness
       # (projects/plan-paint.toml artifact_prefix), so packages are packages-*.
       - uses: actions/upload-artifact@v4

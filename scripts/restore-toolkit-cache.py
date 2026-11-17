@@ -47,13 +47,16 @@ def validated_members(bundle, revision):
 
 def restore(platform, archive=None):
     lock = json.loads((ROOT / "third_party/gui-forms.lock.json").read_text())
-    cache = lock["caches"][platform]
+    # The pin names the commit only; its cache release is build-<commit>.
+    cache = lock["caches"].get(platform)
+    if cache is None:
+        return "no reviewed cache digest for " + platform + "; compiling from source"
     with tempfile.TemporaryDirectory(prefix="paint-cache-") as temporary:
         staging = Path(temporary)
         if archive is None:
             if not shutil.which("gh"):
                 return "GitHub CLI unavailable; compiling from source"
-            result = subprocess.run(["gh", "release", "download", lock["cache_release"],
+            result = subprocess.run(["gh", "release", "download", "build-" + lock["commit"],
                 "--repo", lock["repository"], "--pattern", cache["asset"], "--dir", str(staging)], check=False)
             if result.returncode:
                 return "cache unavailable; compiling from source"

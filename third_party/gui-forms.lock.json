@@ -1,25 +1,7 @@
 {
-  "conformance_placeholder": "PLACEHOLDER until the conformance rebase: commit, cache_release and the cache hashes below are still the cp22 pin. The rebase writes the GUI.Forms release that carries the conformance sequence and its 0.6 cache assets. claude/conformance-prep was adapted against GUI.Forms main 96d36969311722531a6a41828b555c2e9fa9261e and is built against a local SDK of that commit (CONFORMANCE_PREP.md).",
+  "pin_note": "The one place the GUI.Forms pin is written. PIN_GUI_FORMS_MAIN_COMMIT is replaced with the merged GUI.Forms main commit (#483). The cache release is build-<commit>; add a platform's digest under caches to restore its published compiler cache (a platform without one compiles from source).",
   "repository": "malkuth-software/gui_forms",
-  "commit": "2d0f52006a5d1f8ce98a2191c841052b2dd500b7",
-  "cache_release": "build-2d0f52006a5d1f8ce98a2191c841052b2dd500b7",
+  "commit": "PIN_GUI_FORMS_MAIN_COMMIT",
   "compiler": "22.1.8",
-  "caches": {
-    "linux-arm64": {
-      "asset": "gui-forms-cache-linux-arm64.tar.gz",
-      "sha256": "65443b9035375c15e2703958afe052401470fe45ff834b1918fb247b2b50e8f0"
-    },
-    "linux-x64": {
-      "asset": "gui-forms-cache-linux-x64.tar.gz",
-      "sha256": "53546e08de59d6d33fc294f2d927aeea56e0d991ab30099601c453931af33094"
-    },
-    "macos-arm64": {
-      "asset": "gui-forms-cache-macos-arm64.tar.gz",
-      "sha256": "fa2aad3c1fe492b5ab0550c3f075b2616cf7270bc3699175be4e93b9b527f63c"
-    },
-    "windows-x64": {
-      "asset": "gui-forms-cache-windows-x64.tar.gz",
-      "sha256": "af328c744efec15f2c9ae5e5294dce7f1e8357c37e6a4882dadbf30ef754a4a7"
-    }
-  }
+  "caches": {}
 }
