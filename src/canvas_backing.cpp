@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <mutex>
 #include <stdexcept>
 namespace paint {
@@ -27,7 +28,25 @@ const char* canvas_backing_name(CanvasBacking backing) {
 double canvas_backing_tile_size(CanvasBacking backing) {
     return backing == CanvasBacking::PaleFelt ? 128 : 256;
 }
-Image canvas_backing_texture(CanvasBacking backing) {
+namespace {
+// The carpet preset of each material after the pale felt (index - 1 is
+// unused for the pale felt, which is drawn by hand).
+constexpr int backing_presets[] = {0, 3, 4, 11, 5, 10, 0, 1, 2, 6, 7, 8, 9};
+static_assert(std::size(backing_presets) == static_cast<std::size_t>(canvas_backing_count));
+} // namespace
+Color canvas_backing_color(CanvasBacking backing) {
+    const int index = static_cast<int>(backing);
+    if (index < 0 || index >= canvas_backing_count) {
+        throw std::invalid_argument("Unknown canvas backing.");
+    }
+    if (backing == CanvasBacking::PaleFelt) {
+        const Color felt{208, 218, 226, 255};
+        return felt;
+    }
+    const Color dye = carpet_preset(backing_presets[index]).color;
+    return dye;
+}
+Image canvas_backing_texture(CanvasBacking backing, const std::atomic<bool>* cancel) {
     const int index = static_cast<int>(backing);
     if (index < 0 || index >= canvas_backing_count) {
         throw std::invalid_argument("Unknown canvas backing.");
@@ -53,8 +72,7 @@ Image canvas_backing_texture(CanvasBacking backing) {
     static Image tile;
     const std::lock_guard<std::mutex> guard(mutex);
     if (cached != backing) {
-        const int presets[] = {0, 3, 4, 11, 5, 10, 0, 1, 2, 6, 7, 8, 9};
-        tile = render_carpet_tile(carpet_preset(presets[index]));
+        tile = render_carpet_tile(carpet_preset(backing_presets[index]), 512, cancel);
         cached = backing;
     }
     return tile;

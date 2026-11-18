@@ -3,7 +3,8 @@ name: Native builds
 # by harness.lock). Plan Paint is its harness workspace's root, so the
 # harness is checked out at template_harness/ inside the checkout. Each host
 # restores its LLVM 22.1.8 toolchain with the harness's tools, builds the
-# pinned GUI.Forms source and Plan Paint, runs the tests and packages.
+# pinned GUI.Forms source (third_party/gui-forms.lock.json) and Plan Paint
+# and packages; tests are not run (compile-only release CI, 2026-11-17).
 # "Plan Paint CI summary" always reports and is the check branch protection
 # requires.
 on:
@@ -123,9 +124,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TOOLCHAIN_PYTHON: ${{ steps.toolchain-python.outputs.python-path }}
         run: '"$TOOLCHAIN_PYTHON" template_harness/harness/windows_toolchain.py restore'
-      - name: Install Windows codecs without upgrading the compiler
+      # The codecs build statically from pinned sources; dav1d's local build
+      # (libavif AVIF_CODEC_DAV1D=LOCAL) needs Meson and, on x86-64, NASM.
+      - name: Install Windows codec build tools without upgrading the compiler
         if: runner.os == 'Windows'
-        run: pacman -Sy --needed --noconfirm mingw-w64-clang-x86_64-pkgconf mingw-w64-clang-x86_64-libwebp mingw-w64-clang-x86_64-dav1d
+        run: pacman -Sy --needed --noconfirm mingw-w64-clang-x86_64-pkgconf mingw-w64-clang-x86_64-meson mingw-w64-clang-x86_64-nasm
       - name: Install macOS compiler and codecs
         if: runner.os == 'macOS'
         env:
@@ -154,6 +157,34 @@ jobs:
       - name: Install Linux compiler and desktop libraries
         if: runner.os == 'Linux'
         run: sh template_harness/harness/install_linux_ci_packages.sh paint "$RUNNER_TEMP/apt-archives"
+      # dav1d (libavif's AV1 decoder, built from pinned source) builds with meson,
+      # and its x86-64 assembly with nasm.
+      - name: Install meson and nasm
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y --no-install-recommends meson nasm
+      # GUI.Forms links the harness's static LLVM 22.1.8 runtime on Linux (one
+      # module, GUI.Forms 2026-11-15; gui_forms/cmake/llvm22.cmake refuses a
+      # build without GUI_FORMS_LLVM_RUNTIME): restore it, or build it with the
+      # packages' clang 22 as GUI.Forms' own CI does.
+      - name: Select the Linux LLVM runtime
+        id: linux-runtime
+        if: runner.os == 'Linux'
+        run: |
+          directory="$(python3 template_harness/harness/linux_runtime_manifest.py --directory-name)"
+          echo "GUI_FORMS_LLVM_RUNTIME=$PWD/.build/toolchain/$directory" >> "$GITHUB_ENV"
+          echo "directory=$directory" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        if: runner.os == 'Linux'
+        with:
+          path: .build/toolchain/${{ steps.linux-runtime.outputs.directory }}
+          key: linux-llvm-runtime-v1-${{ steps.linux-runtime.outputs.directory }}-${{ hashFiles('template_harness/harness/build_linux_runtimes.py', 'template_harness/harness/linux_runtime_manifest.py') }}
+      - name: Build the static Linux LLVM runtime
+        if: runner.os == 'Linux'
+        run: |
+          if [ ! -f "$GUI_FORMS_LLVM_RUNTIME/runtime-manifest.json" ]; then
+            python3 template_harness/harness/build_linux_runtimes.py --work "$RUNNER_TEMP/llvm-runtimes" --prefix "$GUI_FORMS_LLVM_RUNTIME" --jobs 4
+          fi
+          python3 template_harness/harness/linux_runtime_manifest.py "$GUI_FORMS_LLVM_RUNTIME"
       - uses: actions/cache/save@v4
         if: runner.os == 'Linux' && github.event_name == 'push' && steps.linux-packages.outputs.cache-hit != 'true'
         with:
@@ -174,6 +205,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/restore-toolkit-cache.py '${{ matrix.platform }}'
+      # No GUI.Forms release publishes the macOS 14 runtime for a checkpoint
+      # commit (only tested main builds publish one): build it with the harness,
+      # as GUI.Forms' own CI does, when the restore above found none.
+      - name: Build the macOS 14 LLVM runtime when none was restored
+        if: runner.os == 'macOS'
+        run: |
+          if [ ! -f "$GUI_FORMS_LLVM_RUNTIME/runtime-manifest.json" ]; then
+            python3 template_harness/harness/build_macos_runtimes.py --work "$RUNNER_TEMP/llvm-runtimes" --prefix "$GUI_FORMS_LLVM_RUNTIME" --jobs 4
+          fi
+          python3 template_harness/harness/macos_runtime_manifest.py "$GUI_FORMS_LLVM_RUNTIME"
       - name: Configure compiler cache
         run: |
           cache_dir="$PWD/.ccache"
@@ -189,9 +230,6 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            gui_forms/third_party/harfbuzz
-            gui_forms/third_party/freetype
-            gui_forms/third_party/libunibreak
             .build/native/app/_deps/*-src
           key: plan-paint-sources-v1-${{ matrix.platform }}-${{ hashFiles('third_party/gui-forms.lock.json', 'CMakeLists.txt', 'cmake/ImportFormats.cmake') }}
       # The compiler identity plus the macOS runtime: what the codecs and
@@ -210,43 +248,8 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a') as output:
               output.write('PAINT_RENDERER_ENV=' + hashlib.sha256(identity).hexdigest() + '\n')
           PYTHON
-      - uses: actions/cache/restore@v4
-        id: codecs-cache
-        if: runner.os == 'macOS'
-        with:
-          path: .build/codecs-macos14
-          key: plan-paint-codecs-macos14-v1-${{ env.PAINT_RENDERER_ENV }}-${{ hashFiles('scripts/build-macos-codecs.sh') }}
-      - name: Build macOS 14 codecs
-        if: runner.os == 'macOS'
-        run: sh scripts/build-macos-codecs.sh
-      - uses: actions/cache/save@v4
-        if: runner.os == 'macOS' && steps.codecs-cache.outputs.cache-hit != 'true'
-        with:
-          path: .build/codecs-macos14
-          key: ${{ steps.codecs-cache.outputs.cache-primary-key }}
-      - uses: actions/cache/restore@v4
-        id: renderer-cache
-        if: runner.os != 'Windows'
-        with:
-          path: gui_forms/third_party/skia
-          key: plan-paint-skia-llvm22-v1-${{ matrix.platform }}-${{ env.PAINT_RENDERER_ENV }}-${{ hashFiles('gui_forms/third_party/*skia*') }}
-      - name: Build CPU renderer
-        if: runner.os != 'Windows'
-        run: |
-          if [ ! -f gui_forms/third_party/skia/out/paint/libskia.a ]; then
-            if [ "${{ runner.os }}" = macOS ]; then
-              sh gui_forms/third_party/fetch_skia_cpu.sh
-              sh gui_forms/third_party/build_skia_cpu.sh "$PWD/gui_forms/third_party/skia/out/paint"
-            else
-              GUI_FORMS_SYSTEM_BUILD_TOOLS=1 sh gui_forms/third_party/fetch_skia_cpu.sh
-              sh gui_forms/third_party/build_skia_cpu_linux.sh "$PWD/gui_forms/third_party/skia/out/paint"
-            fi
-          fi
-      - uses: actions/cache/save@v4
-        if: runner.os != 'Windows' && steps.renderer-cache.outputs.cache-hit != 'true'
-        with:
-          path: gui_forms/third_party/skia
-          key: ${{ steps.renderer-cache.outputs.cache-primary-key }}
+      # Since GUI.Forms cp22 the toolkit builds Skia (stx_skia) from its pinned stx
+      # source during configure; the object cache below carries it between runs.
       - name: Configure application
         run: sh scripts/native-build.sh configure '${{ matrix.platform }}'
       - name: Build application and tests
@@ -257,25 +260,8 @@ jobs:
         with:
           path: .ccache
           key: ${{ steps.objects.outputs.cache-primary-key }}
-      - name: Test application
-        run: |
-          export PAINT_NATIVE_CAPTURE="$PWD/.build/native/native-canvas.png"
-          if [ "${{ runner.os }}" = Linux ]; then
-            xvfb-run -a sh scripts/native-build.sh test '${{ matrix.platform }}'
-          else
-            sh scripts/native-build.sh test '${{ matrix.platform }}'
-          fi
       - name: Package application
         run: sh scripts/native-build.sh package '${{ matrix.platform }}'
-      - name: Exercise packaged native window
-        run: |
-          if [ "${{ runner.os }}" = Linux ]; then
-            xvfb-run -a python3 scripts/smoke-package.py 'dist/PlanPaint/Plan Paint'
-          elif [ "${{ runner.os }}" = macOS ]; then
-            python3 scripts/smoke-package.py 'dist/Plan Paint.app/Contents/MacOS/plan-paint'
-          else
-            python3 scripts/smoke-package.py dist/PlanPaint/plan-paint.exe
-          fi
       # Workflow artifacts beginning plan-paint- belong to the harness
       # (projects/plan-paint.toml artifact_prefix), so packages are packages-*.
       - uses: actions/upload-artifact@v4

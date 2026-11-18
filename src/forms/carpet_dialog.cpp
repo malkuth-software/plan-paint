@@ -45,6 +45,9 @@ struct CarpetWork {
 };
 } // namespace
 EditorDialog::~EditorDialog() {
+    stop_background_work();
+}
+void EditorDialog::stop_background_work() {
     stop_numeric_transform();
     stop_icon_batch();
     stop_icon_states();
@@ -93,7 +96,7 @@ void EditorDialog::on_attached_to_window() {
         render_carpet_preview();
     }
 }
-void EditorDialog::on_detaching_from_window(gf::Window& window) noexcept {
+void EditorDialog::on_detaching_from_window(gf::SurfaceRoot& window) noexcept {
     stop_numeric_transform();
     stop_icon_batch();
     stop_icon_states();
@@ -113,27 +116,27 @@ void EditorDialog::initialize_carpet() {
         carpet_ = (*editor).carpet_parameters;
     }
     carpet_presets_ = gf::make_control<gf::ComboBox>(gf::StableId("carpet-presets"));
-    (*carpet_presets_).set_accessible_name(tr("Fabric preset"));
-    (*carpet_presets_).add_item(tr("Current settings"));
+    (*carpet_presets_).accessible_name = tr("Fabric preset");
+    (*carpet_presets_).items.append(tr("Current settings"));
     for (int i = 0; i < carpet_preset_count; ++i) {
-        (*carpet_presets_).add_item(tr(carpet_preset_name(i)));
+        (*carpet_presets_).items.append(tr(carpet_preset_name(i)));
     }
-    (*carpet_presets_).set_selected_index(0);
+    (*carpet_presets_).selected_index = stxlib::Optional<std::size_t>::of(0);
     put(carpet_presets_, {22, 47, 505, 30});
     subscriptions_.push_back(
         (*carpet_presets_)
             .selected_index_changed()
-            .subscribe(*this, gf::Delegate<std::optional<std::size_t>>::bind<
+            .subscribe(*this, gf::Delegate<stxlib::Optional<std::size_t>>::bind<
                                   EditorDialog, &EditorDialog::carpet_preset_changed>(*this)));
     for (int i = 0; i < 10; ++i) {
         const double y = 92 + i * 43;
         label("carpet-label-" + std::to_string(i), tr(names[i]), {22, y, 208, 25});
         const std::shared_ptr<gf::TrackBar> slider =
             gf::make_control<gf::TrackBar>(gf::StableId("carpet-slider-" + std::to_string(i)));
-        (*slider).set_accessible_name(tr(names[i]));
+        (*slider).accessible_name = tr(names[i]);
         (*slider).set_range(low[i], high[i]);
-        (*slider).set_small_change((high[i] - low[i]) / 100);
-        (*slider).set_large_change((high[i] - low[i]) / 10);
+        (*slider).small_change = (high[i] - low[i]) / 100;
+        (*slider).large_change = (high[i] - low[i]) / 10;
         put(slider, {236, y, 220, 26});
         carpet_sliders_.push_back(slider);
         subscriptions_.push_back((*slider).value_changed().subscribe(
@@ -145,7 +148,7 @@ void EditorDialog::initialize_carpet() {
     }
     label("carpet-dye-label", tr("Dye color (hex)"), {22, 529, 180, 28});
     carpet_color_ = gf::make_control<gf::TextBox>(gf::StableId("carpet-color"));
-    (*carpet_color_).set_accessible_name(tr("Dye color, hex RGB"));
+    (*carpet_color_).accessible_name = tr("Dye color, hex RGB");
     put(carpet_color_, {236, 527, 150, 30});
     subscriptions_.push_back(
         (*carpet_color_)
@@ -155,9 +158,9 @@ void EditorDialog::initialize_carpet() {
                 gf::Delegate<const std::string&>::bind<EditorDialog, &EditorDialog::carpet_color_changed>(
                     *this)));
     carpet_preview_ = gf::make_control<gf::RasterCanvas>(gf::StableId("carpet-preview"));
-    (*carpet_preview_).set_accessible_name(tr("Generated carpet texture preview"));
+    (*carpet_preview_).accessible_name = tr("Generated carpet texture preview");
     put(carpet_preview_, {576, 92, 320, 320});
-    (*carpet_preview_).set_zoom(.625);
+    (*carpet_preview_).zoom = .625;
     carpet_hillshade_ = gf::make_control<gf::CheckBox>(gf::StableId("carpet-hillshade"), tr("Hillshade relief"));
     put(carpet_hillshade_, {576, 435, 290, 28});
     subscriptions_.push_back(
@@ -177,13 +180,13 @@ void EditorDialog::sync_carpet() {
                                carpet_.crimp, carpet_.roughness,          carpet_.dye,    carpet_.light,
                                carpet_.view,  carpet_.magnification / .60};
     for (int i = 0; i < 10; ++i) {
-        (*carpet_sliders_[i]).set_value(values[i]);
+        (*carpet_sliders_[i]).value = values[i];
         std::ostringstream text;
         text << std::fixed << std::setprecision(i == 1 || i == 7 || i == 8 ? 0 : 2) << values[i];
-        (*carpet_values_[i]).set_text(text.str());
+        (*carpet_values_[i]).text = text.str();
     }
-    (*carpet_color_).set_text(to_hex(carpet_.color));
-    (*carpet_hillshade_).set_checked(carpet_.hillshade);
+    (*carpet_color_).text = to_hex(carpet_.color);
+    (*carpet_hillshade_).checked = carpet_.hillshade;
     synchronizing_ = false;
 }
 void EditorDialog::carpet_changed(double) {
@@ -191,22 +194,22 @@ void EditorDialog::carpet_changed(double) {
         return;
     }
     const double old_roughness = carpet_.roughness;
-    carpet_.web = (*carpet_sliders_[0]).value();
-    carpet_.radius = (*carpet_sliders_[1]).value() / 2000;
-    carpet_.height = (*carpet_sliders_[2]).value();
-    carpet_.disorder = (*carpet_sliders_[3]).value();
-    carpet_.crimp = (*carpet_sliders_[4]).value();
-    carpet_.roughness = (*carpet_sliders_[5]).value();
-    carpet_.dye = (*carpet_sliders_[6]).value();
-    carpet_.light = (*carpet_sliders_[7]).value();
-    carpet_.view = (*carpet_sliders_[8]).value();
-    carpet_.magnification = (*carpet_sliders_[9]).value() * .60;
+    carpet_.web = (*carpet_sliders_[0]).value.read();
+    carpet_.radius = (*carpet_sliders_[1]).value.read() / 2000;
+    carpet_.height = (*carpet_sliders_[2]).value.read();
+    carpet_.disorder = (*carpet_sliders_[3]).value.read();
+    carpet_.crimp = (*carpet_sliders_[4]).value.read();
+    carpet_.roughness = (*carpet_sliders_[5]).value.read();
+    carpet_.dye = (*carpet_sliders_[6]).value.read();
+    carpet_.light = (*carpet_sliders_[7]).value.read();
+    carpet_.view = (*carpet_sliders_[8]).value.read();
+    carpet_.magnification = (*carpet_sliders_[9]).value.read() * .60;
     if (old_roughness != carpet_.roughness) {
         carpet_.azimuth_roughness = std::clamp(carpet_.roughness + .1, .30, .85);
     }
-    carpet_.hillshade = (*carpet_hillshade_).checked();
+    carpet_.hillshade = (*carpet_hillshade_).checked.read();
     synchronizing_ = true;
-    (*carpet_presets_).set_selected_index(0);
+    (*carpet_presets_).selected_index = stxlib::Optional<std::size_t>::of(0);
     synchronizing_ = false;
     sync_carpet();
     render_carpet_preview();
@@ -219,23 +222,23 @@ void EditorDialog::carpet_color_changed(const std::string& value) {
     if (from_hex(value, color)) {
         carpet_.color = color;
         synchronizing_ = true;
-        (*carpet_presets_).set_selected_index(0);
+        (*carpet_presets_).selected_index = stxlib::Optional<std::size_t>::of(0);
         synchronizing_ = false;
         render_carpet_preview();
     } else {
         stop_carpet();
         carpet_image_ = {};
-        (*error_).set_text(tr("Enter a hex RGB color, such as #1645C5."));
+        (*error_).text = tr("Enter a hex RGB color, such as #1645C5.");
         if (attached_window()) {
-            (*(*attached_window()).find("dialog-ok")).set_enabled(false);
+            (*(*attached_window()).find("dialog-ok")).enabled = false;
         }
     }
 }
-void EditorDialog::carpet_preset_changed(std::optional<std::size_t> index) {
-    if (synchronizing_ || !index || *index == 0) {
+void EditorDialog::carpet_preset_changed(stxlib::Optional<std::size_t> index) {
+    if (synchronizing_ || index.absent() || *index.value() == 0) {
         return;
     }
-    carpet_ = carpet_preset(static_cast<int>(*index) - 1);
+    carpet_ = carpet_preset(static_cast<int>(*index.value()) - 1);
     sync_carpet();
     render_carpet_preview();
 }
@@ -245,8 +248,8 @@ void EditorDialog::render_carpet_preview() {
     }
     stop_carpet();
     carpet_image_ = {};
-    (*error_).set_text(tr("Rendering fibers…"));
-    (*(*attached_window()).find("dialog-ok")).set_enabled(false);
+    (*error_).text = tr("Rendering fibers…");
+    (*(*attached_window()).find("dialog-ok")).enabled = false;
     carpet_job_ = std::make_shared<CarpetRenderJob>();
     (*carpet_job_).parameters = carpet_;
     carpet_worker_ = std::thread(
@@ -260,13 +263,13 @@ void EditorDialog::deliver_carpet() {
         carpet_worker_.join();
     }
     if (!(*carpet_job_).error.empty()) {
-        (*error_).set_text((*carpet_job_).error);
+        (*error_).text = (*carpet_job_).error;
         return;
     }
     carpet_image_ = std::move((*carpet_job_).image);
     carpet_job_.reset();
     publish_image(carpet_image_, *carpet_preview_);
-    (*error_).set_text("");
-    (*(*attached_window()).find("dialog-ok")).set_enabled(true);
+    (*error_).text = "";
+    (*(*attached_window()).find("dialog-ok")).enabled = true;
 }
 } // namespace paint::forms

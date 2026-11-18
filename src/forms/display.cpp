@@ -2,11 +2,12 @@
 #include "forms/display.hpp"
 #include "forms/editor.hpp"
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 namespace paint::forms {
 static void publish_pixels(const Image& source, gui_forms::RasterCanvas& canvas, Rect damage) {
     const int width = source.width, height = source.height;
-    std::shared_ptr<gui_drawing::Bitmap> bitmap = canvas.bitmap();
+    std::shared_ptr<gui_drawing::Bitmap> bitmap = canvas.bitmap.read();
     bool replacement = !bitmap || (*bitmap).width() != static_cast<unsigned>(width) ||
                        (*bitmap).height() != static_cast<unsigned>(height);
     if (replacement) {
@@ -40,7 +41,7 @@ static void publish_pixels(const Image& source, gui_forms::RasterCanvas& canvas,
     }
     static_cast<void>((*bitmap).commit_edit(edit.token));
     if (replacement) {
-        canvas.set_bitmap(bitmap);
+        canvas.bitmap = bitmap;
         if (canvas.last_resource_error() != gui_forms::ImageResourceError::none) {
             throw std::runtime_error(tr("The image exceeds the window's display resource budget"));
         }
@@ -52,8 +53,44 @@ void publish_image(const Image& source, gui_forms::RasterCanvas& canvas, Rect da
     publish_pixels(source, canvas, damage);
 }
 void publish_image(const Image& source, PaintCanvas& canvas, Rect damage) {
-    canvas.publish_pixels(source, damage);
-    canvas.publish_source(source, damage);
+    const Image& shown = canvas.superimposed_source(source, damage);
+    canvas.publish_pixels(shown, damage);
+    canvas.publish_source(shown, damage);
+}
+const Image& PaintCanvas::superimposed_source(const Image& source, Rect damage) {
+    const std::shared_ptr<Editor> editor = editor_.lock();
+    if (!editor) {
+        return source;
+    }
+    const Document& document = (*editor).document;
+    const bool placing = document.selection.active && document.selection.superimpose;
+    if (!placing && !document.superimposed.active) {
+        return source;
+    }
+    const Image& overlay = placing ? document.selection.image : document.superimposed.image;
+    const int overlay_x = placing ? document.selection.x : document.superimposed.x;
+    const int overlay_y = placing ? document.selection.y : document.superimposed.y;
+    Rect area{0, 0, source.width, source.height};
+    const bool whole = damage.w <= 0 || damage.h <= 0 || superimposed_view_.width != source.width ||
+                       superimposed_view_.height != source.height;
+    if (whole) {
+        superimposed_view_ = source;
+    } else {
+        const int right = std::clamp(damage.x + damage.w, 0, source.width);
+        const int bottom = std::clamp(damage.y + damage.h, 0, source.height);
+        area.x = std::clamp(damage.x, 0, source.width);
+        area.y = std::clamp(damage.y, 0, source.height);
+        area.w = right - area.x;
+        area.h = bottom - area.y;
+        for (int y = area.y; y < bottom; ++y) {
+            const std::size_t row = static_cast<std::size_t>(y) * static_cast<std::size_t>(source.width);
+            std::copy(source.pixels.begin() + static_cast<std::ptrdiff_t>(row + area.x),
+                      source.pixels.begin() + static_cast<std::ptrdiff_t>(row + right),
+                      superimposed_view_.pixels.begin() + static_cast<std::ptrdiff_t>(row + area.x));
+        }
+    }
+    superimpose_onto(superimposed_view_, overlay, overlay_x, overlay_y, (*editor).superimpose_look, area);
+    return superimposed_view_;
 }
 void PaintCanvas::publish_pixels(const Image& source, Rect damage) {
     if (source.width <= 0 || source.height <= 0) { return; }
@@ -75,21 +112,38 @@ void PaintCanvas::publish_pixels(const Image& source, Rect damage) {
     std::size_t translucent = replacement ? 0 : translucent_pixels_;
     const bool bgra = format == gui_forms::LiveSurfacePixelFormat::bgra32_premultiplied_srgb;
     bool changed = replacement;
+    // The bounds of the pixels that really changed (a caller may name the
+    // whole picture, as refresh does): only they are written, published and
+    // repainted, so a brush stroke damages its own few pixels.
+    int changed_left = right;
+    int changed_top = bottom;
+    int changed_right = damage.x;
+    int changed_bottom = damage.y;
     for (int y = damage.y; y < bottom; ++y) {
         for (int x = damage.x; x < right; ++x) {
             const Color color = source.get(x, y);
             if (!replacement) {
                 const std::byte* pixel = previous.pixels().data() + y * previous.row_bytes() + x * 4;
                 if (pixel[3] != std::byte{255}) { --translucent; }
-                changed = changed || pixel[0] != static_cast<std::byte>(((bgra ? color.b : color.r) * color.a + 127U) / 255U) ||
+                const bool differs = pixel[0] != static_cast<std::byte>(((bgra ? color.b : color.r) * color.a + 127U) / 255U) ||
                     pixel[1] != static_cast<std::byte>((color.g * color.a + 127U) / 255U) ||
                     pixel[2] != static_cast<std::byte>(((bgra ? color.r : color.b) * color.a + 127U) / 255U) ||
                     pixel[3] != static_cast<std::byte>(color.a);
+                if (differs) {
+                    changed = true;
+                    changed_left = std::min(changed_left, x);
+                    changed_right = std::max(changed_right, x + 1);
+                    changed_top = std::min(changed_top, y);
+                    changed_bottom = std::max(changed_bottom, y + 1);
+                }
             }
             if (color.a != 255) { ++translucent; }
         }
     }
     if (!changed) { return; }
+    if (!replacement) {
+        damage = {changed_left, changed_top, changed_right - changed_left, changed_bottom - changed_top};
+    }
     const bool opaque = translucent == 0;
     if (replacement || previous.opaque() != opaque) {
         display_surface_ = gui_forms::LiveSurface::create({static_cast<unsigned>(source.width),
@@ -119,6 +173,24 @@ void PaintCanvas::publish_pixels(const Image& source, Rect damage) {
     static_cast<void>(write.publish({static_cast<double>(damage.x), static_cast<double>(damage.y),
         static_cast<double>(damage.w), static_cast<double>(damage.h)}));
     translucent_pixels_ = translucent;
-    invalidate(gui_forms::Dirty::paint | gui_forms::Dirty::semantics);
+    // The viewport conversion redoes only what changed since it last ran.
+    if (replacement || viewport_dirty_.w <= 0 || viewport_dirty_.h <= 0) {
+        viewport_dirty_ = replacement ? Rect{0, 0, source.width, source.height} : damage;
+    } else {
+        const int dirty_right = std::max(viewport_dirty_.x + viewport_dirty_.w, damage.x + damage.w);
+        const int dirty_bottom = std::max(viewport_dirty_.y + viewport_dirty_.h, damage.y + damage.h);
+        viewport_dirty_.x = std::min(viewport_dirty_.x, damage.x);
+        viewport_dirty_.y = std::min(viewport_dirty_.y, damage.y);
+        viewport_dirty_.w = dirty_right - viewport_dirty_.x;
+        viewport_dirty_.h = dirty_bottom - viewport_dirty_.y;
+    }
+    invalidate(gui_forms::Dirty::semantics);
+    if (replacement || std::abs(view_angle) > 1e-10) {
+        invalidate(gui_forms::Dirty::paint);
+        return;
+    }
+    // The changed pixels on screen, a unit wider for the edges' rounding.
+    const gui_forms::Rect shown = RasterCanvas::bitmap_to_client({damage.x, damage.y, damage.w, damage.h});
+    invalidate(gui_forms::Rect{shown.x - 1, shown.y - 1, shown.width + 2, shown.height + 2});
 }
 } // namespace paint::forms

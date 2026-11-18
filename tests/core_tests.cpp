@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <numbers>
 #include <set>
 #include <stdexcept>
@@ -615,6 +616,63 @@ void test_conv() {
     for (paint::Color pixel : output.pixels) {
         require(paint::equal(pixel, {20, 40, 60, 255}), "short line failed");
     }
+    // Images of 65536 pixels or more fan their lines out over worker threads.
+    // With identical rows (columns), every threaded row (column) must equal the
+    // single-line resize, which runs on one thread: this pins each worker's
+    // line offsets and strides, for nodal and area sampling.
+    const int wide = 300, tall = 240;
+    paint::Image row, rows, column, columns, expected, actual;
+    row.reset(wide, 1);
+    column.reset(1, tall);
+    rows.reset(wide, tall);
+    columns.reset(wide, tall);
+    for (int x = 0; x < wide; ++x) {
+        row.set(x, 0, {static_cast<std::uint8_t>((x * 37) % 256), static_cast<std::uint8_t>(x % 7 * 30), 90,
+                       static_cast<std::uint8_t>(64 + x % 192)});
+    }
+    for (int y = 0; y < tall; ++y) {
+        column.set(0, y, {40, static_cast<std::uint8_t>((y * 53) % 256), static_cast<std::uint8_t>(y % 5 * 50),
+                          static_cast<std::uint8_t>(255 - y % 128)});
+    }
+    for (int y = 0; y < tall; ++y) {
+        for (int x = 0; x < wide; ++x) {
+            rows.set(x, y, row.get(x, 0));
+            columns.set(x, y, column.get(0, y));
+        }
+    }
+    for (int area = 0; area < 2; ++area) {
+        const int targets[2] = {173, 451};
+        for (int target : targets) {
+            if (area) {
+                paint::conv_resize_area(row, target, 1, expected);
+                paint::conv_resize_area(rows, target, tall, actual);
+            } else {
+                paint::conv_resize(row, target, 1, expected);
+                paint::conv_resize(rows, target, tall, actual);
+            }
+            for (int y = 0; y < tall; ++y) {
+                for (int x = 0; x < target; ++x) {
+                    require(std::memcmp(&actual.pixels[static_cast<std::size_t>(y) * target + x],
+                                        &expected.pixels[x], sizeof(paint::Color)) == 0,
+                            "threaded rows match the single-row resize");
+                }
+            }
+            if (area) {
+                paint::conv_resize_area(column, 1, target, expected);
+                paint::conv_resize_area(columns, wide, target, actual);
+            } else {
+                paint::conv_resize(column, 1, target, expected);
+                paint::conv_resize(columns, wide, target, actual);
+            }
+            for (int y = 0; y < target; ++y) {
+                for (int x = 0; x < wide; ++x) {
+                    require(std::memcmp(&actual.pixels[static_cast<std::size_t>(y) * wide + x], &expected.pixels[y],
+                                        sizeof(paint::Color)) == 0,
+                            "threaded columns match the single-column resize");
+                }
+            }
+        }
+    }
 }
 void test_conv_area() {
     paint::Image source, output;
@@ -1018,6 +1076,32 @@ void test_curves() {
         right = std::max(right, point.x);
     }
     require(left < -40 && right > 140, "Bézier flattening discarded collinear control reversals");
+    // Every point of the cubic lies within the tolerance of the polyline that
+    // replaces it, with the exact end points kept (GUI.Drawing's flattening in
+    // the GUI.Forms build, the recursive one otherwise).
+    curve.set_line({10, 10}, {210, 40});
+    curve.move_handle(0, {-40, 180});
+    curve.move_handle(1, {260, -120});
+    for (double tolerance : {0.125, 0.03125, 2.0}) {
+        samples = curve.samples(tolerance);
+        require(samples.size() >= 2 && samples.front().x == 10 && samples.front().y == 10 &&
+                    samples.back().x == 210 && samples.back().y == 40,
+                "Bézier flattening moved the curve's end points");
+        for (int step = 0; step <= 4096; ++step) {
+            paint::Point point = curve.at(step / 4096.0);
+            double nearest = std::numeric_limits<double>::infinity();
+            for (std::size_t i = 1; i < samples.size(); ++i) {
+                paint::Point first = samples[i - 1], last = samples[i];
+                double dx = last.x - first.x, dy = last.y - first.y, length_squared = dx * dx + dy * dy;
+                double t = length_squared == 0 ? 0
+                                               : std::clamp(((point.x - first.x) * dx + (point.y - first.y) * dy) /
+                                                                length_squared,
+                                                            0.0, 1.0);
+                nearest = std::min(nearest, std::hypot(point.x - (first.x + dx * t), point.y - (first.y + dy * t)));
+            }
+            require(nearest <= tolerance + 1e-9, "Bézier flattening exceeded its tolerance");
+        }
+    }
 
     curve.kind = paint::CurveKind::Arc;
     curve.set_line({-50, 0}, {50, 0});
@@ -1584,16 +1668,52 @@ void test_file_security() {
     paint::save_image(ordinary, ordinary_png.string());
     const std::vector<std::uint8_t> png = paint::read_image_bytes(ordinary_png.string());
     paint::write_file_atomic(png, disguised_heif.string(), "HEIF signature test write failed");
-    rejected = false;
-    try {
-        static_cast<void>(paint::load_image(disguised_heif.string()));
-    } catch (const std::exception&) {
-        rejected = true;
-    }
-    require(rejected, "a non-HEIF file reached the native HEIF decoder");
+    // Content decides: PNG bytes named .heic open as PNG and never reach the
+    // native HEIF decoder (which would refuse them on every platform).
+    const paint::Image disguised = paint::load_image(disguised_heif.string());
+    require(disguised.width == 4 && disguised.height == 4 && paint::equal(disguised.get(1, 1), ordinary.get(1, 1)),
+            "PNG bytes named .heic open by content, not through the HEIF decoder");
     std::filesystem::remove_all(directory);
 }
 } // namespace
+// Superimpose in paint_core: a superimposed paste commits to
+// Document::superimposed, never to the picture, and records no undo step;
+// superimpose_onto blends it down within the stated area only.
+void test_superimpose() {
+    paint::Document document;
+    document.new_image(16, 8);
+    document.image.reset(16, 8, {255, 255, 255, 255});
+    paint::Image overlay;
+    overlay.reset(4, 4, {200, 0, 0, 255});
+    const std::size_t history = document.undo_history.size();
+    document.paste(overlay, 2, 1, true);
+    require(document.selection.active && document.selection.superimpose && document.undo_history.size() == history,
+            "a superimposed paste floats without an undo step");
+    paint::Image shown = document.image;
+    document.selection.composite_onto(shown);
+    require(paint::equal(shown.get(3, 2), {255, 255, 255, 255}), "a superimposed paste never composites into a picture");
+    document.commit_selection();
+    require(!document.selection.active && document.superimposed.active && document.superimposed.x == 2 &&
+                document.superimposed.y == 1 && paint::equal(document.image.get(3, 2), {255, 255, 255, 255}),
+            "committing a superimposed paste superimposes it and leaves the picture");
+    require(document.superimposed.contains({5.5, 4.5}) && !document.superimposed.contains({6.0, 2.0}),
+            "the superimposed image covers its own rectangle");
+    paint::Image view = document.image;
+    paint::SuperimposeLook look;
+    look.transparency = 50;
+    paint::superimpose_onto(view, document.superimposed.image, 2, 1, look, {0, 0, 4, 8});
+    const paint::Color half = view.get(3, 2);
+    require(half.r == 228 && half.g == 128 && half.b == 128 && half.a == 255,
+            "50% transparency blends the image halfway over the work");
+    require(paint::equal(view.get(4, 2), {255, 255, 255, 255}), "pixels outside the area are untouched");
+    look.transparency = 400;
+    look.brightness = -100;
+    view = document.image;
+    paint::superimpose_onto(view, document.superimposed.image, 2, 1, look, {0, 0, 16, 8});
+    const paint::Color faint = view.get(3, 2);
+    require(faint.r == 242 && faint.g == 242 && faint.b == 242,
+            "transparency stops at 95% and brightness -100% draws the image black");
+}
 int main() {
     try {
         test_icon_size_production();
@@ -1607,6 +1727,7 @@ int main() {
         test_conv_reference();
         test_conv_area();
         test_editing();
+        test_superimpose();
         test_materials_and_shapes();
         test_eraser_and_pixel_target();
         test_continuous_geometry_coverage();

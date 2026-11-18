@@ -37,10 +37,10 @@ class ZoomTrackBar final : public gf::TrackBar {
     explicit ZoomTrackBar(gf::StableId id) : TrackBar(std::move(id)) {}
     gf::SemanticDescriptor semantic_descriptor() const override {
         gf::SemanticDescriptor descriptor = TrackBar::semantic_descriptor();
-        descriptor.numeric_value = std::exp2(value()) * 100;
-        descriptor.minimum_value = 6.25;
-        descriptor.maximum_value = 3200;
-        descriptor.value = std::to_string(static_cast<int>(std::lround(std::exp2(value()) * 100))) + "%";
+        descriptor.numeric_value = stxlib::Optional<double>::of(std::exp2(value.read()) * 100);
+        descriptor.minimum_value = stxlib::Optional<double>::of(6.25);
+        descriptor.maximum_value = stxlib::Optional<double>::of(3200);
+        descriptor.value = std::to_string(static_cast<int>(std::lround(std::exp2(value.read()) * 100))) + "%";
         return descriptor;
     }
     bool on_semantic_action(gf::SemanticAction action, std::string_view text) override {
@@ -52,7 +52,7 @@ class ZoomTrackBar final : public gf::TrackBar {
                     percentage > 3200) {
                     return false;
                 }
-                set_value(std::log2(percentage / 100));
+                value = std::log2(percentage / 100);
                 return true;
             } catch (const std::exception&) {
                 return false;
@@ -92,9 +92,12 @@ Image validated_clipboard_image(const gf::HostImage& source) {
 } // namespace
 PaintCanvas::PaintCanvas(gf::StableId id, std::weak_ptr<Editor> editor)
     : RasterCanvas(std::move(id)), editor_(std::move(editor)) {
-    set_style(gf::ControlStyles::opaque, true);
+    // GUI.Forms 0.6 removed ControlStyles::opaque, which the core never read.
+    // Opacity is reported from paint with report_opaque_cover after an opaque
+    // fill; this canvas paints over a transparent canvas_background, so it
+    // reports none.
 }
-void PaintCanvas::on_pointer(gf::PointerEvent& event) {
+void PaintCanvas::handle_pointer(gf::PointerEvent& event) {
     std::shared_ptr<Editor> editor = editor_.lock();
     if (!editor) {
         return;
@@ -108,58 +111,93 @@ void PaintCanvas::on_pointer(gf::PointerEvent& event) {
     event.handled = event.action == gf::PointerAction::down || event.action == gf::PointerAction::up ||
                     event.action == gf::PointerAction::move || event.action == gf::PointerAction::wheel;
 }
+void PaintCanvas::on_mouse_down(gf::MouseEventArgs& arguments) {
+    last_window_position_ = arguments.window_position;
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    RasterCanvas::on_mouse_down(arguments);
+}
+void PaintCanvas::on_mouse_up(gf::MouseEventArgs& arguments) {
+    last_window_position_ = arguments.window_position;
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    RasterCanvas::on_mouse_up(arguments);
+}
+void PaintCanvas::on_mouse_move(gf::MouseEventArgs& arguments) {
+    last_window_position_ = arguments.window_position;
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    RasterCanvas::on_mouse_move(arguments);
+}
+void PaintCanvas::on_mouse_wheel(gf::MouseEventArgs& arguments) {
+    last_window_position_ = arguments.window_position;
+    gf::PointerEvent event = gf::pointer_event_of(arguments);
+    handle_pointer(event);
+    arguments.handled = event.handled;
+    RasterCanvas::on_mouse_wheel(arguments);
+}
+void PaintCanvas::on_mouse_leave() {
+    gf::PointerEvent event{};
+    event.action = gf::PointerAction::leave;
+    event.position = last_window_position_;
+    handle_pointer(event);
+    RasterCanvas::on_mouse_leave();
+}
 void PaintCanvas::on_paint_overlay(gf::Painter& painter, gf::Rect damage) {
     std::shared_ptr<Editor> editor = editor_.lock();
     if (editor) {
         (*editor).paint_canvas_overlay(painter, damage);
     }
 }
-Editor::Editor(gf::StableId id) : Control(std::move(id)) {
-    set_theme_override(ribbon_theme());
-}
+Editor::Editor(gf::StableId id) : Control(std::move(id)) {}
 void Editor::initialize_control_tree() {
-    set_allow_drop(true);
+    allow_drop = true;
     initialize_warp();
     canvas_ = gf::make_control<PaintCanvas>(gf::StableId("canvas"),
                                             std::static_pointer_cast<Editor>(shared_from_this()));
-    (*canvas_).set_focusable(true);
-    (*canvas_).set_tab_stop(true);
+    (*canvas_).focusable = true;
+    (*canvas_).tab_stop = true;
     (*canvas_).set_view(1.0, {-16, -16});
     (*canvas_).set_transparency_colors(gf::Color::rgba(255, 255, 255), gf::Color::rgba(240, 240, 240));
-    (*canvas_).set_transparency_cell_size(12);
-    (*canvas_).set_canvas_background(gf::Color::rgba(0, 0, 0, 0));
+    (*canvas_).transparency_cell_size = 12;
+    (*canvas_).canvas_background = gf::Color::rgba(0, 0, 0, 0);
     add_child(canvas_);
+    // The canvas text's editor, above the canvas and below the ribbon (see
+    // canvas_text in editor.hpp): no frames and no selection drawing, so the
+    // canvas's own text preview and overlay show through it.
+    canvas_text_ = gf::make_control<gf::ContentTextEditor>(gf::StableId("canvas-text"));
+    (*canvas_text_).set_multiline(true);
+    (*canvas_text_).set_accepts_tab(true);
+    (*canvas_text_).set_draws_selection(false);
+    (*canvas_text_).hit_test_transparent = true;
+    (*canvas_text_).visible = false;
+    (*canvas_text_).accessible_name = tr("Canvas text");
+    (*canvas_text_).accessible_description =
+        tr("Editable text box. Control or Command + Enter places it; Escape cancels.");
+    add_child(canvas_text_);
+    subscriptions_.push_back((*canvas_text_).layout_requested().subscribe(
+        *this, gf::Delegate<std::uint64_t>::bind<Editor, &Editor::canvas_text_layout_requested>(*this)));
+    subscriptions_.push_back((*canvas_text_).selection_changed().subscribe(
+        *this,
+        gf::Delegate<const gf::TextSelection&>::bind<Editor, &Editor::canvas_text_selection_changed>(*this)));
+    subscriptions_.push_back((*canvas_text_).focus_observed().subscribe(
+        *this, gf::Delegate<bool>::bind<Editor, &Editor::canvas_text_focus_changed>(*this)));
     ribbon_ = gf::make_control<Ribbon>(gf::StableId("ribbon"),
                                        std::static_pointer_cast<Editor>(shared_from_this()));
     add_child(ribbon_);
     help_ = gf::make_control<HelpBook>(gf::StableId("help-book"));
-    (*help_).set_visible(false);
+    (*help_).visible = false;
     add_child(help_);
     subscriptions_.push_back((*help_).close_clicked().subscribe(
         *this, gf::Delegate<gf::ButtonBase&>::bind<Editor, &Editor::close_help>(*this)));
-    menu_ = gf::make_control<gf::MenuStrip>(gf::StableId("menus"));
-    gf::ThemeDefinition file_theme = gf::windows_professional_theme_definition();
-    file_theme.id = "rainstar-file-tab";
-    file_theme.compatibility.border = gf::Color::rgba(45, 105, 172);
-    for (std::size_t state = 0; state < gf::control_surface_state_count; ++state) {
-        gf::SurfaceMaterial surface;
-        surface.fills = {gf::MaterialFillLayer::linear(
-            {0, 0}, {0, 1}, {{0, gf::Color::rgba(82, 139, 224)}, {1, gf::Color::rgba(23, 63, 136)}})};
-        file_theme.roles[static_cast<std::size_t>(gf::ControlVisualRole::panel)].ordinary[state].material =
-            surface;
-        gf::ControlRoleRecipes& item =
-            file_theme.roles[static_cast<std::size_t>(gf::ControlVisualRole::menu_item)];
-        item.ordinary[state].material = surface;
-        item.ordinary[state].text = gf::Color::rgba(255, 255, 255);
-        item.selected[state].material = surface;
-        item.selected[state].text = gf::Color::rgba(255, 255, 255);
-    }
-    (*menu_).set_theme_override(gf::Theme::create(std::move(file_theme)));
-    (*menu_).set_item_padding(17);
+    // The File tab of the ribbon holds the file commands (its application
+    // menu and recent pictures).
     rebuild_file_menu();
-    add_child(menu_);
     file_notice_label_ = gf::make_control<gf::Label>(gf::StableId("file-change-notice"));
-    (*file_notice_label_).set_font({gf::FontRole::control, 13, 600, false});
+    (*file_notice_label_).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 13, 600, false});
     add_child(file_notice_label_);
     file_reload_ = gf::make_control<gf::Button>(gf::StableId("file-reload"), tr("Reload from disk…"));
     subscriptions_.push_back((*file_reload_).clicked().subscribe(
@@ -171,34 +209,33 @@ void Editor::initialize_control_tree() {
     selection_status_ = gf::make_control<gf::Label>(gf::StableId("selection-status"));
     for (const std::shared_ptr<gf::Label>& label :
          {status_, cursor_status_, dimensions_status_, selection_status_}) {
-        (*label).set_font({gf::FontRole::control, 12, 400, false, 0.08});
+        (*label).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 12, 400, false, 0.08});
         add_child(label);
     }
     tool_size_status_ = gf::make_control<gf::Button>(gf::StableId("status-tool-size"), tr("Size: 3 px"));
-    (*tool_size_status_).set_accessible_name(tr("Current tool size; choose custom size"));
+    (*tool_size_status_).accessible_name = tr("Current tool size; choose custom size");
     zoom_out_ = gf::make_control<gf::Button>(gf::StableId("status-zoom-out"), "−");
     zoom_in_ = gf::make_control<gf::Button>(gf::StableId("status-zoom-in"), "+");
     zoom_reset_ = gf::make_control<gf::Button>(gf::StableId("status-zoom-reset"), "100%");
     for (const std::shared_ptr<gf::Button>& button : {zoom_out_, zoom_in_, zoom_reset_, tool_size_status_}) {
-        (*button).set_theme_override(ribbon_theme());
-        (*button).set_content_padding({2, 1, 2, 1});
-        (*button).set_font({gf::FontRole::control,
-                            button == zoom_reset_ || button == tool_size_status_ ? 12.0 : 18.0, 400, false});
+        (*button).content_padding = {2, 1, 2, 1};
+        (*button).font = gf::FontSpec{gf::FontRole::control,
+                            button == zoom_reset_ || button == tool_size_status_ ? 12.0 : 18.0, 400, false};
         subscriptions_.push_back((*button).clicked().subscribe(
             *this, gf::Delegate<gf::ButtonBase&>::bind<Editor, &Editor::status_clicked>(*this)));
         add_child(button);
     }
-    (*zoom_out_).set_accessible_name(tr("Zoom out"));
-    (*zoom_in_).set_accessible_name(tr("Zoom in"));
-    (*zoom_reset_).set_accessible_name(tr("Zoom percentage; reset to 100%"));
+    (*zoom_out_).accessible_name = tr("Zoom out");
+    (*zoom_in_).accessible_name = tr("Zoom in");
+    (*zoom_reset_).accessible_name = tr("Zoom percentage; reset to 100%");
     zoom_slider_ = gf::make_control<ZoomTrackBar>(gf::StableId("zoom-slider"));
     (*zoom_slider_).set_range(-4, 5);
-    (*zoom_slider_).set_value(0);
-    (*zoom_slider_).set_small_change(0.25);
-    (*zoom_slider_).set_large_change(1);
-    (*zoom_slider_).set_show_ticks(false);
-    (*zoom_slider_).set_visual_style(gf::TrackBarVisualStyle::classic);
-    (*zoom_slider_).set_accessible_name(tr("Zoom percentage"));
+    (*zoom_slider_).value = 0;
+    (*zoom_slider_).small_change = 0.25;
+    (*zoom_slider_).large_change = 1;
+    (*zoom_slider_).show_ticks = false;
+    (*zoom_slider_).visual_style = gf::TrackBarVisualStyle::classic;
+    (*zoom_slider_).accessible_name = tr("Zoom percentage");
     subscriptions_.push_back(
         (*zoom_slider_)
             .value_changed()
@@ -207,8 +244,11 @@ void Editor::initialize_control_tree() {
     initialize_canvas_controls();
     refresh();
 }
-gf::MenuItemSpec Editor::menu_item(const std::string& id, const std::string& text) {
+gf::MenuItemSpec Editor::menu_item(const std::string& id, const std::string& text, const std::string& shortcut) {
     std::shared_ptr<gf::Command> command = std::make_shared<gf::Command>(id, text);
+    // The shortcut column shows the key the editor's own key handling
+    // answers (Editor::on_key_preview); the menu does not bind it.
+    if (!shortcut.empty()) (*command).set_shortcut(shortcut);
     menu_subscriptions_.push_back((*command).invoked().subscribe(
         *this, gf::Delegate<const gf::CommandInvocation&>::bind<Editor, &Editor::command_invoked>(*this)));
     commands_.push_back(command);
@@ -217,26 +257,30 @@ gf::MenuItemSpec Editor::menu_item(const std::string& id, const std::string& tex
 void Editor::rebuild_file_menu() {
     menu_subscriptions_.clear();
     commands_.clear();
-    std::vector<gf::MenuItemSpec> items = {menu_item("new", tr("New")), menu_item("open", tr("Open…"))};
+    // Grouped as Paint's File menu is, with separators between the groups
+    // and the editor's keys in the shortcut column; the desktop background
+    // choices are a submenu (the two-pane menu opens it beside its row).
+    std::vector<gf::MenuItemSpec> items = {menu_item("new", tr("New"), "Ctrl+N"),
+                                           menu_item("open", tr("Open…"), "Ctrl+O")};
     items.push_back(menu_item("browse-assets", tr("Browse assets…")));
     items.push_back(menu_item("icon-batch", tr("Batch production…")));
-    if (!recent.paths.empty()) {
-        gf::MenuItemSpec recent_menu;
-        recent_menu.stable_id = "recent-files";
-        recent_menu.kind = gf::MenuItemKind::submenu;
-        recent_menu.text = tr("Recent pictures");
-        for (std::size_t i = 0; i < recent.paths.size(); ++i) {
-            recent_menu.children.push_back(menu_item("recent-" + std::to_string(i), recent.paths[i]));
-        }
-        items.push_back(std::move(recent_menu));
+    items.push_back(menu_separator("rule-open"));
+    // Recent pictures show in the File tab's recent pane, as "recent-<n>".
+    std::vector<gf::RibbonRecentItem> recent_items;
+    recent_items.reserve(recent.paths.size());
+    for (std::size_t i = 0; i < recent.paths.size(); ++i) {
+        const std::filesystem::path path(recent.paths[i]);
+        recent_items.push_back({"recent-" + std::to_string(i), path.filename().string(), path.parent_path().string()});
     }
     items.push_back(menu_item("reload", tr("Reload from disk…")));
-    items.push_back(menu_item("save", tr("Save")));
-    items.push_back(menu_item("save-as", tr("Save as…")));
+    items.push_back(menu_item("save", tr("Save"), "Ctrl+S"));
+    items.push_back(menu_item("save-as", tr("Save as…"), "F12"));
+    items.push_back(menu_separator("rule-save"));
     items.push_back(menu_item("print-preview", tr("Print preview…")));
 #if RAINSTAR_FORMS_NATIVE_PRINT
-    items.push_back(menu_item("print", tr("Print…")));
+    items.push_back(menu_item("print", tr("Print…"), "Ctrl+P"));
     items.push_back(menu_item("page-setup", tr("Page setup…")));
+    items.push_back(menu_separator("rule-print"));
     items.push_back(menu_item("acquire", tr("From scanner or camera…")));
     gf::MenuItemSpec wallpaper;
     wallpaper.stable_id = "wallpaper";
@@ -246,12 +290,20 @@ void Editor::rebuild_file_menu() {
                           menu_item("wallpaper-center", tr("Center"))};
     items.push_back(std::move(wallpaper));
 #endif
-    items.push_back(menu_item("properties", tr("Properties…")));
+    items.push_back(menu_separator("rule-picture"));
+    items.push_back(menu_item("properties", tr("Properties…"), "Ctrl+E"));
     items.push_back(menu_item("recover", tr("Recover unfinished artwork…")));
     items.push_back(menu_item("settings", tr("Settings…")));
+    items.push_back(menu_separator("rule-about"));
     items.push_back(menu_item("about", tr("About Plan Paint")));
     items.push_back(menu_item("quit", tr("Exit")));
-    (*menu_).set_items({{"file", tr("File"), std::move(items)}});
+    if (ribbon_) {
+        (*ribbon_).set_file_menu(std::move(items), std::move(recent_items));
+    }
+}
+gf::MenuItemSpec Editor::menu_separator(const std::string& id) {
+    gf::MenuItemSpec separator{id, gf::MenuItemKind::separator};
+    return separator;
 }
 void Editor::arrange(gf::Rect bounds) {
     arrange_self(bounds);
@@ -259,17 +311,16 @@ void Editor::arrange(gf::Rect bounds) {
     double ribbon_height = (*ribbon_).ribbon_height();
     const double previous_ribbon_height = (*ribbon_).committed_arranged_bounds().height;
     if (previous_ribbon_height > 0 && previous_ribbon_height != ribbon_height) {
-        gui_drawing::PointF origin = (*canvas_).view_origin();
-        origin.y += (ribbon_height - previous_ribbon_height) / (*canvas_).zoom();
+        gui_drawing::PointF origin = (*canvas_).view_origin.read();
+        origin.y += (ribbon_height - previous_ribbon_height) / (*canvas_).zoom.read();
         (*canvas_).set_view_origin(origin);
     }
     set_child_layout(ribbon_, {0, 0, bounds.width, ribbon_height});
-    set_child_layout(menu_, {0, 0, 56, 27});
     const bool file_notice_visible = !file_notice_.empty() && !pattern_editing;
-    (*file_notice_label_).set_visible(file_notice_visible);
-    (*file_reload_).set_visible(file_notice_visible);
-    (*file_reload_).set_enabled(disk_stamp_.availability == FileAvailability::Available);
-    (*file_notice_label_).set_text(file_notice_);
+    (*file_notice_label_).visible = file_notice_visible;
+    (*file_reload_).visible = file_notice_visible;
+    (*file_reload_).enabled = disk_stamp_.availability == FileAvailability::Available;
+    (*file_notice_label_).text = file_notice_;
     if (file_notice_visible) {
         set_child_layout(file_notice_label_, {12, ribbon_height + 2, std::max(1.0, bounds.width - 200), 26});
         set_child_layout(file_reload_, {bounds.width - 180, ribbon_height + 2, 168, 26});
@@ -281,15 +332,18 @@ void Editor::arrange(gf::Rect bounds) {
     arrange_canvas_controls({0, bounds.height - footer - controls_height, bounds.width, controls_height});
     footer += controls_height;
     double sidebar = show_help ? std::min(370.0, bounds.width * 0.38) : 0;
-    (*help_).set_visible(show_help && !pattern_editing);
+    (*help_).visible = show_help && !pattern_editing;
     set_child_layout(
         help_, {bounds.width - sidebar, ribbon_height, sidebar, bounds.height - ribbon_height - footer});
-    set_child_layout(canvas_, {ruler, ribbon_height + ruler, bounds.width - ruler - sidebar,
-                               std::max(1.0, bounds.height - ribbon_height - ruler - footer)});
+    const gf::Rect canvas_area{ruler, ribbon_height + ruler, bounds.width - ruler - sidebar,
+                               std::max(1.0, bounds.height - ribbon_height - ruler - footer)};
+    set_child_layout(canvas_, canvas_area);
+    set_child_layout(canvas_text_, {canvas_area.x + canvas_text_region_.x, canvas_area.y + canvas_text_region_.y,
+                                    canvas_text_region_.width, canvas_text_region_.height});
     for (const std::shared_ptr<gf::Control>& control : std::vector<std::shared_ptr<gf::Control>>{
              status_, cursor_status_, selection_status_, dimensions_status_, zoom_reset_, zoom_out_,
              zoom_slider_, zoom_in_, tool_size_status_}) {
-        (*control).set_visible(show_status && !pattern_editing);
+        (*control).visible = show_status && !pattern_editing;
     }
     double y = bounds.height - 28;
     const double scale = bounds.width / 1280;
@@ -304,7 +358,7 @@ void Editor::arrange(gf::Rect bounds) {
     set_child_layout(zoom_in_, {1213 * scale, y + 1, 26 * scale, 25});
     for (const std::shared_ptr<gf::Label>& label :
          {status_, cursor_status_, selection_status_, dimensions_status_}) {
-        (*label).set_font({gf::FontRole::control, std::clamp(12 * scale, 10.0, 12.0), 400, false});
+        (*label).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, std::clamp(12 * scale, 10.0, 12.0), 400, false});
     }
 }
 void Editor::on_paint(gf::Painter& painter, gf::Rect) {
@@ -313,8 +367,8 @@ void Editor::on_paint(gf::Painter& painter, gf::Rect) {
     if (show_rulers) {
         gf::Rect area = (*canvas_).committed_arranged_bounds();
         const double ribbon_height = area.y - 20;
-        gui_drawing::PointF origin = (*canvas_).view_origin();
-        double scale = (*canvas_).zoom();
+        gui_drawing::PointF origin = (*canvas_).view_origin.read();
+        double scale = (*canvas_).zoom.read();
         double step = 1;
         while (step * scale < 50) {
             step *= 2;
@@ -363,11 +417,48 @@ void Editor::on_paint(gf::Painter& painter, gf::Rect) {
         painter.draw_line({x, y + 5}, {x, bounds.height - 5}, interface_color(*this, gf::Color::rgba(193, 208, 224)), 1);
     }
 }
+double wheel_line_pixels(const EditorSettings& settings) {
+    return settings.scroll_distance;
+}
+// The canvas repaints itself when its view changes, or moves its painted
+// pixels by a copy on a pan; of the editor's own paint only the rulers
+// follow the view, so a pan damages their strips and leaves the ribbon and
+// the status bar alone. The canvas overlay's marks that stay with the
+// pointer rather than the sheet are copied with the pan: they are repainted
+// where they are and where the copy moved them.
+void Editor::view_moved() {
+    const gui_drawing::PointF origin = (*canvas_).view_origin.read();
+    const double zoom = (*canvas_).zoom.read();
+    const bool pan = moved_view_zoom_ == zoom && std::abs((*canvas_).view_angle) <= 1e-10;
+    const gf::Point offset{(moved_view_origin_.x - origin.x) * zoom, (moved_view_origin_.y - origin.y) * zoom};
+    moved_view_origin_ = origin;
+    moved_view_zoom_ = zoom;
+    if (pan && (offset.x != 0 || offset.y != 0)) {
+        if (warp_active() || resize_handle_ >= 0 || transform_image_.value ||
+            (document.tool == Tool::Guide && cursor_client_)) {
+            // A transform preview or a guide's line to the pointer spans the canvas.
+            (*canvas_).invalidate(gf::Dirty::paint);
+        } else if (cursor_client_) {
+            const double reach = tool_preview_reach();
+            if (reach > 0) {
+                const gf::Point here = *cursor_client_;
+                (*canvas_).invalidate(gf::Rect{here.x - reach, here.y - reach, reach * 2, reach * 2});
+                (*canvas_).invalidate(
+                    gf::Rect{here.x + offset.x - reach, here.y + offset.y - reach, reach * 2, reach * 2});
+            }
+        }
+    }
+    if (!show_rulers) {
+        return;
+    }
+    const gf::Rect area = (*canvas_).committed_arranged_bounds();
+    const double ribbon_height = area.y - 20;
+    invalidate(gf::Rect{0, ribbon_height, 20 + area.width, 21});
+    invalidate(gf::Rect{0, ribbon_height, 21, 20 + area.height});
+}
 gf::Point Editor::screen(Point point) const {
-    const gui_drawing::PointF mapped = (*canvas_).view_point({point.x, point.y});
-    gui_drawing::PointF origin = (*canvas_).view_origin();
-    double zoom = (*canvas_).zoom();
-    return {(mapped.x - origin.x) * zoom, (mapped.y - origin.y) * zoom};
+    const gf::Point client = (*canvas_).bitmap_point_to_client({point.x, point.y});
+    return client;
 }
 void Editor::paint_canvas_overlay(gf::Painter& painter, gf::Rect) {
     painter.save();
@@ -395,7 +486,7 @@ void Editor::paint_canvas_overlay(gf::Painter& painter, gf::Rect) {
         painter.draw_line({point.x - 9, point.y}, {point.x + 9, point.y}, interface_color(*this, gf::Color::rgba(180, 25, 45)), 1);
         painter.draw_line({point.x, point.y - 9}, {point.x, point.y + 9}, interface_color(*this, gf::Color::rgba(180, 25, 45)), 1);
     }
-    if (show_grid && (*canvas_).zoom() >= 4) {
+    if (show_grid && (*canvas_).zoom.read() >= 4) {
         const gf::Rect area = (*canvas_).client_rectangle();
         double left_bound = 1e30, top_bound = 1e30, right_bound = -1e30, bottom_bound = -1e30;
         for (int i = 0; i < 4; ++i) {
@@ -493,7 +584,7 @@ void Editor::paint_canvas_overlay(gf::Painter& painter, gf::Rect) {
     painter.restore();
 }
 bool Editor::help_shortcut() {
-    if ((*menu_).is_open() || editor_dialog_) {
+    if ((*ribbon_).file_menu_open() || editor_dialog_) {
         return false;
     }
     execute("help");
@@ -508,7 +599,7 @@ void Editor::on_attached_to_window() {
                             .register_accelerator(*this, {gf::PhysicalKey::f1, gf::Modifier::none},
                                                   std::bind(&Editor::help_shortcut, this));
 }
-void Editor::on_detaching_from_window(gf::Window& former_window) noexcept {
+void Editor::on_detaching_from_window(gf::SurfaceRoot& former_window) noexcept {
     file_subscription_.disconnect();
     file_timer_.reset();
     recovery_subscription.disconnect();
@@ -524,10 +615,22 @@ void Editor::ready(gf::Window&, gf::ApplicationWindowHandle handle, const std::s
     load_custom_pattern();
     rebuild_file_menu();
     refresh();
+    // A file that cannot be opened must not end the session: the failure used
+    // to escape the ready callback, so Application::run reported it and Plan
+    // Paint quit before showing a window.
+    std::string opened_path;
     if (!initial_path.empty()) {
-        open_file(initial_path);
+        try {
+            open_file(initial_path);
+            opened_path = initial_path;
+        } catch (const std::exception& exception) {
+            startup_open_error = exception.what();
+            if (status_) {
+                (*status_).text = startup_open_error;
+            }
+        }
     }
-    start_recovery(initial_path);
+    start_recovery(opened_path);
 }
 void Editor::closing(gf::HostCloseRequest& request) {
     request.cancel = !can_replace();
@@ -549,7 +652,7 @@ int Editor::hit_path_node(Point point) const {
     int result = -1;
     for (std::size_t index = 0; index < document.path.nodes.size(); ++index) {
         Point node = document.path.nodes[index];
-        double distance = std::hypot(node.x - point.x, node.y - point.y) * (*canvas_).zoom();
+        double distance = std::hypot(node.x - point.x, node.y - point.y) * (*canvas_).zoom.read();
         if (distance < nearest) {
             nearest = distance;
             result = static_cast<int>(index);
@@ -561,7 +664,7 @@ int Editor::hit_curve_handle(const CurveGeometry& geometry, Point point, double 
     int result = -1;
     for (int index = 0; index < geometry.handle_count(); ++index) {
         const Point handle = geometry.handle(index);
-        const double distance = std::hypot(handle.x - point.x, handle.y - point.y) * (*canvas_).zoom();
+        const double distance = std::hypot(handle.x - point.x, handle.y - point.y) * (*canvas_).zoom.read();
         if (distance < radius) {
             radius = distance;
             result = index;
@@ -636,7 +739,7 @@ void Editor::refresh() {
                                      settings.solid_transparency ? gf::Color::rgba(alpha.r, alpha.g, alpha.b)
                                                                  : gf::Color::rgba(211, 215, 220));
     if (text.active) {
-        text.refresh(document.ink.primary, document.ink.secondary);
+        sync_canvas_text();
         Image composed = document.image;
         composite(composed, text.preview, text.bounds.x, text.bounds.y);
         document.constrain_selection(composed, document.image);
@@ -667,9 +770,9 @@ void Editor::refresh() {
     if (ribbon_) {
         (*ribbon_).synchronize();
     }
-    if (window() && editor_dialog_) {
+    if (editor_dialog_ && (*editor_dialog_).attached_window()) {
         std::shared_ptr<AtlasPanel> gallery =
-            std::dynamic_pointer_cast<AtlasPanel>((*window()).find("atlas-gallery-panel"));
+            std::dynamic_pointer_cast<AtlasPanel>((*(*editor_dialog_).attached_window()).find("atlas-gallery-panel"));
         if (gallery) {
             (*gallery).synchronize();
         }
@@ -689,22 +792,22 @@ void Editor::update_cursor_status() {
         text = tr("X: ") + std::to_string(static_cast<int>(std::floor(point.x))) +
                tr("   Y: ") + std::to_string(static_cast<int>(std::floor(point.y))) + tr(" px");
     }
-    (*cursor_status_).set_text(text);
+    (*cursor_status_).text = text;
 }
 void Editor::update_status() {
     if (!status_) {
         return;
     }
-    (*status_).set_text((document.filename.empty()
+    (*status_).text = (document.filename.empty()
                              ? tr("Untitled")
                              : std::filesystem::path(document.filename).filename().string()) +
                         (document.dirty() ? " *" : "") +
                         (icon_index_paint ? " · " + tr("Index paint") + " #" + std::to_string(icon_primary_index) +
                                                 " / #" + std::to_string(icon_alt_index) : "") +
-                        (background_busy() ? tr(" · Rendering…") : ""));
+                        (background_busy() ? tr(" · Rendering…") : "");
     (*dimensions_status_)
-        .set_text(std::to_string(document.image.width) + " × " + std::to_string(document.image.height) +
-                  tr(" px"));
+        .text = std::to_string(document.image.width) + " × " + std::to_string(document.image.height) +
+                  tr(" px");
     std::string selection;
     if (resize_handle_ >= 0 && resize_selection_) {
         selection =
@@ -716,15 +819,15 @@ void Editor::update_status() {
         Rect bounds = rectangle(start_, current_);
         selection = std::to_string(bounds.w) + " × " + std::to_string(bounds.h) + tr(" px selected");
     }
-    (*selection_status_).set_text(selection);
+    (*selection_status_).text = selection;
     (*tool_size_status_)
-        .set_text(tr("Size: ") + std::to_string(document.tool == Tool::Pencil ? 1 : document.ink.size) + tr(" px"));
-    double percent = (*canvas_).zoom() * 100;
+        .text = tr("Size: ") + std::to_string(document.tool == Tool::Pencil ? 1 : document.ink.size) + tr(" px");
+    double percent = (*canvas_).zoom.read() * 100;
     std::ostringstream label;
     label << std::fixed << std::setprecision(percent < 10 ? 2 : 0) << percent << "%";
-    (*zoom_reset_).set_text(label.str());
+    (*zoom_reset_).text = label.str();
     synchronizing_zoom_ = true;
-    (*zoom_slider_).set_value(std::log2((*canvas_).zoom()));
+    (*zoom_slider_).value = std::log2((*canvas_).zoom.read());
     synchronizing_zoom_ = false;
     update_cursor_status();
 }
@@ -736,8 +839,8 @@ void Editor::rotate_view(double radians) {
     const gui_drawing::PointF center = canvas().client_to_bitmap({viewport.width / 2, viewport.height / 2});
     canvas().view_angle = std::remainder(radians, 2 * std::numbers::pi);
     const gui_drawing::PointF mapped = canvas().view_point(center);
-    canvas().set_view_origin({mapped.x - viewport.width / (2 * canvas().zoom()),
-                              mapped.y - viewport.height / (2 * canvas().zoom())});
+    canvas().set_view_origin({mapped.x - viewport.width / (2 * canvas().zoom.read()),
+                              mapped.y - viewport.height / (2 * canvas().zoom.read())});
     refresh();
     if (warp_active() || resize_handle_ >= 0) {
         update_transform_preview();
@@ -748,7 +851,7 @@ void Editor::zoom_slider_changed(double value) {
         return;
     }
     gf::Rect bounds = (*canvas_).committed_arranged_bounds();
-    zoom(std::exp2(value) / (*canvas_).zoom(), {bounds.width / 2, bounds.height / 2});
+    zoom(std::exp2(value) / (*canvas_).zoom.read(), {bounds.width / 2, bounds.height / 2});
 }
 void Editor::status_clicked(gf::ButtonBase& button) {
     std::string_view id = button.stable_id().value();
@@ -768,7 +871,7 @@ void Editor::command_invoked(const gf::CommandInvocation& invocation) {
 }
 void Editor::release_gesture() {
     canvas_control_stroke_ = false;
-    if (canvas_actions_.size() > 3) { (*canvas_actions_[3]).set_selected(false); }
+    if (canvas_actions_.size() > 3) { (*canvas_actions_[3]).selected = false; }
     cancel_spiro_drag();
     if (!transform_preview_stamp_) {
         end_transform_preview();
@@ -881,7 +984,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
     if (canvas_control_stroke_ && !canvas_control_dispatch_) { return; }
     try {
         if (panning_ && event.action != gf::PointerAction::up) {
-            canvas().set_cursor(gf::CursorKind::hand);
+            canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::hand);
         } else {
             apply_tool_cursor(canvas(), document.tool);
         }
@@ -889,6 +992,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
         control_ = gf::has_modifier(event.modifiers, gf::Modifier::control);
         alt_ = gf::has_modifier(event.modifiers, gf::Modifier::alt);
         gf::Point client = (*canvas_).point_from_window(event.position);
+        const std::optional<gf::Point> previous_cursor = cursor_client_;
         if (event.action == gf::PointerAction::leave && !(*canvas_).has_pointer_capture()) {
             cursor_client_.reset();
         } else {
@@ -899,7 +1003,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
             const bool hit = std::hypot(client.x - handle.x, client.y - handle.y) <= 14;
             if (!rotating_view_ && hit && event.action == gf::PointerAction::move &&
                 !canvas().has_pointer_capture()) {
-                canvas().set_cursor(gf::CursorKind::hand);
+                canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::hand);
                 canvas().invalidate(gf::Dirty::paint);
                 return;
             }
@@ -932,8 +1036,8 @@ void Editor::pointer(const gf::PointerEvent& event) {
                                 rotation_grab_angle_,
                             2 * std::numbers::pi);
                         const gui_drawing::PointF point = canvas().view_point(rotation_document_pivot_);
-                        canvas().set_view_origin({point.x - rotation_pivot_.x / canvas().zoom(),
-                                                  point.y - rotation_pivot_.y / canvas().zoom()});
+                        canvas().set_view_origin({point.x - rotation_pivot_.x / canvas().zoom.read(),
+                                                  point.y - rotation_pivot_.y / canvas().zoom.read()});
                         if (first_rotation) {
                             canvas().publish_source(stamp_placement_ ? stamp_placement_image()
                                                                     : document.visible_image(), {});
@@ -953,7 +1057,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
             (!document.image.contains(static_cast<int>(std::floor(point.x)),
                                       static_cast<int>(std::floor(point.y))) ||
              (document.tool == Tool::Stamp && document.stamp.pixels.empty()))) {
-            canvas().set_cursor(gf::CursorKind::crosshair);
+            canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::crosshair);
         }
         update_cursor_status();
         if (!panning_ && (curve_handle_ >= 0 || path_node_ >= 0 || path_swap_handle_ >= 0 ||
@@ -962,12 +1066,12 @@ void Editor::pointer(const gf::PointerEvent& event) {
             (document.tool == Tool::Path && (edit_path_nodes || path_swap_kind_) && path_swap_segment_ >= 0 &&
              static_cast<std::size_t>(path_swap_segment_) < document.path.segments.size() &&
              hovered_curve_handle(document.path.segments[path_swap_segment_].geometry, 10) >= 0))) {
-            canvas().set_cursor(gf::CursorKind::hand);
+            canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::hand);
         }
         if (document.tool == Tool::Stamp || document.tool == Tool::Pencil || document.tool == Tool::Eraser ||
             document.tool == Tool::Magnifier || document.tool == Tool::Picker ||
             document.tool == Tool::Brush || document.tool == Tool::Path || document.curve.line_set) {
-            (*canvas_).invalidate(gf::Dirty::paint);
+            invalidate_tool_preview(previous_cursor);
         }
         if (document.tool == Tool::Path &&
             (event.action == gf::PointerAction::move || event.action == gf::PointerAction::leave)) {
@@ -978,22 +1082,27 @@ void Editor::pointer(const gf::PointerEvent& event) {
                 gf::has_modifier(event.modifiers, gf::Modifier::meta)) {
                 zoom(event.wheel_delta.y >= 0 ? 1.25 : 0.8, client);
             } else {
-                gui_drawing::PointF origin = (*canvas_).view_origin();
-                const double scale = (*canvas_).zoom();
+                gui_drawing::PointF origin = (*canvas_).view_origin.read();
+                const double scale = (*canvas_).zoom.read();
                 const gf::Rect viewport = (*canvas_).committed_arranged_bounds();
                 const double half_width = viewport.width / (2 * scale);
                 const double half_height = viewport.height / (2 * scale);
                 const gf::Rect view = canvas().view_bounds();
-                origin.x = std::clamp(origin.x - event.wheel_delta.x * settings.scroll_distance / scale,
+                // A precise device (a trackpad) reports logical pixels, which
+                // pan exactly; a detented wheel reports lines, each one scroll
+                // step (wheel_line_pixels).
+                const double step =
+                    event.wheel_unit == gf::WheelDeltaUnit::pixels ? 1.0 : wheel_line_pixels(settings);
+                origin.x = std::clamp(origin.x - event.wheel_delta.x * step / scale,
                                       view.x - half_width, view.x + view.width - half_width);
-                origin.y = std::clamp(origin.y - event.wheel_delta.y * settings.scroll_distance / scale,
+                origin.y = std::clamp(origin.y - event.wheel_delta.y * step / scale,
                                       view.y - half_height, view.y + view.height - half_height);
                 (*canvas_).set_view_origin(origin);
                 if (warp_mode_ == WarpMode::rotation || (resize_handle_ >= 0 && resize_selection_)) {
                     update_transform_preview();
                 }
                 update_cursor_status();
-                invalidate(gf::Dirty::paint);
+                view_moved();
             }
             return;
         }
@@ -1011,7 +1120,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
                 picker_pending_ = true;
                 picker_secondary_ = event.button == gf::PointerButton::secondary;
                 pan_start_ = client;
-                pan_origin_ = (*canvas_).view_origin();
+                pan_origin_ = (*canvas_).view_origin.read();
                 (*canvas_).set_pointer_capture(true);
                 if (window()) {
                     static_cast<void>((*window()).request_focus(canvas_));
@@ -1019,15 +1128,15 @@ void Editor::pointer(const gf::PointerEvent& event) {
             } else if (event.action == gf::PointerAction::move) {
                 if (std::hypot(client.x - pan_start_.x, client.y - pan_start_.y) >= 4) {
                     panning_ = true;
-                    canvas().set_cursor(gf::CursorKind::hand);
+                    canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::hand);
                     picker_pending_ = false;
                 }
                 if (panning_) {
                     (*canvas_).set_view_origin(
-                        {pan_origin_.x - (client.x - pan_start_.x) / (*canvas_).zoom(),
-                         pan_origin_.y - (client.y - pan_start_.y) / (*canvas_).zoom()});
+                        {pan_origin_.x - (client.x - pan_start_.x) / (*canvas_).zoom.read(),
+                         pan_origin_.y - (client.y - pan_start_.y) / (*canvas_).zoom.read()});
                     update_cursor_status();
-                    invalidate(gf::Dirty::paint);
+                    view_moved();
                 }
             } else if (event.action == gf::PointerAction::up) {
                 const bool sample = picker_pending_;
@@ -1093,9 +1202,9 @@ void Editor::pointer(const gf::PointerEvent& event) {
             }
             if (event.button == gf::PointerButton::middle) {
                 panning_ = true;
-                canvas().set_cursor(gf::CursorKind::hand);
+                canvas().cursor = stxlib::Optional<gf::CursorKind>::of(gf::CursorKind::hand);
                 pan_start_ = client;
-                pan_origin_ = (*canvas_).view_origin();
+                pan_origin_ = (*canvas_).view_origin.read();
                 (*canvas_).set_pointer_capture(true);
                 return;
             }
@@ -1145,10 +1254,10 @@ void Editor::pointer(const gf::PointerEvent& event) {
             }
         } else if (event.action == gf::PointerAction::move) {
             if (panning_) {
-                (*canvas_).set_view_origin({pan_origin_.x - (client.x - pan_start_.x) / (*canvas_).zoom(),
-                                            pan_origin_.y - (client.y - pan_start_.y) / (*canvas_).zoom()});
+                (*canvas_).set_view_origin({pan_origin_.x - (client.x - pan_start_.x) / (*canvas_).zoom.read(),
+                                            pan_origin_.y - (client.y - pan_start_.y) / (*canvas_).zoom.read()});
                 update_cursor_status();
-                invalidate(gf::Dirty::paint);
+                view_moved();
             } else if (dragging_) {
                 move(point);
             }
@@ -1205,7 +1314,7 @@ void Editor::begin(Point point, bool secondary) {
         text.begin(point);
         text.bounds.w = std::max(80, std::min(440, document.image.width - text.bounds.x));
         (*ribbon_).show_tool_context();
-        reset_text_caret();
+        start_canvas_text();
         refresh();
         return;
     }
@@ -1534,7 +1643,7 @@ void Editor::end(Point point) {
 }
 void Editor::zoom(double factor, gf::Point anchor) {
     gui_drawing::PointF before = (*canvas_).RasterCanvas::client_to_bitmap(anchor);
-    double value = std::clamp((*canvas_).zoom() * factor, 0.0625, 32.0);
+    double value = std::clamp((*canvas_).zoom.read() * factor, 0.0625, 32.0);
     gf::Point translation{anchor.x - before.x * value, anchor.y - before.y * value};
     if (factor < 1) {
         // Focal zoom followed by the recovered viewer's independent edge clamp:
@@ -1557,7 +1666,7 @@ void Editor::zoom(double factor, gf::Point anchor) {
 }
 void Editor::on_key_preview(gf::KeyEvent& event) {
     if (pattern_editing) { return; }
-    if (event.action != gf::KeyAction::down || (*menu_).is_open() || editor_dialog_) {
+    if (event.action != gf::KeyAction::down || (*ribbon_).file_menu_open() || editor_dialog_) {
         return;
     }
     if (event.physical_key == gf::PhysicalKey::f1) {
@@ -1565,7 +1674,9 @@ void Editor::on_key_preview(gf::KeyEvent& event) {
         event.handled = true;
         return;
     }
-    if (window() && (*window()).focused_control() == canvas_ && text.active && text_key(event)) {
+    if (text.active && window() &&
+        ((*window()).focused_control() == canvas_text_ || (*window()).focused_control() == canvas_) &&
+        text_key(event)) {
         return;
     }
     if (stamp_placement_ && event.physical_key == gf::PhysicalKey::escape) {
@@ -1663,8 +1774,8 @@ void Editor::on_key_preview(gf::KeyEvent& event) {
                     event.physical_key == gf::PhysicalKey::right ||
                     event.physical_key == gf::PhysicalKey::up ||
                     event.physical_key == gf::PhysicalKey::down)) {
-            gui_drawing::PointF origin = canvas().view_origin();
-            const double step = (shift ? 128.0 : 32.0) / canvas().zoom();
+            gui_drawing::PointF origin = canvas().view_origin.read();
+            const double step = (shift ? 128.0 : 32.0) / canvas().zoom.read();
             if (event.physical_key == gf::PhysicalKey::left) {
                 origin.x -= step;
             }
@@ -1682,7 +1793,7 @@ void Editor::on_key_preview(gf::KeyEvent& event) {
             if (warp_active() || resize_handle_ >= 0) {
                 update_transform_preview();
             }
-            invalidate(gf::Dirty::paint);
+            view_moved();
             event.handled = true;
             return;
         } else if (document.atlas.kind != AtlasKind::None && !document.selection.active && !warp_active() &&
@@ -1752,7 +1863,7 @@ gf::HostDialogResult Editor::dialog(gf::HostDialogRequestPayload payload) {
 }
 void Editor::error(const std::string& message) {
     if (status_) {
-        (*status_).set_text(message);
+        (*status_).text = message;
     }
     if (window() && (*window()).host_services()) {
         gf::HostMessageDialogRequest request;
@@ -2015,10 +2126,10 @@ void Editor::copy_alpha_image(const Image& source) {
 }
 Image Editor::read_alpha_mask() {
     const gf::HostClipboardImageResult result = services().read_clipboard_image();
-    if (!result.status.accepted()) {
+    if (!result.status().accepted()) {
         throw std::runtime_error(tr("Could not read the image clipboard"));
     }
-    return result.image.has_value() ? validated_clipboard_image(*result.image) : Image{};
+    return result.image() != nullptr ? validated_clipboard_image(*result.image()) : Image{};
 }
 void Editor::copy() {
     Image image = document.selection.active ? document.selected_image() : document.visible_image();
@@ -2038,28 +2149,190 @@ void Editor::paste() {
         Image image = load_image(files.paths_utf8.front());
         finish_controls();
         const Point origin = canvas().visible_paste_origin(document.image.width, document.image.height);
-        document.paste(image, static_cast<int>(origin.x), static_cast<int>(origin.y));
+        document.paste(image, static_cast<int>(origin.x), static_cast<int>(origin.y), superimpose_paste);
         if (window()) {
             static_cast<void>((*window()).request_focus(canvas_));
         }
         refresh();
+        if (superimpose_paste) {
+            (*ribbon_).show_superimpose();
+        }
         return;
     }
     gf::HostClipboardImageResult result = services().read_clipboard_image();
-    if (!result.status.accepted()) {
+    if (!result.status().accepted()) {
         throw std::runtime_error(tr("Could not read the image clipboard"));
     }
-    if (!result.image.has_value()) {
+    if (result.image() == nullptr) {
         return;
     }
-    Image image = validated_clipboard_image(*result.image);
+    Image image = validated_clipboard_image(*result.image());
     finish_controls();
     const Point origin = canvas().visible_paste_origin(document.image.width, document.image.height);
-    document.paste(image, static_cast<int>(origin.x), static_cast<int>(origin.y));
+    document.paste(image, static_cast<int>(origin.x), static_cast<int>(origin.y), superimpose_paste);
     if (window()) {
         static_cast<void>((*window()).request_focus(canvas_));
     }
     refresh();
+    if (superimpose_paste) {
+        (*ribbon_).show_superimpose();
+    }
+}
+void Editor::remove_superimposed() {
+    if (document.selection.active && document.selection.superimpose) {
+        release_gesture();
+        document.selection = {};
+    }
+    document.superimposed = {};
+    refresh();
+}
+bool Editor::escape_reaches_superimposed() const {
+    return !document.selection.active && !text.active && !stamp_placement_ && !warp_active() &&
+           !document.path.extending && !document.curve.base;
+}
+namespace {
+// The closed notice of a dialog's own window, for the editor that opened it.
+struct DialogWindowClosed {
+    std::weak_ptr<Editor> editor;
+    std::uint64_t serial = 0;
+    void operator()() const {
+        const std::shared_ptr<Editor> owner = editor.lock();
+        if (owner) {
+            (*owner).dialog_window_closed(serial);
+        }
+    }
+};
+// The ready notice of a dialog's own window: the editor keeps its handle.
+struct DialogWindowReady {
+    std::weak_ptr<Editor> editor;
+    std::uint64_t serial = 0;
+    void operator()(gf::Window&, gf::ApplicationWindowHandle handle) const {
+        const std::shared_ptr<Editor> owner = editor.lock();
+        if (owner) {
+            (*owner).dialog_window_ready(serial, handle);
+        }
+    }
+};
+// Runs a modal dialog's nested loop on the editor's next turn, once the
+// command that opened it has finished: callers set their deferred state
+// (pending_save_path, deferred_command, ...) after opening the dialog.
+struct ShowDialogModal {
+    std::weak_ptr<Editor> editor;
+    std::uint64_t serial = 0;
+    void operator()() const {
+        const std::shared_ptr<Editor> owner = editor.lock();
+        if (owner) {
+            (*owner).run_modal_dialog(serial);
+        }
+    }
+};
+// Destroys a dialog's own window once the event that closed it is over.
+struct DestroyDialogWindow {
+    gf::ApplicationWindowHandle window;
+    void operator()() const {
+        if (window.active()) {
+            static_cast<void>(window.windows().destroy_window(window));
+        }
+    }
+};
+} // namespace
+gf::Window* Editor::dialog_window() const {
+    if (!editor_dialog_ || !editor_dialog_window_.active()) {
+        return nullptr;
+    }
+    gf::Window* result = (*editor_dialog_).attached_window();
+    return result;
+}
+void Editor::dialog_window_ready(std::uint64_t serial, gf::ApplicationWindowHandle handle) {
+    if (serial != editor_dialog_serial_ || !editor_dialog_) {
+        // Closed before its window was ready: the window goes too.
+        static_cast<void>(begin_invoke(DestroyDialogWindow{handle}));
+        return;
+    }
+    editor_dialog_window_ = handle;
+    // The dialog is outside the editor's subtree, so it takes its own tint.
+    interface_themes.apply(*editor_dialog_, settings.interface_hue);
+    reveal_dialog_gallery(editor_dialog_kind_);
+}
+void Editor::dialog_window_closed(std::uint64_t serial) {
+    if (serial != editor_dialog_serial_ || !editor_dialog_window_.active()) {
+        return;
+    }
+    // The close box: the dialog closes as Cancel closes it.
+    editor_dialog_window_ = {};
+    close_editor_dialog();
+}
+void Editor::on_pointer_preview(gf::PointerEvent& event) {
+    if (!editor_dialog_refuses_input_ || !editor_dialog_window_.active()) {
+        Control::on_pointer_preview(event);
+        return;
+    }
+    if (event.action == gf::PointerAction::down) {
+        static_cast<void>(editor_dialog_window_.bring_to_front());
+    }
+    event.handled = true;
+}
+gf::ApplicationWindow Editor::dialog_window_entry() {
+    const gf::Size size = (*editor_dialog_).window_client_size();
+    const std::shared_ptr<Editor> self = std::static_pointer_cast<Editor>(shared_from_this());
+    gf::ApplicationWindow entry;
+    entry.stable_id = "editor-dialog-" + std::to_string(editor_dialog_serial_);
+    entry.owner_id = "main";
+    entry.model = std::make_unique<gf::Window>(editor_dialog_, size);
+    entry.options.title = (*editor_dialog_).title();
+    entry.options.initial_size = size;
+    entry.options.minimum_size = size;
+    entry.options.minimizable = false;
+    entry.options.ready = DialogWindowReady{self, editor_dialog_serial_};
+    entry.options.closed = DialogWindowClosed{self, editor_dialog_serial_};
+    return entry;
+}
+bool Editor::open_modeless_dialog_window() {
+    const gf::ApplicationWindows windows = handle_.windows();
+    gf::ApplicationWindowOpenResult opened;
+    {
+        gf::ApplicationWindow entry = dialog_window_entry();
+        opened = windows.open_window(std::move(entry));
+    }
+    // A refusal leaves the window model (and its hold on the dialog) gone
+    // with the entry; the ready notice stored the handle on success.
+    const bool accepted = opened.status.accepted();
+    return accepted;
+}
+void Editor::open_dialog_overlay() {
+    (*editor_dialog_).set_windowed(false);
+    editor_dialog_popup_ = (*attached_window()).open_overlay(shared_from_this(), editor_dialog_);
+    // The dialog is outside the editor's subtree, so it takes its own tint
+    // once the overlay has attached it.
+    interface_themes.apply(*editor_dialog_, settings.interface_hue);
+    editor_dialog_focus_ = (*attached_window()).begin_focus_scope(editor_dialog_);
+    reveal_dialog_gallery(editor_dialog_kind_);
+}
+void Editor::run_modal_dialog(std::uint64_t serial) {
+    if (serial != editor_dialog_serial_ || !editor_dialog_ || editor_dialog_window_.active() || !attached_window()) {
+        return;
+    }
+    const gf::ApplicationWindows windows = handle_.windows();
+    gf::ApplicationModalResult result;
+    {
+        gf::ApplicationWindow entry = dialog_window_entry();
+        // The nested loop: returns once the dialog's window has closed (OK,
+        // Cancel, Escape and the close box all close it through
+        // close_editor_dialog or dialog_window_closed).
+        result = windows.show_modal(std::move(entry));
+    }
+    if (result.status.accepted() || serial != editor_dialog_serial_ || !editor_dialog_ ||
+        editor_dialog_window_.active()) {
+        return;
+    }
+    // Refused before the window opened (a host without a nested loop): an
+    // owned window whose owner refuses input instead, else the overlay.
+    editor_dialog_refuses_input_ = true;
+    if (open_modeless_dialog_window()) {
+        return;
+    }
+    editor_dialog_refuses_input_ = false;
+    open_dialog_overlay();
 }
 void Editor::open_editor_dialog(EditorDialogKind kind, bool secondary) {
     if (!attached_window()) {
@@ -2069,15 +2342,35 @@ void Editor::open_editor_dialog(EditorDialogKind kind, bool secondary) {
     close_editor_dialog();
     editor_dialog_ = gf::make_control<EditorDialog>(
         gf::StableId("editor-dialog"), std::static_pointer_cast<Editor>(shared_from_this()), kind, secondary);
-    interface_themes.apply(*editor_dialog_, settings.interface_hue);
-    editor_dialog_popup_ = (*attached_window()).open_popup(shared_from_this(), editor_dialog_);
-    editor_dialog_focus_ = (*attached_window()).begin_focus_scope(editor_dialog_);
-    if (kind == EditorDialogKind::atlas_gallery) {
-        std::shared_ptr<AtlasPanel> gallery =
-            std::dynamic_pointer_cast<AtlasPanel>((*attached_window()).find("atlas-gallery-panel"));
-        if (gallery) {
-            (*gallery).reveal_current();
+    editor_dialog_kind_ = kind;
+    ++editor_dialog_serial_;
+    // In a running application the dialog is a window of its own, owned by
+    // the editor's and modal to it as the original's dialogs were (all were
+    // ImGui modal popups): it moves freely and carries a native title bar
+    // and close box. Without runtime windows (the paint-forms fixture) it
+    // opens over the editor as before.
+    const gf::ApplicationWindows windows = handle_.windows();
+    if (windows.active() && windows.capabilities().supports(gf::HostCapability::runtime_windows)) {
+        (*editor_dialog_).set_windowed(true);
+        if (modal_dialogs) {
+            static_cast<void>(begin_invoke(
+                ShowDialogModal{std::static_pointer_cast<Editor>(shared_from_this()), editor_dialog_serial_}));
+            return;
         }
+        if (open_modeless_dialog_window()) {
+            return;
+        }
+    }
+    open_dialog_overlay();
+}
+void Editor::reveal_dialog_gallery(EditorDialogKind kind) {
+    if (kind != EditorDialogKind::atlas_gallery || !editor_dialog_ || !(*editor_dialog_).attached_window()) {
+        return;
+    }
+    std::shared_ptr<AtlasPanel> gallery =
+        std::dynamic_pointer_cast<AtlasPanel>((*(*editor_dialog_).attached_window()).find("atlas-gallery-panel"));
+    if (gallery) {
+        (*gallery).reveal_current();
     }
 }
 void Editor::close_editor_dialog() {
@@ -2096,6 +2389,21 @@ void Editor::close_editor_dialog() {
         editor_dialog_focus_ = {};
     }
     editor_dialog_popup_.disconnect();
+    editor_dialog_refuses_input_ = false;
+    // Its workers stop while its window still lives: a delivery posted to a
+    // window already destroyed would throw on the worker's thread.
+    if (editor_dialog_) {
+        (*editor_dialog_).stop_background_work();
+    }
+    if (editor_dialog_window_.active()) {
+        const gf::ApplicationWindowHandle dialog = editor_dialog_window_;
+        editor_dialog_window_ = {};
+        // The window's closed notice now names a stale serial. The window
+        // goes on the editor's next turn: this may run inside the dialog
+        // window's own event (Escape, OK, Cancel), which must finish first.
+        ++editor_dialog_serial_;
+        static_cast<void>(begin_invoke(DestroyDialogWindow{dialog}));
+    }
     editor_dialog_.reset();
 }
 void Editor::complete_deferred_save() {
@@ -2132,11 +2440,14 @@ void Editor::on_drag(gf::DragEvent& event) {
                 int y = std::clamp(static_cast<int>(std::floor(point.y)), 0,
                                    std::max(0, document.image.height - image.height));
                 finish_controls();
-                document.paste(image, x, y);
+                document.paste(image, x, y, superimpose_paste);
                 if (window()) {
                     static_cast<void>((*window()).request_focus(canvas_));
                 }
                 refresh();
+                if (superimpose_paste) {
+                    (*ribbon_).show_superimpose();
+                }
             } catch (const std::exception& exception) {
                 error(exception.what());
                 event.accepted_effect = gf::DragEffect::none;
@@ -2483,8 +2794,19 @@ void Editor::execute(const std::string& command) {
             finish_controls();
             document.invert_colors();
         } else if (command == "release") {
-            finish_controls(true);
-            reset_stamp();
+            // Escape ends whatever is in progress first (a selection, a
+            // superimposed paste still being placed); only from a context
+            // with nothing selected does it remove the superimposed image.
+            if (document.superimposed.active && escape_reaches_superimposed()) {
+                remove_superimposed();
+            } else {
+                finish_controls(true);
+                reset_stamp();
+            }
+        } else if (command == "superimpose-paste") {
+            superimpose_paste = !superimpose_paste;
+        } else if (command == "superimpose-remove") {
+            remove_superimposed();
         } else if (command == "finish-path") {
             if (document.tool == Tool::Path) {
                 document.end_path_geometry();
@@ -2543,7 +2865,7 @@ void Editor::execute(const std::string& command) {
                  cursor_client_.value_or(gf::Point{bounds.width / 2, bounds.height / 2}));
         } else if (command == "actual-size") {
             gf::Rect bounds = (*canvas_).client_rectangle();
-            zoom(1 / (*canvas_).zoom(), {bounds.width / 2, bounds.height / 2});
+            zoom(1 / (*canvas_).zoom.read(), {bounds.width / 2, bounds.height / 2});
         } else if (command == "fit") {
             gf::Rect bounds = (*canvas_).committed_arranged_bounds();
             const gf::Rect view = canvas().view_bounds();

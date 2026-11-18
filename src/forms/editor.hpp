@@ -4,6 +4,8 @@
 #include "file_change.hpp"
 #include "file_reveal.hpp"
 #include <future>
+#include <span>
+#include <thread>
 #include <gui_forms/timer.hpp>
 #include "forms/interface_theme.hpp"
 #include "forms/pattern_canvas.hpp"
@@ -23,15 +25,22 @@
 #include <gui_forms/basic_controls.hpp>
 #include <gui_forms/canvas.hpp>
 #include <gui_forms/live_surface.hpp>
-#include <gui_forms/controls/menu_strip/menu_strip.hpp>
-#include <gui_forms/controls/panel/combo_box/combo_box.hpp>
-#include <gui_forms/controls/range_control/track_bar/track_bar.hpp>
+#include <gui_forms/controls/combo_box.hpp>
+#include <gui_forms/controls/content_text_editor.hpp>
+#include <gui_forms/controls/track_bar.hpp>
 #include <gui_forms/delegate.hpp>
 #include <gui_forms/host.hpp>
 namespace paint::forms {
 class Editor;
+struct BackingRenderJob;
 struct CanvasWorkStatistics {
     std::uint64_t view_preparations = 0, view_renders = 0, stamp_preparations = 0, stamp_renders = 0;
+    // Viewport conversions run, and the output pixels they wrote (a brush stroke converts its own few).
+    std::uint64_t viewport_conversions = 0, viewport_converted_pixels = 0;
+    // Rotated-view frames made by moving the kept pixels of the last frame
+    // by a pan of whole units and rendering only the exposed bands, and the
+    // pixels those bands rendered.
+    std::uint64_t view_shifts = 0, view_shift_pixels = 0;
 };
 class PaintCanvas final : public gui_forms::RasterCanvas {
   public:
@@ -41,6 +50,14 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     std::shared_ptr<gui_forms::LiveSurface> display_surface() const { return display_surface_; }
     void set_transparency_colors(gui_forms::Color first, gui_forms::Color second);
     void publish_source(const Image& source, Rect damage);
+    // What the canvas shows for `source` (the picture as refresh composes
+    // it): `source` itself, or, while an image is superimposed (or a
+    // superimposed paste is being placed), `source` with that image blended
+    // over it, in superimposed_view_, which this canvas owns and reuses.
+    // Only `damage` is recomposed when it names a part of a picture of the
+    // same size; an empty damage recomposes everything. The result is valid
+    // until the next call.
+    const Image& superimposed_source(const Image& source, Rect damage);
     void poll_view();
     void prepare_display();
     void display_frame(gui_forms::FrameTime now);
@@ -55,6 +72,24 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     void arrange(gui_forms::Rect bounds) override;
     bool view_busy() const;
     std::string view_error;
+    // The surround's tile for the editor's canvas_backing setting: starts
+    // its render on a worker unless it is loaded or rendering. Call it when
+    // the setting changes; attaching and arranging the canvas call it too.
+    // The image is loaded or replaced only when the worker delivers
+    // (deliver_backing), never during paint; until then the surround is the
+    // material's plain colour.
+    void request_backing();
+    // The worker's delivery, on the UI thread: loads the tile when it is
+    // still the chosen material, else asks for the chosen one. A failed
+    // render leaves the plain colour.
+    void deliver_backing();
+    // Whether the chosen material's tile is loaded.
+    [[nodiscard]] bool backing_ready() const noexcept;
+    // The rotated view's last rendered frame: BGRA, premultiplied, rows of
+    // rendered width times four bytes (empty before the first render). For
+    // checks that a shifted frame equals a whole render.
+    [[nodiscard]] std::span<const std::byte> rendered_view_pixels() const& noexcept { return rotated_pixels_; }
+    std::span<const std::byte> rendered_view_pixels() const&& = delete;
 
     double view_angle = 0;
     gui_drawing::PointF document_point(gui_drawing::PointF point) const noexcept;
@@ -66,38 +101,76 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
 
     gui_forms::Rect bitmap_to_client(gui_drawing::RectI pixels) const noexcept;
     gui_drawing::PointF client_to_bitmap(gui_forms::Point client) const noexcept;
+    // The exact inverse of client_to_bitmap: a document point in client
+    // coordinates, from the bitmap origin as RasterCanvas places it (snapped
+    // to its device fraction in a binary view), so overlays and synthetic
+    // pointers land where input maps back.
+    gui_forms::Point bitmap_point_to_client(gui_drawing::PointF point) const noexcept;
     gui_drawing::PointF view_point(gui_drawing::PointF point) const noexcept;
-    void on_pointer(gui_forms::PointerEvent& event) override;
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
 
   protected:
+    // The mouse raisers hand the target phase to handle_pointer; leave comes
+    // from the hover tracking and carries the last window position seen.
+    void on_mouse_down(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_up(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_move(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_wheel(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_leave() override;
     void on_attached_to_window() override;
-    void on_detaching_from_window(gui_forms::Window& former_window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& former_window) noexcept override;
     void on_dispose() noexcept override;
 
   public:
     void on_paint_overlay(gui_forms::Painter& painter, gui_forms::Rect damage) override;
-    void on_text_input(gui_forms::TextInputEvent& event) override;
-    void on_focus_changed(bool focused) override;
-    void on_frame(gui_forms::FrameTime now) override;
     gui_forms::SemanticDescriptor semantic_descriptor() const override;
-    bool on_semantic_action(gui_forms::SemanticAction action, std::string_view value) override;
 
   private:
+    // The editor's pointer handling, in the routed form, for one event at
+    // the target: down, up, move and wheel end their route here.
+    void handle_pointer(gui_forms::PointerEvent& event);
+    // The window position of the last mouse event, for the leave event.
+    gui_forms::Point last_window_position_{};
     friend class Editor;
     std::shared_ptr<gui_forms::LiveSurface> display_surface_, viewport_surface_, viewport_source_;
     std::uint64_t viewport_generation_ = 0;
     gui_forms::Rect viewport_bounds_;
     gui_drawing::PointF viewport_origin_;
     double viewport_zoom_ = 0, viewport_scale_ = 0;
+    // The sheet's client origin at the last conversion: a pan by whole
+    // device pixels moves the kept pixels and converts the exposed band.
+    gui_forms::Point viewport_sheet_;
+    // The viewport conversion's per-column tables (source byte offset and
+    // checker column), reused from frame to frame.
+    std::vector<std::size_t> viewport_columns_;
+    std::vector<int> viewport_cells_;
     std::size_t translucent_pixels_ = 0;
+    // Source pixels published since the viewport conversion last ran (empty:
+    // none). A view change converts everything regardless.
+    Rect viewport_dirty_;
     gui_forms::Color transparency_first_ = gui_forms::Color::rgba(246, 247, 249);
     gui_forms::Color transparency_second_ = gui_forms::Color::rgba(211, 215, 220);
     void paint_display(gui_forms::Painter& painter);
+    Image superimposed_view_;
     CanvasWorkStatistics work_statistics_;
     gui_forms::FrameRequestToken display_request_, preparation_request_;
     gui_forms::FrameTime next_display_{}, preparation_deadline_{};
     void render_display();
+    // Fills the rotated view's pixels in the area {left, top, columns, rows}
+    // of the frame (inside rendered_size_), from the source at the current
+    // angle, zoom and origin; the rest of rotated_pixels_ is untouched.
+    void render_rotated_area(const Editor& editor, bool prepared, int left, int top, int columns, int rows);
+    // Moves rotated_pixels_ by (shift_x, shift_y) whole units, each smaller
+    // than the frame's side, and renders the bands the move exposed.
+    void shift_rotated_frame(const Editor& editor, bool prepared, int shift_x, int shift_y);
+    // The bitmap's origin in client units as RasterCanvas places it (its
+    // content offset): a pan's scroll copy moves the painted canvas by the
+    // change of this point.
+    [[nodiscard]] gui_forms::Point view_anchor() const noexcept;
+    // A pan or zoom: sets the view, then damages the rotation handle where
+    // it is now and where a scroll copy moved its old pixels, since the
+    // handle keeps to the viewport's edge while the content moves.
+    void apply_view(double zoom, gui_drawing::PointF origin);
     std::weak_ptr<Editor> editor_;
     gui_forms::ImageId backing_, repeated_, reference_, rotated_;
     Image view_source_;
@@ -108,15 +181,29 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     double rendered_angle_ = 0, rendered_zoom_ = 0;
     gui_drawing::PointF rendered_origin_;
     gui_forms::Size rendered_size_;
+    // The rotated frame's pixels (owned here, reused frame to frame; its
+    // length is rendered width * height * 4) and view_anchor() when they
+    // were rendered: paint_rotated draws the frame moved by the anchor's
+    // change since, which is what a scroll copy did to the painted canvas.
+    std::vector<std::byte> rotated_pixels_;
+    gui_forms::Point rendered_anchor_;
     bool view_worker_initialized_ = false;
     void paint_rotated(gui_forms::Painter& painter, const Editor& editor);
     void prepare_view(gui_forms::FrameTime now = gui_forms::FrameClock::now());
 
     CanvasBacking loaded_backing_ = CanvasBacking::Count;
-    void update_backing();
+    // The material the editor's settings choose (the pale felt detached).
+    [[nodiscard]] CanvasBacking chosen_backing() const noexcept;
+    // Cancels and joins the tile render, if any; its delivery then finds no job.
+    void stop_backing() noexcept;
+    std::shared_ptr<BackingRenderJob> backing_job_;
+    std::thread backing_worker_;
     std::uint64_t atlas_revision_ = 0;
     void paint_atlas_context(gui_forms::Painter& painter, const Editor& editor);
 };
+// The canvas pan, in screen pixels, of one wheel line (a detented notch):
+// the Scroll distance setting, as in the original (a modest 6 by default).
+double wheel_line_pixels(const EditorSettings& settings);
 class Editor final : public gui_forms::Control {
   public:
     explicit Editor(gui_forms::StableId id);
@@ -197,17 +284,59 @@ class Editor final : public gui_forms::Control {
     std::uint64_t recovery_capture_revision = 0;
     bool recovery_failed = false, recovery_startup_pending = false;
     std::string recovery_notice;
+    // A command-line file that failed to open. Ready may run before the host
+    // can show modal UI, so the message waits for the first recovery tick.
+    std::string startup_open_error;
 
     RecentFiles recent;
     int jpeg_quality = 92;
+    // Superimpose (superimpose.hpp, Document::superimposed): the paste
+    // option, and how the superimposed image is drawn. Both last for the
+    // session; neither is saved.
+    bool superimpose_paste = false;
+    SuperimposeLook superimpose_look;
+    // Removes the superimposed image, and a superimposed paste still being
+    // placed; the Superimpose tab goes with them. Reached by Escape from a
+    // context with nothing selected and by the tab's Remove; pointer presses
+    // never remove it (owner, 2026-11-15).
+    void remove_superimposed();
+    // Whether Escape now has nothing else to end (no selection, text,
+    // stamp, warp, path or curve in progress), so it removes the
+    // superimposed image.
+    [[nodiscard]] bool escape_reaches_superimposed() const;
+    // The canvas text tool and sticky notes. `text` keeps Plan Paint's side:
+    // the box, the style, the layout and preview (laid out and rendered with
+    // Plan Paint's own engine), and a mirror of the editor's text and
+    // selection. The editing (keys, input methods, undo, the clipboard and
+    // accessibility) is the content editor's, `canvas_text()`.
     TextSession text;
-    void text_input(gui_forms::TextInputEvent& event);
+    // The content editor (stable id "canvas-text"), a child of the Editor
+    // above the canvas, shown while `text.active`. It paints nothing of its
+    // own and is transparent to hits: Plan Paint draws the text, caret and
+    // selection, and keeps the box handles and pointer placement.
+    [[nodiscard]] gui_forms::ContentTextEditor& canvas_text() const noexcept { return *canvas_text_; }
+    // Escape cancels and Control or Command + Enter places, ahead of the
+    // editor; false for every other key.
     bool text_key(gui_forms::KeyEvent& event);
     bool text_command(const std::string& command);
     void finish_text(bool place);
     void text_focus(bool focused);
     void text_frame();
+    // Places the editor over the text box (canvas client coordinates, then
+    // the Editor's arrange) and submits Plan Paint's layout of its text for
+    // the current revision. Called from refresh while text is active and
+    // from every view change.
+    void sync_canvas_text();
     void selection_frame();
+    // The repeating UI timers of the caret blink and the selection's marching ants.
+    // The timer calls the named member of the Editor that owns its token; the token
+    // is disconnected on detach and by the Editor's destruction, so the callback
+    // never outlives its target.
+    struct FrameTick final {
+        Editor* editor;
+        void (Editor::*tick)();
+        void operator()(gui_forms::FrameTime) const { ((*editor).*tick)(); }
+    };
     bool show_help = false, eraser_soft = false;
     SampleMode picker_mode = SampleMode::Exact;
     bool picker_magnifier = false;
@@ -249,9 +378,25 @@ class Editor final : public gui_forms::Control {
                const std::string& initial_path = {});
     void closing(gui_forms::HostCloseRequest& request);
     void execute(const std::string& command);
+    // The open dialog's own window, or null (no dialog, an overlay dialog, or
+    // a modal dialog whose window opens on the editor's next turn).
+    [[nodiscard]] gui_forms::Window* dialog_window() const;
+    // Dialogs run modally (show_modal, a nested loop) in a running
+    // application. The native exercises turn this off to drive a dialog's
+    // own window from their own loop.
+    bool modal_dialogs = true;
+    // Notices from a dialog's own window and the editor's posted work (the
+    // functors in editor.cpp); serial names the dialog they concern.
+    // The dialog window's close box closed it: forget it as Cancel would.
+    void dialog_window_closed(std::uint64_t serial);
+    // The dialog's window is ready (its handle), or stale (destroyed).
+    void dialog_window_ready(std::uint64_t serial, gui_forms::ApplicationWindowHandle handle);
+    // Shows the open dialog's window modally (ApplicationWindows::show_modal)
+    // unless it was closed or replaced since `serial` was issued.
+    void run_modal_dialog(std::uint64_t serial);
     void choose_tool(Tool tool);
     void on_attached_to_window() override;
-    void on_detaching_from_window(gui_forms::Window& former_window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& former_window) noexcept override;
     void choose_shape(Shape shape);
     void begin_path_swap(CurveKind kind);
     void begin_guide_swap(CurveKind kind);
@@ -363,12 +508,27 @@ class Editor final : public gui_forms::Control {
     std::shared_ptr<gui_forms::Button> zoom_out_, zoom_in_, zoom_reset_, tool_size_status_;
     std::shared_ptr<gui_forms::TrackBar> zoom_slider_;
     std::optional<gui_forms::Point> cursor_client_;
+    // The canvas view at the last view_moved, for the client offset a pan
+    // moved the canvas's pixels by (a zero zoom: none yet).
+    gui_drawing::PointF moved_view_origin_;
+    double moved_view_zoom_ = 0;
     bool synchronizing_zoom_ = false;
-    std::shared_ptr<gui_forms::MenuStrip> menu_;
     std::shared_ptr<Ribbon> ribbon_;
     std::shared_ptr<HelpBook> help_;
     std::shared_ptr<EditorDialog> editor_dialog_;
-    gui_forms::PopupToken editor_dialog_popup_;
+    // The dialog's own window while it is open as one (a running
+    // application); inactive for an overlay dialog (tests, hosts without
+    // runtime windows). The serial makes a stale closed notice harmless.
+    gui_forms::ApplicationWindowHandle editor_dialog_window_;
+    std::uint64_t editor_dialog_serial_ = 0;
+    EditorDialogKind editor_dialog_kind_ = EditorDialogKind::about;
+    // A dialog window opened without a nested loop on a host that has none:
+    // the editor's window refuses pointer input while it is open.
+    bool editor_dialog_refuses_input_ = false;
+    gui_forms::ApplicationWindow dialog_window_entry();
+    bool open_modeless_dialog_window();
+    void open_dialog_overlay();
+    gui_forms::OverlayToken editor_dialog_popup_;
     gui_forms::FocusScopeId editor_dialog_focus_;
     std::vector<std::shared_ptr<gui_forms::Command>> commands_;
     std::vector<gui_forms::SubscriptionToken> subscriptions_, menu_subscriptions_;
@@ -387,6 +547,12 @@ class Editor final : public gui_forms::Control {
     Point text_drag_start_;
     void paint_atlas_overlay(gui_forms::Painter& painter);
     void paint_tool_preview(gui_forms::Painter& painter);
+    // How far paint_tool_preview draws from the cursor, in canvas points; 0
+    // when it may draw anywhere (path and curve rubber bands, the stamp, the
+    // healing source), so the whole canvas repaints.
+    double tool_preview_reach() const;
+    // Repaints the tool preview where it was (at `previous`) and where it is now.
+    void invalidate_tool_preview(std::optional<gui_forms::Point> previous);
     enum class SpiroDrag { None, Guide, Resize, Wheel, Lift, PegPending, Peg };
     SpiroDrag spiro_drag_ = SpiroDrag::None;
     Point spiro_grab_{}, spiro_pointer_{}, spiro_drag_center_{};
@@ -432,6 +598,21 @@ class Editor final : public gui_forms::Control {
     void text_pointer(const gui_forms::PointerEvent& event, Point point);
     void reset_text_caret();
     gui_forms::Rect text_caret_damage() const;
+    // Shows the editor for the session `text.begin` just opened: empty, no
+    // undo history, named for the session, focused.
+    void start_canvas_text();
+    // The editor's notices: a layout request (the text or the region's size
+    // changed), a selection change, and its focus.
+    void canvas_text_layout_requested(std::uint64_t revision);
+    void canvas_text_selection_changed(const gui_forms::TextSelection& selection);
+    void canvas_text_focus_changed(bool focused);
+    // The editor's local coordinates from text-box display pixels.
+    [[nodiscard]] gui_forms::ContentLayoutTransform canvas_text_view() const;
+    std::shared_ptr<gui_forms::ContentTextEditor> canvas_text_;
+    // The editor's region in canvas client coordinates (the bounding box of
+    // the text box on screen); the Editor's arrange offsets it by the canvas.
+    gui_forms::Rect canvas_text_region_{};
+    gui_forms::ContentLayoutResult canvas_text_layout_result_ = gui_forms::ContentLayoutResult::accepted;
     Point start_, last_, current_, selection_offset_, handle_offset_;
     gui_drawing::PointF pan_origin_;
     gui_forms::Point pan_start_;
@@ -474,10 +655,18 @@ class Editor final : public gui_forms::Control {
     void paint_resize_overlay(gui_forms::Painter& painter);
     void update_status();
     void update_cursor_status();
+    // Repaints what follows the canvas view besides the canvas: the rulers.
+    void view_moved();
+    void reveal_dialog_gallery(EditorDialogKind kind);
+    // While a dialog has its own window the editor's window refuses pointer
+    // input, as the original's modal dialogs made it do.
+    void on_pointer_preview(gui_forms::PointerEvent& event) override;
     void zoom_slider_changed(double value);
     void status_clicked(gui_forms::ButtonBase& button);
     void command_invoked(const gui_forms::CommandInvocation& invocation);
-    gui_forms::MenuItemSpec menu_item(const std::string& id, const std::string& text);
+    gui_forms::MenuItemSpec menu_item(const std::string& id, const std::string& text,
+                                      const std::string& shortcut = {});
+    static gui_forms::MenuItemSpec menu_separator(const std::string& id);
     void begin(Point point, bool secondary);
     void move(Point point);
     void end(Point point);

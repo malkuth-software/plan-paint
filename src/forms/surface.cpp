@@ -3,6 +3,10 @@
 #include "raster.hpp"
 #include <algorithm>
 #include <cmath>
+#include <atomic>
+#include <cstring>
+#include <string>
+#include <thread>
 namespace paint::forms {
 namespace gf = gui_forms;
 Point PaintCanvas::visible_paste_origin(int width, int height) {
@@ -12,12 +16,12 @@ Point PaintCanvas::visible_paste_origin(int width, int height) {
     }
     const double margin = std::min({12.0, viewport.width / 4, viewport.height / 4});
     std::vector<gf::Point> polygon;
-    const gui_drawing::PointF origin = view_origin();
+    const gui_drawing::PointF origin = view_origin.read();
     for (const Point corner : {Point{0, 0}, Point{static_cast<double>(width), 0},
                                Point{static_cast<double>(width), static_cast<double>(height)},
                                Point{0, static_cast<double>(height)}}) {
         const gui_drawing::PointF point = view_point({corner.x, corner.y});
-        polygon.push_back({(point.x - origin.x) * zoom(), (point.y - origin.y) * zoom()});
+        polygon.push_back({(point.x - origin.x) * zoom.read(), (point.y - origin.y) * zoom.read()});
     }
     // Clip the rotated document to the viewport, including room for its handles.
     // Clamping an inverse-transformed corner alone can put it off screen again.
@@ -53,7 +57,7 @@ Point PaintCanvas::visible_paste_origin(int width, int height) {
     if (polygon.empty()) {
         const gui_drawing::PointF center = view_point({width * 0.5, height * 0.5});
         set_view_origin(
-            {center.x - viewport.width / (2 * zoom()), center.y - viewport.height / (2 * zoom())});
+            {center.x - viewport.width / (2 * zoom.read()), center.y - viewport.height / (2 * zoom.read())});
         return visible_paste_origin(width, height);
     }
     gf::Point corner = polygon.front();
@@ -66,12 +70,12 @@ Point PaintCanvas::visible_paste_origin(int width, int height) {
     const Point result{std::clamp(std::round(point.x), 0.0, static_cast<double>(width - 1)),
                        std::clamp(std::round(point.y), 0.0, static_cast<double>(height - 1))};
     const gui_drawing::PointF projected = view_point({result.x, result.y});
-    const double screen_x = (projected.x - origin.x) * zoom();
-    const double screen_y = (projected.y - origin.y) * zoom();
+    const double screen_x = (projected.x - origin.x) * zoom.read();
+    const double screen_y = (projected.y - origin.y) * zoom.read();
     if (screen_x < 0 || screen_x >= viewport.width || screen_y < 0 || screen_y >= viewport.height) {
         set_view_origin(
-            {origin.x + (screen_x - std::clamp(screen_x, margin, viewport.width - margin)) / zoom(),
-             origin.y + (screen_y - std::clamp(screen_y, margin, viewport.height - margin)) / zoom()});
+            {origin.x + (screen_x - std::clamp(screen_x, margin, viewport.width - margin)) / zoom.read(),
+             origin.y + (screen_y - std::clamp(screen_y, margin, viewport.height - margin)) / zoom.read()});
     }
     return result;
 }
@@ -86,8 +90,19 @@ gui_drawing::PointF PaintCanvas::document_point(gui_drawing::PointF point) const
 gui_drawing::PointF PaintCanvas::client_to_bitmap(gf::Point client) const noexcept {
     return document_point(RasterCanvas::client_to_bitmap(client));
 }
+gf::Point PaintCanvas::bitmap_point_to_client(gui_drawing::PointF point) const noexcept {
+    // RasterCanvas::client_to_bitmap is (client - offset) / zoom, so the
+    // client origin maps to -offset / zoom: the placed origin, which in a
+    // binary view differs from view_origin by the snap (up to 2^-(23 -
+    // reach) device pixels).
+    const gui_drawing::PointF mapped = view_point(point);
+    const gui_drawing::PointF placed = RasterCanvas::client_to_bitmap({0, 0});
+    const double scale = zoom.read();
+    const gf::Point client{(mapped.x - placed.x) * scale, (mapped.y - placed.y) * scale};
+    return client;
+}
 gf::Rect PaintCanvas::bitmap_to_client(gui_drawing::RectI pixels) const noexcept {
-    const gui_drawing::PointF origin = view_origin();
+    const gui_drawing::PointF origin = view_origin.read();
     double left = 1e30, top = 1e30, right = -1e30, bottom = -1e30;
     for (int i = 0; i < 4; ++i) {
         const gui_drawing::PointF point =
@@ -98,8 +113,8 @@ gf::Rect PaintCanvas::bitmap_to_client(gui_drawing::RectI pixels) const noexcept
         top = std::min(top, point.y);
         bottom = std::max(bottom, point.y);
     }
-    return {(left - origin.x) * zoom(), (top - origin.y) * zoom(), (right - left) * zoom(),
-            (bottom - top) * zoom()};
+    return {(left - origin.x) * zoom.read(), (top - origin.y) * zoom.read(), (right - left) * zoom.read(),
+            (bottom - top) * zoom.read()};
 }
 gf::Rect PaintCanvas::view_bounds() const noexcept {
     const gf::LiveSurfaceFrame image = display_surface_ ? (*display_surface_).acquire_latest() : gf::LiveSurfaceFrame{};
@@ -108,8 +123,8 @@ gf::Rect PaintCanvas::view_bounds() const noexcept {
     }
     const gf::Rect bounds =
         bitmap_to_client({0, 0, static_cast<int>(image.width()), static_cast<int>(image.height())});
-    return {bounds.x / zoom() + view_origin().x, bounds.y / zoom() + view_origin().y, bounds.width / zoom(),
-            bounds.height / zoom()};
+    return {bounds.x / zoom.read() + view_origin.read().x, bounds.y / zoom.read() + view_origin.read().y, bounds.width / zoom.read(),
+            bounds.height / zoom.read()};
 }
 gf::Point PaintCanvas::rotation_handle() const noexcept {
     const gf::LiveSurfaceFrame image = display_surface_ ? (*display_surface_).acquire_latest() : gf::LiveSurfaceFrame{};
@@ -124,14 +139,14 @@ gf::Point PaintCanvas::rotation_handle() const noexcept {
         const bool right = corner == 0 || corner == 3, bottom = corner >= 2;
         const gui_drawing::PointF point = view_point({right ? width : 0, bottom ? height : 0});
         const gui_drawing::PointF offset = view_point({right ? 20.0 : -20.0, bottom ? 20.0 : -20.0});
-        const gf::Point candidate{std::clamp((point.x - view_origin().x) * zoom() + offset.x, 14.0,
+        const gf::Point candidate{std::clamp((point.x - view_origin.read().x) * zoom.read() + offset.x, 14.0,
                                              std::max(14.0, viewport.width - 14)),
-                                  std::clamp((point.y - view_origin().y) * zoom() + offset.y, 14.0,
+                                  std::clamp((point.y - view_origin.read().y) * zoom.read() + offset.y, 14.0,
                                              std::max(14.0, viewport.height - 14))};
         const gui_drawing::PointF document = client_to_bitmap(candidate);
         const double dx = std::max({-document.x, document.x - width, 0.0});
         const double dy = std::max({-document.y, document.y - height, 0.0});
-        if (std::hypot(dx, dy) * zoom() >= 14) {
+        if (std::hypot(dx, dy) * zoom.read() >= 14) {
             return candidate;
         }
     }
@@ -149,7 +164,7 @@ void PaintCanvas::stroke_outline(gf::Painter& painter, gui_drawing::RectI pixels
         const gui_drawing::PointF point =
             view_point({static_cast<double>(pixels.x + (i == 1 || i == 2 ? pixels.width : 0)),
                         static_cast<double>(pixels.y + (i >= 2 ? pixels.height : 0))});
-        points[i] = {(point.x - view_origin().x) * zoom(), (point.y - view_origin().y) * zoom()};
+        points[i] = {(point.x - view_origin.read().x) * zoom.read(), (point.y - view_origin.read().y) * zoom.read()};
     }
     for (int i = 0; i < 4; ++i) {
         painter.draw_line(points[i], points[(i + 1) % 4], color, width);
@@ -157,15 +172,102 @@ void PaintCanvas::stroke_outline(gf::Painter& painter, gui_drawing::RectI pixels
 }
 void PaintCanvas::on_attached_to_window() {
     RasterCanvas::on_attached_to_window();
-    update_backing();
+    request_backing();
 }
-void PaintCanvas::update_backing() {
+// One surround tile render: the material asked for, and the worker's result
+// (the tile, or the error that ended it). The worker writes image and error
+// before setting done; the UI thread reads them after joining.
+struct BackingRenderJob {
+    CanvasBacking backing = CanvasBacking::PaleFelt;
+    Image image;
+    std::string error;
+    std::atomic<bool> cancel{false}, done{false};
+};
+namespace {
+struct BackingDelivery {
+    std::weak_ptr<PaintCanvas> canvas;
+    void operator()() const {
+        const std::shared_ptr<PaintCanvas> owner = canvas.lock();
+        if (owner) {
+            (*owner).deliver_backing();
+        }
+    }
+};
+// The worker: renders the tile and posts its delivery to the canvas's
+// window. The canvas joins it before it detaches (stop_backing), so the
+// window it posts to is live until the worker ends.
+struct BackingWork {
+    std::shared_ptr<BackingRenderJob> job;
+    PaintCanvas* dispatcher = nullptr;
+    std::weak_ptr<PaintCanvas> owner;
+    void operator()() const {
+        try {
+            (*job).image = canvas_backing_texture((*job).backing, &(*job).cancel);
+        } catch (const std::exception& error) {
+            (*job).error = error.what();
+        }
+        (*job).done.store(true, std::memory_order_release);
+        if (!(*job).cancel.load()) {
+            static_cast<void>((*dispatcher).begin_invoke(BackingDelivery{owner}));
+        }
+    }
+};
+} // namespace
+CanvasBacking PaintCanvas::chosen_backing() const noexcept {
     const std::shared_ptr<Editor> editor = editor_.lock();
     const CanvasBacking choice = editor ? (*editor).settings.canvas_backing : CanvasBacking::PaleFelt;
-    if (!attached_window() || (backing_.value && choice == loaded_backing_)) {
+    return choice;
+}
+bool PaintCanvas::backing_ready() const noexcept {
+    const bool ready = backing_.value != 0 && loaded_backing_ == chosen_backing();
+    return ready;
+}
+void PaintCanvas::stop_backing() noexcept {
+    if (backing_job_) {
+        (*backing_job_).cancel.store(true);
+    }
+    if (backing_worker_.joinable()) {
+        backing_worker_.join();
+    }
+    backing_job_.reset();
+}
+void PaintCanvas::request_backing() {
+    if (!attached_window()) {
         return;
     }
-    const Image texture = canvas_backing_texture(choice);
+    const CanvasBacking choice = chosen_backing();
+    if (backing_ready()) {
+        // A render for an earlier choice is no longer wanted.
+        stop_backing();
+        return;
+    }
+    if (backing_job_ && (*backing_job_).backing == choice) {
+        return;
+    }
+    stop_backing();
+    backing_job_ = std::make_shared<BackingRenderJob>();
+    (*backing_job_).backing = choice;
+    backing_worker_ = std::thread(
+        BackingWork{backing_job_, this, std::static_pointer_cast<PaintCanvas>(shared_from_this())});
+}
+void PaintCanvas::deliver_backing() {
+    if (!attached_window() || !backing_job_ || !(*backing_job_).done.load(std::memory_order_acquire)) {
+        return;
+    }
+    if (backing_worker_.joinable()) {
+        backing_worker_.join();
+    }
+    const std::shared_ptr<BackingRenderJob> job = std::move(backing_job_);
+    backing_job_.reset();
+    if (!(*job).error.empty()) {
+        // The plain colour stays; the next change of setting asks again.
+        return;
+    }
+    if ((*job).backing != chosen_backing()) {
+        request_backing();
+        return;
+    }
+    const Image& texture = (*job).image;
     std::vector<std::byte> pixels(texture.pixels.size() * 4);
     for (std::size_t index = 0; index < texture.pixels.size(); ++index) {
         const Color color = texture.pixels[index];
@@ -183,10 +285,12 @@ void PaintCanvas::update_backing() {
                   .load_bgra32_premultiplied(texture.width, texture.height, texture.width * 4, pixels);
     if (result) {
         backing_ = result.image;
-        loaded_backing_ = choice;
+        loaded_backing_ = (*job).backing;
     }
+    invalidate(gf::Dirty::paint);
 }
-void PaintCanvas::on_detaching_from_window(gf::Window& former_window) noexcept {
+void PaintCanvas::on_detaching_from_window(gf::SurfaceRoot& former_window) noexcept {
+    stop_backing();
     if (backing_.value) {
         static_cast<void>(former_window.remove_image(backing_));
     }
@@ -215,6 +319,7 @@ void PaintCanvas::on_detaching_from_window(gf::Window& former_window) noexcept {
     RasterCanvas::on_detaching_from_window(former_window);
 }
 void PaintCanvas::on_dispose() noexcept {
+    stop_backing();
     if (backing_.value && window()) {
         static_cast<void>((*window()).remove_image(backing_));
     }
@@ -243,18 +348,37 @@ void PaintCanvas::on_dispose() noexcept {
 void PaintCanvas::on_paint(gf::Painter& painter, gf::Rect damage) {
     gf::Rect bounds = client_rectangle();
     const std::shared_ptr<Editor> editor = editor_.lock();
-    update_backing();
-    if (backing_.value) {
+    // Everything below moves with the view, so a pan copies the painted
+    // canvas (RasterCanvas::set_view). A turned view draws its last frame
+    // moved by the pan until the next frame (paint_rotated); only its
+    // status line keeps to the viewport, so while one shows, a pan repaints.
+    const bool turned = std::abs(view_angle) > 1e-10;
+    const bool status_line = turned && (view_worker_.busy() || !view_error.empty());
+    declare_paint_follows_view(!status_line);
+    // Paint only reads what is ready: the chosen material's tile once the
+    // worker delivered it (request_backing), its plain colour until then.
+    const CanvasBacking choice = chosen_backing();
+    if (backing_ready()) {
+        // The felt's tiles are counted from the sheet's corner, so that the
+        // surround moves with the sheet: the pattern starts whole tiles left
+        // of and above the canvas and is clipped to it.
         const double tile = canvas_backing_tile_size(loaded_backing_);
         const double pixels = loaded_backing_ == CanvasBacking::PaleFelt ? 128 : 512;
-        painter.fill_image_pattern(backing_, {pixels, pixels}, bounds, {tile, tile});
+        const gf::Rect corner = RasterCanvas::bitmap_to_client({0, 0, 1, 1});
+        const double anchor_x = corner.x - tile * std::ceil((corner.x - bounds.x) / tile);
+        const double anchor_y = corner.y - tile * std::ceil((corner.y - bounds.y) / tile);
+        const gf::Rect pattern{anchor_x, anchor_y, bounds.right() - anchor_x, bounds.bottom() - anchor_y};
+        painter.save();
+        painter.clip_rect(bounds);
+        painter.fill_image_pattern(backing_, {pixels, pixels}, pattern, {tile, tile});
+        painter.restore();
     } else {
-        painter.fill_rect(bounds, gf::Color::rgba(208, 218, 226));
+        const Color plain = canvas_backing_color(choice);
+        painter.fill_rect(bounds, gf::Color::rgba(plain.r, plain.g, plain.b));
     }
-    const gf::GradientStop light[] = {{0, gf::Color::rgba(255, 255, 255, 22)},
-                                      {1, gf::Color::rgba(60, 77, 95, 15)}};
-    painter.fill_linear_gradient(bounds, {0, 0}, {0, bounds.height}, light);
-    if (editor && std::abs(view_angle) > 1e-10) {
+    // The surround is opaque, so a pan may copy the canvas's pixels.
+    report_opaque_cover(painter, bounds);
+    if (editor && turned) {
         paint_rotated(painter, *editor);
         return;
     }
@@ -329,10 +453,44 @@ void PaintCanvas::paint_atlas_context(gf::Painter& painter, const Editor& editor
         painter.draw_image(reference_, bitmap_to_client({0, 0, width, height}), 0.5);
     }
 }
+double Editor::tool_preview_reach() const {
+    if (document.curve.line_set || document.tool == Tool::Path || document.tool == Tool::Stamp) {
+        return 0;
+    }
+    const double zoom = (*canvas_).zoom.read();
+    double reach = 0;
+    if (document.tool == Tool::Magnifier || document.tool == Tool::Picker) {
+        // The 64-point lens, its shadow and its "8x" caption.
+        reach = 64 + 10;
+    } else if (document.tool == Tool::Eraser) {
+        reach = std::max(0.5, document.ink.size * 0.5) * zoom + 3;
+    } else if (document.tool == Tool::Pencil) {
+        // The pixel under the cursor (turned with the view, up to its
+        // diagonal away) and its three-point outline.
+        reach = zoom * 1.5 + 4;
+    } else if (document.tool == Tool::Brush && brush_family != BrushFamily::Heal) {
+        reach = 2;
+    }
+    return reach;
+}
+void Editor::invalidate_tool_preview(std::optional<gf::Point> previous) {
+    const double reach = tool_preview_reach();
+    if (reach <= 0) {
+        (*canvas_).invalidate(gf::Dirty::paint);
+        return;
+    }
+    if (previous) {
+        (*canvas_).invalidate(gf::Rect{(*previous).x - reach, (*previous).y - reach, reach * 2, reach * 2});
+    }
+    if (cursor_client_) {
+        (*canvas_).invalidate(
+            gf::Rect{(*cursor_client_).x - reach, (*cursor_client_).y - reach, reach * 2, reach * 2});
+    }
+}
 void Editor::paint_tool_preview(gf::Painter& painter) {
     if (cursor_client_ && document.tool == Tool::Brush && brush_family == BrushFamily::Heal) {
         const gf::Point center = *cursor_client_;
-        const double radius = std::max(2.0, document.ink.size * canvas().zoom() * 0.5);
+        const double radius = std::max(2.0, document.ink.size * canvas().zoom.read() * 0.5);
         const gf::Color white = gf::Color::rgba(255, 255, 255), blue = gf::Color::rgba(25, 98, 162);
         painter.stroke_rounded_rect({center.x - radius, center.y - radius, radius * 2, radius * 2}, radius,
                                     white, 3);
@@ -411,7 +569,7 @@ void Editor::paint_tool_preview(gf::Painter& painter) {
                                gf::Color::rgba(35, 60, 90));
         return;
     }
-    double scale = (*canvas_).zoom();
+    double scale = (*canvas_).zoom.read();
     painter.save();
     painter.clip_rect((*canvas_).bitmap_to_client({0, 0, document.image.width, document.image.height}));
     if (document.tool == Tool::Pencil && !dragging_) {
@@ -484,6 +642,7 @@ struct ViewCompletion {
 };
 } // namespace
 PaintCanvas::~PaintCanvas() {
+    stop_backing();
     view_worker_.cancel();
     view_worker_.wait();
 }
@@ -574,20 +733,47 @@ void PaintCanvas::poll_view() {
     prepare_display();
     invalidate(gf::Dirty::paint);
 }
+void PaintCanvas::apply_view(double scale, gui_drawing::PointF origin) {
+    const std::shared_ptr<Editor> editor = editor_.lock();
+    const bool handle = editor && (*editor).settings.rotate_view;
+    const gf::Point handle_before = handle ? rotation_handle() : gf::Point{};
+    const gf::Point anchor_before = view_anchor();
+    RasterCanvas::set_view(scale, origin);
+    if (editor && (*editor).text.active) {
+        // The canvas text's editor follows the box on screen.
+        (*editor).sync_canvas_text();
+    }
+    if (!handle) {
+        return;
+    }
+    // The handle (Editor::paint_canvas_overlay) is clamped to the
+    // viewport, so it does not follow the view that the scroll copy moves:
+    // damage it where the copy put its old pixels and where it is now
+    // (Control::scroll_content leaves stationary paint to the caller). Its
+    // face is 24 units round with a one-unit outline.
+    constexpr double reach = 14;
+    const gf::Point anchor_after = view_anchor();
+    const gf::Point copied{handle_before.x + (anchor_after.x - anchor_before.x),
+                           handle_before.y + (anchor_after.y - anchor_before.y)};
+    const gf::Point handle_after = rotation_handle();
+    invalidate(gf::Rect{copied.x - reach, copied.y - reach, 2 * reach, 2 * reach});
+    invalidate(gf::Rect{handle_after.x - reach, handle_after.y - reach, 2 * reach, 2 * reach});
+}
 void PaintCanvas::set_zoom(double scale) {
-    RasterCanvas::set_zoom(scale);
+    apply_view(scale, view_origin.read());
     prepare_display();
 }
 void PaintCanvas::set_view_origin(gui_drawing::PointF origin) {
-    RasterCanvas::set_view_origin(origin);
+    apply_view(zoom.read(), origin);
     prepare_display();
 }
 void PaintCanvas::set_view(double scale, gui_drawing::PointF origin) {
-    RasterCanvas::set_view(scale, origin);
+    apply_view(scale, origin);
     prepare_display();
 }
 void PaintCanvas::arrange(gf::Rect bounds) {
     RasterCanvas::arrange(bounds);
+    request_backing();
     prepare_display();
 }
 void PaintCanvas::preparation_frame(gf::FrameTime now) {
@@ -630,122 +816,213 @@ void PaintCanvas::render_display() {
     }
     const Editor& editor = *owner;
     const gf::Rect viewport = client_rectangle();
-    const gui_drawing::PointF origin = view_origin();
+    const gui_drawing::PointF origin = view_origin.read();
+    const double scale = zoom.read();
     const int width = std::max(1, static_cast<int>(std::ceil(viewport.width)));
     const int height = std::max(1, static_cast<int>(std::ceil(viewport.height)));
     const std::uint64_t generation =
         source_generation_ * 2 + (prepared_generation_ == source_generation_ ? 1 : 0);
-    if (!rotated_.value || rendered_generation_ != generation ||
-        rendered_revision_ != editor.canvas_revision || rendered_angle_ != view_angle ||
-        rendered_zoom_ != zoom() || rendered_origin_.x != origin.x || rendered_origin_.y != origin.y ||
-        rendered_size_.width != width || rendered_size_.height != height) {
+    const bool same_frame = rotated_.value && rendered_generation_ == generation &&
+                            rendered_revision_ == editor.canvas_revision && rendered_angle_ == view_angle &&
+                            rendered_zoom_ == scale && rendered_size_.width == width &&
+                            rendered_size_.height == height &&
+                            rotated_pixels_.size() == static_cast<std::size_t>(width) * height * 4;
+    if (same_frame && rendered_origin_.x == origin.x && rendered_origin_.y == origin.y) {
+        return;
+    }
+    const bool prepared = view_field_ && prepared_generation_ == source_generation_;
+    const gf::Point anchor = view_anchor();
+    // A pan alone moves the frame by whole units when the anchor moved by
+    // whole units and the samples moved with it (the origin's change times
+    // the zoom is that same whole number): the kept pixels are then exactly
+    // the ones a whole render would write, and only the exposed bands are
+    // rendered. Anything else renders the whole frame.
+    const double anchor_x = anchor.x - rendered_anchor_.x, anchor_y = anchor.y - rendered_anchor_.y;
+    const double sample_x = (rendered_origin_.x - origin.x) * scale;
+    const double sample_y = (rendered_origin_.y - origin.y) * scale;
+    const double shift_x = std::round(anchor_x), shift_y = std::round(anchor_y);
+    constexpr double tolerance = 1e-6;
+    const bool whole_shift = same_frame && std::abs(anchor_x - shift_x) < tolerance &&
+                             std::abs(anchor_y - shift_y) < tolerance && std::abs(sample_x - shift_x) < tolerance &&
+                             std::abs(sample_y - shift_y) < tolerance && std::abs(shift_x) < width &&
+                             std::abs(shift_y) < height;
+    if (whole_shift) {
+        shift_rotated_frame(editor, prepared, static_cast<int>(shift_x), static_cast<int>(shift_y));
+    } else {
         ++work_statistics_.view_renders;
-        Image result;
-        const double c = std::cos(view_angle), s = std::sin(view_angle), scale = zoom();
-        const bool prepared = view_field_ && prepared_generation_ == source_generation_;
-        if (prepared) {
-            // Image-field coordinates address pixel centres; canvas coordinates address pixel edges.
-            const AffineMap map{c * scale, -s * scale, (0.5 * c - 0.5 * s - origin.x) * scale - 0.5,
-                                s * scale, c * scale,  (0.5 * s + 0.5 * c - origin.y) * scale - 0.5};
-            render_affine(*view_field_, map, width, height, result, WarpSampling::Point);
-        } else {
-            result.reset(width, height, {0, 0, 0, 0});
-        }
-        std::vector<std::byte> pixels(static_cast<std::size_t>(width) * height * 4);
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
-                const double vx = (x + 0.5) / scale + origin.x;
-                const double vy = (y + 0.5) / scale + origin.y;
-                const gui_drawing::PointF point{c * vx + s * vy, -s * vx + c * vy};
-                const int sx = static_cast<int>(std::floor(point.x)),
-                          sy = static_cast<int>(std::floor(point.y));
-                const std::size_t index = static_cast<std::size_t>(y) * width + x;
-                Color color = result.pixels[index];
-                const bool inside = view_source_.contains(sx, sy);
-                const bool wrapped = !inside && editor.atlas_wrap && editor.document.atlas.active >= 0 &&
-                                     sx >= -view_source_.width && sx < 2 * view_source_.width &&
-                                     sy >= -view_source_.height && sy < 2 * view_source_.height;
-                if (inside || wrapped) {
-                    // Source edits appear at once while the new CONV field prepares in the worker.
-                    if (wrapped) {
-                        color = editor.document.image.get(
-                            (sx % view_source_.width + view_source_.width) % view_source_.width,
-                            (sy % view_source_.height + view_source_.height) % view_source_.height);
-                    } else if (!prepared) {
-                        color = view_source_.get(sx, sy);
-                    }
-                    const int grid = ((static_cast<int>(std::floor(point.x * scale / 12)) +
-                                       static_cast<int>(std::floor(point.y * scale / 12))) &
-                                      1)
-                                         ? 240
-                                         : 255;
-                    const Color background =
-                        editor.settings.solid_transparency
-                            ? editor.settings.transparency_color
-                            : Color{static_cast<std::uint8_t>(grid), static_cast<std::uint8_t>(grid),
-                                    static_cast<std::uint8_t>(grid), 255};
+        rendered_zoom_ = scale;
+        rendered_angle_ = view_angle;
+        rendered_origin_ = origin;
+        rendered_size_ = {static_cast<double>(width), static_cast<double>(height)};
+        rotated_pixels_.assign(static_cast<std::size_t>(width) * height * 4, std::byte{0});
+        render_rotated_area(editor, prepared, 0, 0, width, height);
+    }
+    const gf::ImageLoadResult uploaded =
+        rotated_.value
+            ? (*window()).replace_bgra32_premultiplied(rotated_, width, height, width * 4, rotated_pixels_, *this)
+            : (*window()).load_bgra32_premultiplied(width, height, width * 4, rotated_pixels_);
+    if (!uploaded) {
+        // The next render starts afresh: the kept pixels no longer match an
+        // uploaded frame.
+        rendered_generation_ = 0;
+        view_error = tr("Unable to allocate the rotated view.");
+        return;
+    }
+    rotated_ = uploaded.image;
+    rendered_generation_ = generation;
+    rendered_revision_ = editor.canvas_revision;
+    rendered_angle_ = view_angle;
+    rendered_zoom_ = scale;
+    rendered_origin_ = origin;
+    rendered_anchor_ = anchor;
+    rendered_size_ = {static_cast<double>(width), static_cast<double>(height)};
+}
+void PaintCanvas::shift_rotated_frame(const Editor& editor, bool prepared, int shift_x, int shift_y) {
+    const int width = static_cast<int>(rendered_size_.width), height = static_cast<int>(rendered_size_.height);
+    const std::size_t stride = static_cast<std::size_t>(width) * 4;
+    // The kept columns: source [kept_left, kept_left + kept_columns) lands
+    // at kept_left + shift_x. Rows are moved in the order that never reads
+    // a row already overwritten.
+    const int kept_left = std::max(0, -shift_x);
+    const int kept_columns = width - std::abs(shift_x);
+    const int kept_rows = height - std::abs(shift_y);
+    const std::size_t kept_bytes = static_cast<std::size_t>(kept_columns) * 4;
+    for (int step = 0; step < kept_rows; ++step) {
+        const int source_row = shift_y > 0 ? kept_rows - 1 - step : std::max(0, -shift_y) + step;
+        const int target_row = source_row + shift_y;
+        std::byte* const target = rotated_pixels_.data() + static_cast<std::size_t>(target_row) * stride +
+                                  static_cast<std::size_t>(kept_left + shift_x) * 4;
+        const std::byte* const source =
+            rotated_pixels_.data() + static_cast<std::size_t>(source_row) * stride + static_cast<std::size_t>(kept_left) * 4;
+        std::memmove(target, source, kept_bytes);
+    }
+    // Moving changes the samples' origin: the bands below use the new one.
+    rendered_origin_ = view_origin.read();
+    const int band_rows = std::abs(shift_y);
+    const int band_top = shift_y > 0 ? 0 : height - band_rows;
+    const int rest_top = shift_y > 0 ? band_rows : 0;
+    const int band_columns = std::abs(shift_x);
+    const int band_left = shift_x > 0 ? 0 : width - band_columns;
+    if (band_rows > 0) {
+        render_rotated_area(editor, prepared, 0, band_top, width, band_rows);
+    }
+    if (band_columns > 0 && kept_rows > 0) {
+        render_rotated_area(editor, prepared, band_left, rest_top, band_columns, kept_rows);
+    }
+    ++work_statistics_.view_shifts;
+    work_statistics_.view_shift_pixels += static_cast<std::uint64_t>(band_rows) * width +
+                                          static_cast<std::uint64_t>(band_columns) * kept_rows;
+}
+void PaintCanvas::render_rotated_area(const Editor& editor, bool prepared, int left, int top, int columns,
+                                      int rows) {
+    const int width = static_cast<int>(rendered_size_.width);
+    const gui_drawing::PointF origin = view_origin.read();
+    const double c = std::cos(view_angle), s = std::sin(view_angle), scale = zoom.read();
+    Image area;
+    if (prepared) {
+        // Image-field coordinates address pixel centres; canvas coordinates
+        // address pixel edges. The area's own origin is subtracted from the
+        // map's translation (render_affine's contract).
+        const AffineMap map{c * scale, -s * scale, (0.5 * c - 0.5 * s - origin.x) * scale - 0.5 - left,
+                            s * scale, c * scale,  (0.5 * s + 0.5 * c - origin.y) * scale - 0.5 - top};
+        render_affine(*view_field_, map, columns, rows, area, WarpSampling::Point);
+    } else {
+        area.reset(columns, rows, {0, 0, 0, 0});
+    }
+    if (area.pixels.size() != static_cast<std::size_t>(columns) * rows) {
+        // A map render_affine refuses leaves the area unwritten: transparent.
+        area.reset(columns, rows, {0, 0, 0, 0});
+    }
+    std::byte* const pixels = rotated_pixels_.data();
+    for (int y = top; y < top + rows; ++y) {
+        for (int x = left; x < left + columns; ++x) {
+            const double vx = (x + 0.5) / scale + origin.x;
+            const double vy = (y + 0.5) / scale + origin.y;
+            const gui_drawing::PointF point{c * vx + s * vy, -s * vx + c * vy};
+            const int sx = static_cast<int>(std::floor(point.x)),
+                      sy = static_cast<int>(std::floor(point.y));
+            const std::size_t index = static_cast<std::size_t>(y) * width + x;
+            Color color = area.pixels[static_cast<std::size_t>(y - top) * columns + (x - left)];
+            const bool inside = view_source_.contains(sx, sy);
+            const bool wrapped = !inside && editor.atlas_wrap && editor.document.atlas.active >= 0 &&
+                                 sx >= -view_source_.width && sx < 2 * view_source_.width &&
+                                 sy >= -view_source_.height && sy < 2 * view_source_.height;
+            if (inside || wrapped) {
+                // Source edits appear at once while the new CONV field prepares in the worker.
+                if (wrapped) {
+                    color = editor.document.image.get(
+                        (sx % view_source_.width + view_source_.width) % view_source_.width,
+                        (sy % view_source_.height + view_source_.height) % view_source_.height);
+                } else if (!prepared) {
+                    color = view_source_.get(sx, sy);
+                }
+                const int grid = ((static_cast<int>(std::floor(point.x * scale / 12)) +
+                                   static_cast<int>(std::floor(point.y * scale / 12))) &
+                                  1)
+                                     ? 240
+                                     : 255;
+                const Color background =
+                    editor.settings.solid_transparency
+                        ? editor.settings.transparency_color
+                        : Color{static_cast<std::uint8_t>(grid), static_cast<std::uint8_t>(grid),
+                                static_cast<std::uint8_t>(grid), 255};
+                color.r = static_cast<std::uint8_t>(
+                    (color.r * color.a + background.r * (255 - color.a) + 127) / 255);
+                color.g = static_cast<std::uint8_t>(
+                    (color.g * color.a + background.g * (255 - color.a) + 127) / 255);
+                color.b = static_cast<std::uint8_t>(
+                    (color.b * color.a + background.b * (255 - color.a) + 127) / 255);
+                color.a = 255;
+                if (inside && editor.document.atlas.active >= 0) {
+                    const Color reference = editor.atlas_reference.get(sx, sy);
+                    const double alpha = reference.a / 510.0;
                     color.r = static_cast<std::uint8_t>(
-                        (color.r * color.a + background.r * (255 - color.a) + 127) / 255);
+                        std::lround(color.r * (1 - alpha) + reference.r * alpha));
                     color.g = static_cast<std::uint8_t>(
-                        (color.g * color.a + background.g * (255 - color.a) + 127) / 255);
+                        std::lround(color.g * (1 - alpha) + reference.g * alpha));
                     color.b = static_cast<std::uint8_t>(
-                        (color.b * color.a + background.b * (255 - color.a) + 127) / 255);
-                    color.a = 255;
-                    if (inside && editor.document.atlas.active >= 0) {
-                        const Color reference = editor.atlas_reference.get(sx, sy);
-                        const double alpha = reference.a / 510.0;
-                        color.r = static_cast<std::uint8_t>(
-                            std::lround(color.r * (1 - alpha) + reference.r * alpha));
-                        color.g = static_cast<std::uint8_t>(
-                            std::lround(color.g * (1 - alpha) + reference.g * alpha));
-                        color.b = static_cast<std::uint8_t>(
-                            std::lround(color.b * (1 - alpha) + reference.b * alpha));
-                        if (editor.document.atlas.kind == AtlasKind::Icon ||
-                            editor.document.atlas.kind == AtlasKind::Cursor) {
-                            const IconFrame& frame =
-                                editor.document.atlas.icons[editor.document.atlas.active];
-                            const std::size_t pixel = static_cast<std::size_t>(sy) * view_source_.width + sx;
-                            if (frame.image.width == view_source_.width &&
-                                frame.image.height == view_source_.height &&
-                                pixel < frame.xor_pixels.size() && legacy_xor_pixel(frame, pixel) &&
-                                equal(editor.document.image.get(sx, sy), {255, 255, 255, 0})) {
-                                const Color mask = frame.xor_pixels[pixel];
-                                color.r ^= mask.r;
-                                color.g ^= mask.g;
-                                color.b ^= mask.b;
-                            }
+                        std::lround(color.b * (1 - alpha) + reference.b * alpha));
+                    if (editor.document.atlas.kind == AtlasKind::Icon ||
+                        editor.document.atlas.kind == AtlasKind::Cursor) {
+                        const IconFrame& frame =
+                            editor.document.atlas.icons[editor.document.atlas.active];
+                        const std::size_t pixel = static_cast<std::size_t>(sy) * view_source_.width + sx;
+                        if (frame.image.width == view_source_.width &&
+                            frame.image.height == view_source_.height &&
+                            pixel < frame.xor_pixels.size() && legacy_xor_pixel(frame, pixel) &&
+                            equal(editor.document.image.get(sx, sy), {255, 255, 255, 0})) {
+                            const Color mask = frame.xor_pixels[pixel];
+                            color.r ^= mask.r;
+                            color.g ^= mask.g;
+                            color.b ^= mask.b;
                         }
                     }
                 }
-                pixels[index * 4] = static_cast<std::byte>(color.b * color.a / 255);
-                pixels[index * 4 + 1] = static_cast<std::byte>(color.g * color.a / 255);
-                pixels[index * 4 + 2] = static_cast<std::byte>(color.r * color.a / 255);
-                pixels[index * 4 + 3] = static_cast<std::byte>(color.a);
             }
+            pixels[index * 4] = static_cast<std::byte>(color.b * color.a / 255);
+            pixels[index * 4 + 1] = static_cast<std::byte>(color.g * color.a / 255);
+            pixels[index * 4 + 2] = static_cast<std::byte>(color.r * color.a / 255);
+            pixels[index * 4 + 3] = static_cast<std::byte>(color.a);
         }
-        const gf::ImageLoadResult uploaded =
-            rotated_.value
-                ? (*window()).replace_bgra32_premultiplied(rotated_, width, height, width * 4, pixels, *this)
-                : (*window()).load_bgra32_premultiplied(width, height, width * 4, pixels);
-        if (!uploaded) {
-            view_error = tr("Unable to allocate the rotated view.");
-            return;
-        }
-        rotated_ = uploaded.image;
-        rendered_generation_ = generation;
-        rendered_revision_ = editor.canvas_revision;
-        rendered_angle_ = view_angle;
-        rendered_zoom_ = zoom();
-        rendered_origin_ = origin;
-        rendered_size_ = {static_cast<double>(width), static_cast<double>(height)};
     }
+}
+gf::Point PaintCanvas::view_anchor() const noexcept {
+    const gf::Rect corner = RasterCanvas::bitmap_to_client({0, 0, 1, 1});
+    const gf::Point anchor{corner.x, corner.y};
+    return anchor;
 }
 void PaintCanvas::paint_rotated(gf::Painter& painter, const Editor&) {
     // Native hosts synchronize image resources before entering paint. Publish
     // replacements from input/layout/worker delivery, never from this callback.
     const gf::Rect viewport = client_rectangle();
     if (rotated_.value) {
-        painter.draw_image(rotated_, {0, 0, rendered_size_.width, rendered_size_.height});
+        // The frame was rendered with the bitmap's origin at
+        // rendered_anchor_; a pan since moved the painted canvas by the
+        // anchor's change, and the frame is drawn moved by as much.
+        const gf::Point anchor = view_anchor();
+        const gf::Rect frame{anchor.x - rendered_anchor_.x, anchor.y - rendered_anchor_.y, rendered_size_.width,
+                             rendered_size_.height};
+        painter.draw_image(rotated_, frame);
     }
     stroke_outline(painter, {0, 0, view_source_.width, view_source_.height},
                    gf::Color::rgba(93, 111, 130, 155), 1);
@@ -775,7 +1052,7 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
     const gf::Point window_origin = point_to_window({0, 0});
     const double sheet_x = (window_origin.x + sheet.x) * device_scale;
     const double sheet_y = (window_origin.y + sheet.y) * device_scale;
-    if (frame.opaque() && std::abs(zoom() * device_scale - 1.0) < 1e-10 &&
+    if (frame.opaque() && std::abs(zoom.read() * device_scale - 1.0) < 1e-10 &&
         std::abs(sheet_x - std::round(sheet_x)) < 1e-10 &&
         std::abs(sheet_y - std::round(sheet_y)) < 1e-10) {
         // Native-order, pixel-aligned opaque artwork needs no viewport conversion.
@@ -793,52 +1070,180 @@ void PaintCanvas::paint_display(gf::Painter& painter) {
     const gf::Rect destination{left / device_scale - window_origin.x, top / device_scale - window_origin.y,
         width / device_scale, height / device_scale};
     const gf::LiveSurfacePixelFormat format = gf::native_live_surface_pixel_format();
-    if (!viewport_surface_ || viewport_generation_ != frame.generation() || viewport_source_ != display_surface_ ||
-        viewport_bounds_ != destination || viewport_zoom_ != zoom() || viewport_origin_.x != view_origin().x ||
-        viewport_origin_.y != view_origin().y || viewport_scale_ != device_scale) {
-        if (!viewport_surface_ || (*viewport_surface_).snapshot().description.width != static_cast<unsigned>(width) ||
-            (*viewport_surface_).snapshot().description.height != static_cast<unsigned>(height)) {
-            viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width), static_cast<unsigned>(height),
-                format, gf::default_live_surface_buffer_count, true});
-        }
-        gf::LiveSurfaceWriteLease write = (*viewport_surface_).try_acquire_write();
-        if (!write) {
-            viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width), static_cast<unsigned>(height),
-                format, gf::default_live_surface_buffer_count, true});
-            write = (*viewport_surface_).try_acquire_write();
-        }
+    const unsigned surface_width = viewport_surface_ ? (*viewport_surface_).snapshot().description.width : 0U;
+    const unsigned surface_height = viewport_surface_ ? (*viewport_surface_).snapshot().description.height : 0U;
+    // The same view as the last conversion: only the picture changed. A
+    // generation of zero is a forced redo (the checker colours changed).
+    const bool same_view = viewport_surface_ && viewport_generation_ != 0 && viewport_source_ == display_surface_ &&
+        viewport_bounds_ == destination && viewport_zoom_ == zoom.read() && viewport_origin_.x == view_origin.read().x &&
+        viewport_origin_.y == view_origin.read().y && viewport_scale_ == device_scale &&
+        surface_width == static_cast<unsigned>(width) && surface_height == static_cast<unsigned>(height) &&
+        viewport_columns_.size() == static_cast<std::size_t>(width);
+    if (!same_view || viewport_generation_ != frame.generation()) {
         const bool bgra = format == gf::LiveSurfacePixelFormat::bgra32_premultiplied_srgb;
-        const double tile = transparency_cell_size() > 0 ? transparency_cell_size() : 12.0;
-        for (int y = 0; y < height; ++y) {
-            const double cy = destination.y + (y + 0.5) / device_scale;
-            const int sy = std::clamp(static_cast<int>(std::floor(cy / zoom() + view_origin().y)),
-                0, static_cast<int>(frame.height()) - 1);
-            std::byte* row = write.pixels().data() + y * write.row_bytes();
+        const double tile = transparency_cell_size.read() > 0 ? transparency_cell_size.read() : 12.0;
+        const double scale = zoom.read();
+        const int source_width = static_cast<int>(frame.width());
+        const int source_height = static_cast<int>(frame.height());
+        // Only the picture changed: convert just the output pixels showing
+        // the source pixels published since the last conversion, over the
+        // previous contents, and publish that rectangle alone.
+        bool partial = same_view && viewport_dirty_.w > 0 && viewport_dirty_.h > 0;
+        gf::LiveSurfaceWriteLease write;
+        if (partial) {
+            write = (*viewport_surface_).try_acquire_write(true);
+            partial = static_cast<bool>(write);
+        }
+        // A pan alone (the same picture, zoom, scale and output rectangle)
+        // by whole device pixels: the kept pixels move by the pan and only
+        // the band it exposed is converted. Sampling and checker cells are
+        // counted from the sheet's corner, so the moved pixels equal a fresh
+        // conversion.
+        const double shift_x = (sheet.x - viewport_sheet_.x) * device_scale;
+        const double shift_y = (sheet.y - viewport_sheet_.y) * device_scale;
+        bool moved = !partial && viewport_surface_ && viewport_generation_ != 0 &&
+            viewport_generation_ == frame.generation() && viewport_source_ == display_surface_ &&
+            viewport_bounds_ == destination && viewport_zoom_ == scale && viewport_scale_ == device_scale &&
+            surface_width == static_cast<unsigned>(width) && surface_height == static_cast<unsigned>(height) &&
+            viewport_columns_.size() == static_cast<std::size_t>(width) && shift_x == std::round(shift_x) &&
+            shift_y == std::round(shift_y) && std::abs(shift_x) < width && std::abs(shift_y) < height;
+        if (moved) {
+            write = (*viewport_surface_).try_acquire_write(true);
+            moved = static_cast<bool>(write);
+        }
+        const int move_x = moved ? static_cast<int>(shift_x) : 0;
+        const int move_y = moved ? static_cast<int>(shift_y) : 0;
+        if (moved) {
+            // Rows are moved in the order that never overwrites a row still
+            // to move; within a row, memmove handles the overlap.
+            const std::size_t row_bytes = write.row_bytes();
+            const std::size_t kept_bytes = static_cast<std::size_t>(width - std::abs(move_x)) * 4;
+            const std::size_t to_column = static_cast<std::size_t>(std::max(0, move_x)) * 4;
+            const std::size_t from_column = static_cast<std::size_t>(std::max(0, -move_x)) * 4;
+            std::byte* const pixels = write.pixels().data();
+            if (move_y > 0) {
+                for (int y = height - 1; y >= move_y; --y) {
+                    std::memmove(pixels + static_cast<std::size_t>(y) * row_bytes + to_column,
+                                 pixels + static_cast<std::size_t>(y - move_y) * row_bytes + from_column, kept_bytes);
+                }
+            } else {
+                for (int y = 0; y < height + move_y; ++y) {
+                    std::memmove(pixels + static_cast<std::size_t>(y) * row_bytes + to_column,
+                                 pixels + static_cast<std::size_t>(y - move_y) * row_bytes + from_column, kept_bytes);
+                }
+            }
+        }
+        if (!partial) {
+            if (!moved) {
+                if (!viewport_surface_ || surface_width != static_cast<unsigned>(width) ||
+                    surface_height != static_cast<unsigned>(height)) {
+                    viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width),
+                        static_cast<unsigned>(height), format, gf::default_live_surface_buffer_count, true});
+                }
+                write = (*viewport_surface_).try_acquire_write();
+                if (!write) {
+                    viewport_surface_ = gf::LiveSurface::create({static_cast<unsigned>(width),
+                        static_cast<unsigned>(height), format, gf::default_live_surface_buffer_count, true});
+                    write = (*viewport_surface_).try_acquire_write();
+                }
+            }
+            // Each output column samples one source column and lies in one
+            // checker column; both are worked out once per view, not per
+            // pixel (a pan at device scale 2 converts some three million pixels).
+            viewport_columns_.resize(static_cast<std::size_t>(width));
+            viewport_cells_.resize(static_cast<std::size_t>(width));
             for (int x = 0; x < width; ++x) {
                 const double cx = destination.x + (x + 0.5) / device_scale;
-                const int sx = std::clamp(static_cast<int>(std::floor(cx / zoom() + view_origin().x)),
-                    0, static_cast<int>(frame.width()) - 1);
-                const std::byte* pixel = frame.pixels().data() + sy * frame.row_bytes() + sx * 4;
-                const bool second = ((static_cast<int>((cx - visible.x) / tile) +
-                                      static_cast<int>((cy - visible.y) / tile)) & 1) == 0;
-                const gf::Color background = second ? transparency_second_ : transparency_first_;
+                const int sx = std::clamp(static_cast<int>(std::floor((cx - sheet.x) / scale)), 0, source_width - 1);
+                viewport_columns_[static_cast<std::size_t>(x)] = static_cast<std::size_t>(sx) * 4;
+                viewport_cells_[static_cast<std::size_t>(x)] = static_cast<int>((cx - sheet.x) / tile);
+            }
+        }
+        // After a moved pan: the exposed columns, converted on every row,
+        // and the exposed rows, converted whole.
+        const int band_begin = move_x > 0 ? 0 : width + move_x;
+        const int band_end = move_x > 0 ? move_x : width;
+        // The output columns and rows to convert: all, or those whose source
+        // column and row lie in the published damage (the tables are monotonic).
+        int column_begin = 0;
+        int column_end = width;
+        if (partial) {
+            const std::size_t dirty_left = static_cast<std::size_t>(std::max(0, viewport_dirty_.x)) * 4;
+            const std::size_t dirty_right =
+                static_cast<std::size_t>(std::max(0, viewport_dirty_.x + viewport_dirty_.w)) * 4;
+            column_begin = width;
+            column_end = 0;
+            for (int x = 0; x < width; ++x) {
+                const std::size_t offset = viewport_columns_[static_cast<std::size_t>(x)];
+                if (offset >= dirty_left && offset < dirty_right) {
+                    column_begin = std::min(column_begin, x);
+                    column_end = x + 1;
+                }
+            }
+        }
+        // The two checker colours in output byte order (blue first for BGRA).
+        const unsigned first[3] = {bgra ? transparency_first_.blue : transparency_first_.red, transparency_first_.green,
+                                   bgra ? transparency_first_.red : transparency_first_.blue};
+        const unsigned second_colour[3] = {bgra ? transparency_second_.blue : transparency_second_.red,
+                                           transparency_second_.green,
+                                           bgra ? transparency_second_.red : transparency_second_.blue};
+        int row_begin = height;
+        int row_end = 0;
+        std::uint64_t converted = 0;
+        for (int y = 0; y < height && column_begin < column_end; ++y) {
+            const double cy = destination.y + (y + 0.5) / device_scale;
+            const int sy = std::clamp(static_cast<int>(std::floor((cy - sheet.y) / scale)), 0, source_height - 1);
+            if (partial && (sy < viewport_dirty_.y || sy >= viewport_dirty_.y + viewport_dirty_.h)) {
+                continue;
+            }
+            int row_first = column_begin;
+            int row_last = column_end;
+            if (moved) {
+                const bool exposed_row = move_y > 0 ? y < move_y : y >= height + move_y;
+                if (!exposed_row) {
+                    row_first = band_begin;
+                    row_last = band_end;
+                }
+                if (row_first >= row_last) {
+                    continue;
+                }
+            }
+            row_begin = std::min(row_begin, y);
+            row_end = y + 1;
+            converted += static_cast<std::uint64_t>(row_last - row_first);
+            const int row_cell = static_cast<int>((cy - sheet.y) / tile);
+            const std::byte* source_row = frame.pixels().data() + static_cast<std::size_t>(sy) * frame.row_bytes();
+            std::byte* row = write.pixels().data() + static_cast<std::size_t>(y) * write.row_bytes();
+            for (int x = row_first; x < row_last; ++x) {
+                const std::byte* pixel = source_row + viewport_columns_[static_cast<std::size_t>(x)];
+                const bool second = ((viewport_cells_[static_cast<std::size_t>(x)] + row_cell) & 1) == 0;
+                const unsigned* background = second ? second_colour : first;
                 const unsigned inverse = 255U - std::to_integer<unsigned>(pixel[3]);
                 row[x * 4] = static_cast<std::byte>(std::to_integer<unsigned>(pixel[0]) +
-                    ((bgra ? background.blue : background.red) * inverse + 127U) / 255U);
+                    (background[0] * inverse + 127U) / 255U);
                 row[x * 4 + 1] = static_cast<std::byte>(std::to_integer<unsigned>(pixel[1]) +
-                    (background.green * inverse + 127U) / 255U);
+                    (background[1] * inverse + 127U) / 255U);
                 row[x * 4 + 2] = static_cast<std::byte>(std::to_integer<unsigned>(pixel[2]) +
-                    ((bgra ? background.red : background.blue) * inverse + 127U) / 255U);
+                    (background[2] * inverse + 127U) / 255U);
                 row[x * 4 + 3] = std::byte{255};
             }
         }
-        static_cast<void>(write.publish());
+        if (!partial) {
+            static_cast<void>(write.publish());
+        } else if (row_begin < row_end) {
+            static_cast<void>(write.publish({static_cast<double>(column_begin), static_cast<double>(row_begin),
+                static_cast<double>(column_end - column_begin), static_cast<double>(row_end - row_begin)}));
+        }
+        ++work_statistics_.viewport_conversions;
+        work_statistics_.viewport_converted_pixels += converted;
+        viewport_dirty_ = {};
         viewport_generation_ = frame.generation();
         viewport_source_ = display_surface_;
         viewport_bounds_ = destination;
-        viewport_zoom_ = zoom();
-        viewport_origin_ = view_origin();
+        viewport_zoom_ = zoom.read();
+        viewport_origin_ = view_origin.read();
         viewport_scale_ = device_scale;
+        viewport_sheet_ = {sheet.x, sheet.y};
     }
     painter.draw_live_surface(viewport_surface_, destination);
 }

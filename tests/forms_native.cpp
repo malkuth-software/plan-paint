@@ -3,12 +3,23 @@
 #include "safe_file.hpp"
 #include "fixtures/icon_reference.hpp"
 #include "forms/editor.hpp"
+#include "canvas_backing.hpp"
+#include "forms/ribbon.hpp"
 #include "native_clipboard.hpp"
 #include "paths.hpp"
+#include "plan_paint_theme.hpp"
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
+#include <gui_forms/controls/ribbon.hpp>
+#include <gui_forms/engine/part_table/engine_part_table.hpp>
+#include <map>
+#include <optional>
+#include <stxlib/optional.hpp>
 #include <gui_forms/paint_framebuffer.hpp>
 #include <gui_forms/timer.hpp>
 #include <iostream>
@@ -19,6 +30,160 @@
 #endif
 namespace {
 namespace gf = gui_forms;
+// The editor under test, for the helpers below (set once it exists).
+paint::forms::Editor* native_editor = nullptr;
+// A control by ID in the editor's window or, when a dialog has its own
+// window, in that window.
+gf::Control::Ptr find_shown(gf::Window& window, const std::string& id) {
+    gf::Control::Ptr found = window.find(id);
+    if (!found && native_editor != nullptr && (*native_editor).dialog_window() != nullptr) {
+        found = (*(*native_editor).dialog_window()).find(id);
+    }
+    return found;
+}
+// Runs the posted work of the editor's window and of a dialog's own window
+// (a dialog's background jobs deliver to the dialog's window).
+void drain_all(gf::Window& window) {
+    static_cast<void>(window.drain_posted_work());
+    if (native_editor != nullptr && (*native_editor).dialog_window() != nullptr) {
+        static_cast<void>((*(*native_editor).dialog_window()).drain_posted_work());
+    }
+}
+// The ribbon's commands and tabs are parts of gf::Ribbon ("ribbon-bar"), not
+// controls; hosted fields are its children "ribbon-bar.<id>".
+// The control a ribbon command hosts, wherever it is (on the plane, in an
+// open folded group's overlay, or held while its group is folded).
+gf::Control::Ptr hosted_control(gf::Window& window, const std::string& id) {
+    const gf::Control::Ptr found = find_shown(window, "ribbon-bar." + id);
+    if (found) {
+        return found;
+    }
+    const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(find_shown(window, "ribbon-bar"));
+    if (!bar) {
+        return nullptr;
+    }
+    // Each accessor throws std::out_of_range for a command of another kind.
+    try {
+        return (*bar).combo_box(id);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        return (*bar).numeric_up_down(id);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        return (*bar).check_box(id);
+    } catch (const std::out_of_range&) {
+    }
+    try {
+        return (*bar).text_box(id);
+    } catch (const std::out_of_range&) {
+    }
+    return nullptr;
+}
+// The window rectangle of a realized command's visible part: a button's
+// face, or (a hosted command has no face of its own) the part of the control
+// it hosts; none when nothing of it shows. `origin` is the window position
+// the parts are relative to.
+std::optional<gf::Rect> command_part_bounds(const gf::Ribbon::CommandParts& parts, gf::Rect origin) {
+    const gf::PartGeometry* const shown[] = {&parts.command_face,          &parts.command_combo_box,
+                                             &parts.command_numeric_up_down, &parts.command_check_box,
+                                             &parts.command_text_box,      &parts.command_gallery,
+                                             &parts.command_font_control,  &parts.command_color_picker};
+    for (const gf::PartGeometry* part : shown) {
+        if ((*part).present) {
+            const gf::Rect face = (*part).bounds;
+            const gf::Rect result{origin.x + face.x, origin.y + face.y, face.width, face.height};
+            return result;
+        }
+    }
+    return std::nullopt;
+}
+// The window bounds of the ribbon command `id` on the selected tab: on the
+// plane, or else inside a folded group, which is opened (as a user opens it)
+// and left open so its hosted controls can be inspected; none when neither
+// shows it. Folding is the Ribbon's behaviour at narrow widths.
+std::optional<gf::Rect> ribbon_command_bounds(gf::Window& window, const std::string& id) {
+    window.perform_layout();
+    const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(find_shown(window, "ribbon-bar"));
+    if (!bar) {
+        return std::nullopt;
+    }
+    for (const gf::Ribbon::CommandItem& command : (*bar).realized_commands()) {
+        if (command.stable_id == id) {
+            return command_part_bounds(command.parts, (*bar).absolute_bounds());
+        }
+    }
+    const gf::Control::Ptr open = (*bar).group_overlay();
+    if ((*bar).overlay_group() && open) {
+        for (const gf::Ribbon::CommandItem& command : (*bar).realized_overlay_commands()) {
+            if (command.stable_id == id) {
+                return command_part_bounds(command.parts, (*open).absolute_bounds());
+            }
+        }
+    }
+    for (const gf::Ribbon::Group& group : (*bar).realized_groups()) {
+        if (!group.collapsed || !(*bar).show_group_overlay(group.stable_id, gf::MenuOpenMode::pointer)) {
+            continue;
+        }
+        window.perform_layout();
+        const gf::Control::Ptr overlay = (*bar).group_overlay();
+        for (const gf::Ribbon::CommandItem& command : (*bar).realized_overlay_commands()) {
+            if (command.stable_id == id && overlay) {
+                return command_part_bounds(command.parts, (*overlay).absolute_bounds());
+            }
+        }
+        (*bar).close_group_overlay();
+        window.perform_layout();
+    }
+    return std::nullopt;
+}
+// Lists the commands realized on the selected tab, for a failure report.
+std::string realized_command_list(gf::Window& window) {
+    const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(find_shown(window, "ribbon-bar"));
+    std::string list;
+    if (!bar) {
+        return list;
+    }
+    for (const gf::Ribbon::CommandItem& command : (*bar).realized_commands()) {
+        list += " " + command.stable_id;
+    }
+    list += "; ribbon width " + std::to_string((*bar).absolute_bounds().width) + "; groups:";
+    for (const gf::Ribbon::Group& group : (*bar).realized_groups()) {
+        list += " " + group.stable_id + "@" + std::to_string(static_cast<int>(group.parts.group_region.bounds.x)) + "+" +
+                std::to_string(static_cast<int>(group.parts.group_region.bounds.width)) +
+                (group.collapsed ? "c" : "") + "L" + std::to_string(group.layout);
+    }
+    return list;
+}
+bool ribbon_tab_selected(gf::Window& window, const std::string& id) {
+    window.perform_layout();
+    const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(find_shown(window, "ribbon-bar"));
+    if (!bar) {
+        return false;
+    }
+    for (const gf::Ribbon::Tab& tab : (*bar).realized_tabs()) {
+        if (tab.stable_id == id) {
+            return tab.states.selected;
+        }
+    }
+    return false;
+}
+// Selects a ribbon tab through its semantic node, as assistive technology
+// does; false for a tab not shown.
+bool select_ribbon_tab(gf::Window& window, const std::string& id) {
+    const bool selected = window.perform_semantic_action("ribbon-bar.tab." + id, gf::SemanticAction::select);
+    window.perform_layout();
+    return selected;
+}
+std::shared_ptr<gf::Command> ribbon_command(gf::Window& window, const std::string& id) {
+    const std::shared_ptr<paint::forms::Ribbon> ribbon =
+        std::dynamic_pointer_cast<paint::forms::Ribbon>(find_shown(window, "ribbon"));
+    if (!ribbon) {
+        return nullptr;
+    }
+    return (*ribbon).command_for(id);
+}
 struct NativeRecoveryDirectory {
     std::filesystem::path path;
     explicit NativeRecoveryDirectory(const std::string& category = "recovery")
@@ -33,6 +198,71 @@ struct NativeRecoveryDirectory {
         std::filesystem::remove_all(path, error);
     }
 };
+struct NativeExercise;
+// --tab-hover: the settle timer's tick after a hover (TabHoverProbe).
+struct TabHoverTick {
+    NativeExercise* exercise = nullptr;
+    void operator()() const;
+};
+// A Metrics counter GUI.Forms may not have yet (engine_built_in_fallbacks
+// and engine_raster_failures arrived with claude/483-plan-paint-bugs
+// 7cfc1fe8d): its value, or none on an older SDK, so the probe builds
+// against SDK 31b48906e as well.
+template <typename Snapshot> std::optional<std::uint64_t> built_in_fallbacks(const Snapshot& metrics) {
+    if constexpr (requires(const Snapshot& value) { value.engine_built_in_fallbacks; }) {
+        return metrics.engine_built_in_fallbacks;
+    } else {
+        return std::nullopt;
+    }
+}
+template <typename Snapshot> std::optional<std::uint64_t> raster_failures(const Snapshot& metrics) {
+    if constexpr (requires(const Snapshot& value) { value.engine_raster_failures; }) {
+        return metrics.engine_raster_failures;
+    } else {
+        return std::nullopt;
+    }
+}
+std::string counter_text(std::optional<std::uint64_t> value) {
+    const std::string text = value.has_value() ? std::to_string(*value) : std::string("n/a");
+    return text;
+}
+// The look of a hovered tab's face in one capture (TabHoverProbe): its
+// device pixels, the colours among them, the most common colour's share
+// and the share of its one-pixel inner ring in another colour (percent).
+struct TabFace {
+    std::size_t pixels = 0;
+    std::size_t distinct = 0;
+    int dominant_share = 0;
+    int outline_share = 0;
+};
+// Whether `colour` lies within `tolerance` of `red`, `green`, `blue` on
+// every channel.
+bool near_colour(paint::Color colour, int red, int green, int blue, int tolerance) {
+    const bool near = std::abs(static_cast<int>(colour.r) - red) <= tolerance &&
+                      std::abs(static_cast<int>(colour.g) - green) <= tolerance &&
+                      std::abs(static_cast<int>(colour.b) - blue) <= tolerance;
+    return near;
+}
+// Inside the modal dialog's nested loop: the dialog has its own window, a
+// second window of the run; then it closes, which ends the loop.
+struct ModalDialogProbe {
+    NativeExercise* exercise = nullptr;
+    void operator()() const;
+};
+// On the turn after ready: the run lists its windows only once ready has
+// returned, so the dialog checks start here.
+struct DialogWindowStart {
+    NativeExercise* exercise = nullptr;
+    gf::Window* window = nullptr;
+    gf::ApplicationWindowHandle handle;
+    void operator()() const;
+};
+// After the modal loop: one window again; then the run ends.
+struct ModalDialogFinish {
+    NativeExercise* exercise = nullptr;
+    gf::ApplicationWindowHandle handle;
+    void operator()() const;
+};
 struct NativeExercise {
     std::shared_ptr<paint::forms::Editor> editor;
     bool keep_open = false, resize_preview = false, features = false, compact = false, bugs = false,
@@ -42,37 +272,94 @@ struct NativeExercise {
          corners_review = false, sticky_review = false, opacity_review = false, stamp_placement_review = false, advanced_effects_review = false, external_file_review = false, icon_validation_review = false, toolbar_strip_review = false, numeric_transform_review = false, icon_effects_review = false, alpha_tools_review = false, icon_palette_review = false, icon_states_review = false,
          icon_ribbon_review = false, icon_batch_review = false, icon_stamp_review = false, icon_indexed_review = false, icon_shared_review = false, icon_index_paint_review = false;
     bool geometry_styles_review = false, markers_review = false;
+    bool pan_probe = false;
+    // --tab-hover: the owner's steps for the Pencil tab (2026-11-17): choose
+    // the Pencil tool, click the tool tab ("Pencil"), hover it; then the
+    // same on the Home tab for comparison. Each hovered tab is captured (the
+    // ribbon, to a PNG) and the engine's counters printed every 100 ms out
+    // to 1500 ms after the hover and once at 3 s, the window's pointer kept
+    // on the tab's centre. PAINT_TOOL_TAB_WIDTH sets the tool tab's
+    // authored width (142) for a variant run; PAINT_TAB_HOVER_DIR names the
+    // captures' directory (the temporary directory otherwise). The probe
+    // fails when the hovered selected Pencil tab shows the menu-item hot
+    // plate at any step (#D5E9FA floor, #488BC4 edge), or settles flat with
+    // a rectangular outline (one colour over 60% of its face and over 80%
+    // of its inner ring in another) while the Home tab does not.
+    bool tab_hover_probe = false;
+    bool tab_hover_done = false;
+    std::string tab_hover_failure;
+    std::string tab_hover_id;
+    gf::Window* tab_hover_window = nullptr;
+    gf::ApplicationWindowHandle tab_hover_handle;
+    gf::MetricsSnapshot tab_hover_metrics{};
+    gf::RasterCacheStatistics tab_hover_cache{};
+    std::unique_ptr<gf::Timer> tab_hover_timer;
+    gf::SubscriptionToken tab_hover_tick;
+    gf::Point tab_hover_point{};
+    std::chrono::steady_clock::time_point tab_hover_started{};
+    int tab_hover_ticks = 0;
+    std::string tab_hover_plate_seen;
+    TabFace tab_hover_last_face{};
+    TabFace tab_hover_pencil_end{};
+    // --dialog-window: an editor dialog opens as a second, owned window, and
+    // runs modally through show_modal. A failure found inside the nested
+    // loop is kept here and reported after the run.
+    bool dialog_window_review = false;
+    std::string dialog_failure;
+    bool modal_seen = false;
+    gf::ApplicationWindowHandle main_handle;
     std::string clipboard_role;
     std::filesystem::path clipboard_directory;
     std::unique_ptr<paint::tests::NativeClipboardExchange> clipboard_exchange;
     int backing = 0, hue = 220;
     gf::Window* resize_window = nullptr;
+    std::unique_ptr<gf::Timer> modal_timer;
+    gf::SubscriptionToken modal_tick;
     std::unique_ptr<gf::Timer> resize_timer;
     gf::SubscriptionToken resize_tick;
     void await_batch(gf::Window& window) {
         const std::chrono::steady_clock::time_point deadline =
             std::chrono::steady_clock::now() + std::chrono::seconds(30);
-        while ((*window.find("batch-cancel")).enabled()) {
-            static_cast<void>(window.drain_posted_work());
+        while ((*find_shown(window, "batch-cancel")).enabled.read()) {
+            static_cast<void>(drain_all(window));
             if (std::chrono::steady_clock::now() > deadline) {
                 throw std::runtime_error("Native batch worker timed out");
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         const std::shared_ptr<gf::Label> error =
-            std::dynamic_pointer_cast<gf::Label>(window.find("dialog-error"));
-        if (!(*error).text().empty()) {
-            throw std::runtime_error(std::string((*error).text()));
+            std::dynamic_pointer_cast<gf::Label>(find_shown(window, "dialog-error"));
+        if (!(*error).text.read().empty()) {
+            throw std::runtime_error(std::string((*error).text.read()));
         }
+    }
+    // Starts the surround's tile for the chosen material and waits until
+    // its worker has delivered it, so a capture shows the tile.
+    void await_backing(gf::Window& window) {
+        const std::chrono::steady_clock::time_point deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        (*editor).canvas().request_backing();
+        while (!(*editor).canvas().backing_ready()) {
+            drain_all(window);
+            if (std::chrono::steady_clock::now() > deadline) {
+                throw std::runtime_error("The canvas surround's tile was not delivered");
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+    void modal_probe_tick() {
+        (*modal_timer).stop();
+        const ModalDialogProbe probe{this};
+        probe();
     }
     void show_resize_preview() {
         (*resize_timer).stop();
         gf::RasterCanvas& canvas = (*editor).canvas();
-        gui_drawing::PointF origin = canvas.view_origin();
+        gui_drawing::PointF origin = canvas.view_origin.read();
         gf::Point start =
-            canvas.point_to_window({(256 - origin.x) * canvas.zoom(), (120 - origin.y) * canvas.zoom()});
+            canvas.point_to_window({(256 - origin.x) * canvas.zoom.read(), (120 - origin.y) * canvas.zoom.read()});
         gf::Point end =
-            canvas.point_to_window({(480 - origin.x) * canvas.zoom(), (120 - origin.y) * canvas.zoom()});
+            canvas.point_to_window({(480 - origin.x) * canvas.zoom.read(), (120 - origin.y) * canvas.zoom.read()});
         static_cast<void>(
             (*resize_window).dispatch_pointer({gf::PointerAction::down, gf::PointerButton::primary, start}));
         static_cast<void>(
@@ -152,7 +439,7 @@ struct NativeExercise {
         (*editor).text.style.skew = 0.2;
         (*editor).text.style.perspective = -0.35;
         (*editor).text.style.warp = 0.15;
-        (*editor).text.replace("EDITABLE LETTERING");
+        (*editor).canvas_text().set_text("EDITABLE LETTERING");
         (*editor).refresh();
         window.perform_layout();
         entered = true;
@@ -258,6 +545,7 @@ struct NativeExercise {
     void interface_gallery(gf::Window& window) {
         (*editor).settings.storage_path.clear();
         (*editor).settings.canvas_backing = static_cast<paint::CanvasBacking>(backing);
+        await_backing(window);
         paint::Document& document = (*editor).document;
         document.new_image(640, 360);
         document.image.reset(640, 360, {252, 250, 245, 255});
@@ -327,12 +615,7 @@ struct NativeExercise {
         paint::draw_text(document.image, {30, 30}, "Original scratch", label, {35, 30, 25, 255}, {}, "");
         paint::draw_text(document.image, {510, 30}, "Hard-edged healing", label, {35, 30, 25, 255}, {}, "");
         (*editor).refresh();
-        const std::shared_ptr<gf::Button> tab =
-            std::dynamic_pointer_cast<gf::Button>(window.find("tool-tab"));
-        if (tab) {
-            (*tab).perform_click();
-        }
-        window.perform_layout();
+        static_cast<void>(select_ribbon_tab(window, "tool-tab"));
         const char* result = std::getenv("PAINT_HEAL_CAPTURE");
         if (result && *result) {
             paint::save_image(document.image, result);
@@ -342,7 +625,14 @@ struct NativeExercise {
         control.invalidate_subtree(gf::Dirty::paint);
     }
     paint::Image render_snapshot(gf::Window& window, gf::Size size, bool& painted) {
-        std::unique_ptr<gf::PaintFramebuffer> framebuffer = window.create_framebuffer(size, window.scale());
+        // PAINT_NATIVE_CAPTURE_SCALE renders the inspected frame at another
+        // device scale (1 for screenshots comparable with the shipped ones).
+        double scale = window.scale();
+        const char* scale_override = std::getenv("PAINT_NATIVE_CAPTURE_SCALE");
+        if (scale_override && *scale_override) {
+            scale = std::clamp(std::atof(scale_override), 0.5, 4.0);
+        }
+        std::unique_ptr<gf::PaintFramebuffer> framebuffer = window.create_framebuffer(size, scale);
         if (!framebuffer || !(*framebuffer).begin(window.image_resources(), {0, 0, size.width, size.height})) {
             throw std::runtime_error("Native framebuffer is unavailable");
         }
@@ -350,10 +640,11 @@ struct NativeExercise {
         // Offscreen inspection must render even while the native window is occluded.
         const bool occluded = window.occluded();
         window.set_occluded(false, gf::FrameClock::now());
-        painted = window.paint((*framebuffer).painter(), {0, 0, size.width, size.height}).has_value();
+        painted = window.paint((*framebuffer).painter(), {0, 0, size.width, size.height}).present();
         window.set_occluded(occluded, gf::FrameClock::now());
         (*framebuffer).end();
-        const bool bgra = (*framebuffer).channel_order() == gf::FramebufferChannelOrder::bgra;
+        // Every host's framebuffer is premultiplied sRGB BGRA8 since cp22.
+        const bool bgra = true;
         paint::Image image;
         image.reset(static_cast<int>((*framebuffer).width()), static_cast<int>((*framebuffer).height()), {});
         for (int y = 0; y < image.height; ++y) {
@@ -371,9 +662,15 @@ struct NativeExercise {
         if (opacity_review || external_file_review || stamp_placement_review) { repaint_tree(*window.root()); }
         if (asset_browser_review || icon_effects_review || numeric_transform_review || toolbar_strip_review || icon_validation_review || icon_export_review) {
             repaint_tree(*window.root());
-            repaint_tree(*window.find("editor-dialog"));
+            repaint_tree(*find_shown(window, "editor-dialog"));
         }
         const gf::Size size = corners_review || sticky_review || opacity_review || asset_browser_review || external_file_review || icon_effects_review || numeric_transform_review || toolbar_strip_review || icon_validation_review || icon_export_review ? window.client_size() : gf::Size{1280,820};
+        // PAINT_NATIVE_CAPTURE_TAB selects a ribbon tab for the captured frame.
+        const char* capture_tab = std::getenv("PAINT_NATIVE_CAPTURE_TAB");
+        if (capture_tab && *capture_tab) {
+            static_cast<void>(select_ribbon_tab(window, capture_tab));
+            window.perform_layout();
+        }
         bool painted = false;
         paint::Image image = render_snapshot(window, size, painted);
         const gf::Rect pixel = (*editor).canvas().bitmap_to_client({120, 120, 1, 1});
@@ -384,12 +681,14 @@ struct NativeExercise {
         const char* capture = std::getenv("PAINT_NATIVE_CAPTURE");
         if (capture && *capture) { paint::save_image(image, capture); }
         if (markers_review) {
-            const std::shared_ptr<gf::ComboBox> first = std::dynamic_pointer_cast<gf::ComboBox>(window.find("geometry-start"));
-            const std::shared_ptr<gf::ComboBox> last = std::dynamic_pointer_cast<gf::ComboBox>(window.find("geometry-end"));
-            if (!painted || !first || !last || !(*first).visible() || !(*last).visible() ||
-                (*first).selected_index() != 1 || (*last).selected_index() != 10 ||
+            const std::shared_ptr<gf::ComboBox> first = std::dynamic_pointer_cast<gf::ComboBox>(hosted_control(window, "geometry-start"));
+            const std::shared_ptr<gf::ComboBox> last = std::dynamic_pointer_cast<gf::ComboBox>(hosted_control(window, "geometry-end"));
+            if (!painted || !first || !last || !ribbon_command_bounds(window, "geometry-start") ||
+                !ribbon_command_bounds(window, "geometry-end") ||
+                (*first).selected_index.read() != stxlib::Optional<std::size_t>::of(1) || (*last).selected_index.read() != stxlib::Optional<std::size_t>::of(10) ||
                 (*last).absolute_bounds().right() > size.width) {
-                throw std::runtime_error("Native marker ribbon controls are missing or clipped");
+                throw std::runtime_error("Native marker ribbon controls are missing or clipped; realized:" +
+                                         realized_command_list(window));
             }
             const gf::Rect pixel = (*editor).canvas().bitmap_to_client({200, 18, 1, 1});
             const gf::Point sample = (*editor).canvas().point_to_window({pixel.x, pixel.y});
@@ -399,17 +698,18 @@ struct NativeExercise {
         }
         if (corners_review) {
             if (geometry_styles_review) {
-                const std::shared_ptr<gf::ComboBox> style = std::dynamic_pointer_cast<gf::ComboBox>(window.find("geometry-stroke"));
-                const std::shared_ptr<gf::NumericUpDown> organic = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("geometry-organic"));
-                if (!style || !organic || !(*style).visible() || !(*organic).visible() ||
-                    (*style).selected_index() != 2 || (*organic).value() != 3 ||
-                    (*organic).absolute_bounds().right() > size.width ||
-                    (*window.find("geometry-vary")).absolute_bounds().right() > size.width) {
+                const std::shared_ptr<gf::ComboBox> style = std::dynamic_pointer_cast<gf::ComboBox>(hosted_control(window, "geometry-stroke"));
+                const std::shared_ptr<gf::NumericUpDown> organic = std::dynamic_pointer_cast<gf::NumericUpDown>(hosted_control(window, "geometry-organic"));
+                const std::optional<gf::Rect> vary = ribbon_command_bounds(window, "geometry-vary");
+                if (!style || !organic || !ribbon_command_bounds(window, "geometry-stroke") ||
+                    !ribbon_command_bounds(window, "geometry-organic") ||
+                    (*style).selected_index.read() != stxlib::Optional<std::size_t>::of(2) || (*organic).value.read() != 3 ||
+                    (*organic).absolute_bounds().right() > size.width || !vary || (*vary).right() > size.width) {
                     throw std::runtime_error("Native geometry style controls are missing or clipped");
                 }
             }
-            const std::shared_ptr<gf::NumericUpDown> radius = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("geometry-corners"));
-            if (!painted || !radius || !(*radius).visible() || (*radius).value() != 40 ||
+            const std::shared_ptr<gf::NumericUpDown> radius = std::dynamic_pointer_cast<gf::NumericUpDown>(hosted_control(window, "geometry-corners"));
+            if (!painted || !radius || !ribbon_command_bounds(window, "geometry-corners") || (*radius).value.read() != 40 ||
                 (*radius).absolute_bounds().right() > size.width) {
                 throw std::runtime_error("Native shape ribbon lost its corner radius control");
             }
@@ -421,16 +721,20 @@ struct NativeExercise {
         }
         if (sticky_review) {
             for (const char* id : {"sticky-paper", "sticky-width", "sticky-height", "sticky-padding", "text-font", "text-place"}) {
-                const gf::Control::Ptr control = window.find(id);
-                if (!painted || !control || !(*control).visible() || !(*control).enabled()) {
-                    throw std::runtime_error("Native inline note ribbon lost a required control");
+                const std::optional<gf::Rect> shown = ribbon_command_bounds(window, id);
+                const gf::Control::Ptr control = hosted_control(window, id);
+                const std::shared_ptr<gf::Command> command = ribbon_command(window, id);
+                const bool enabled = control ? (*control).enabled.read() : command && (*command).state().enabled;
+                if (!painted || !shown || !enabled) {
+                    throw std::runtime_error(std::string("Native inline note ribbon lost a required control: ") + id +
+                                             "; realized:" + realized_command_list(window));
                 }
-                const gf::Rect bounds = (*control).absolute_bounds();
+                const gf::Rect bounds = *shown;
                 if (bounds.x < 0 || bounds.y < 0 || bounds.right() > size.width || bounds.bottom() > size.height) {
                     throw std::runtime_error("Native note ribbon does not fit the window");
                 }
             }
-            if (window.find("editor-dialog") || !(*editor).text.active || !(*editor).text.note) {
+            if (find_shown(window, "editor-dialog") || !(*editor).text.active || !(*editor).text.note) {
                 throw std::runtime_error("Sticky note must be edited on canvas without a popup");
             }
             const paint::Rect note = (*editor).text.bounds;
@@ -448,43 +752,26 @@ struct NativeExercise {
             return;
         }
         if (opacity_review) {
-            const std::shared_ptr<paint::forms::SwatchButton> primary =
-                std::dynamic_pointer_cast<paint::forms::SwatchButton>(window.find("primary"));
-            const std::shared_ptr<paint::forms::SwatchButton> alternate =
-                std::dynamic_pointer_cast<paint::forms::SwatchButton>(window.find("secondary"));
-            if (!painted || !primary || !alternate) { throw std::runtime_error("Native color swatches missing"); }
-            (*primary).set_show_opacity(false);
-            (*alternate).set_show_opacity(false);
-            repaint_tree(*window.root());
-            bool baseline_painted = false;
-            const paint::Image baseline = render_snapshot(window, size, baseline_painted);
-            const gf::Rect primary_bounds = (*primary).absolute_bounds(), alt_bounds = (*alternate).absolute_bounds();
-            std::size_t changes[2] = {0, 0};
-            for (int y = 0; y < image.height; ++y) {
-                for (int x = 0; x < image.width; ++x) {
-                    if (paint::equal(image.get(x, y), baseline.get(x, y))) { continue; }
-                    const double px = (x + 0.5) / window.scale(), py = (y + 0.5) / window.scale();
-                    const int index = px >= primary_bounds.x && px < primary_bounds.right() ? 0 : 1;
-                    const gf::Rect box = index == 0 ? primary_bounds : alt_bounds;
-                    if (px < box.x + 1 || px >= box.right() - 1 || py < box.y + 16 || py >= box.y + 38) {
-                        throw std::runtime_error("Opacity indicator changed pixels outside the swatch's lower corner");
-                    }
-                    ++changes[index];
-                }
+            const std::shared_ptr<gf::Command> primary = ribbon_command(window, "primary");
+            const std::shared_ptr<gf::Command> alternate = ribbon_command(window, "secondary");
+            if (!painted || !primary || !alternate || !ribbon_command_bounds(window, "primary") ||
+                !ribbon_command_bounds(window, "secondary")) {
+                throw std::runtime_error("Native color swatches missing; realized:" + realized_command_list(window));
             }
-            if (!baseline_painted || (changes[0] > 0) != ((*editor).document.ink.primary.a < 255) ||
-                (changes[1] > 0) != ((*editor).document.ink.secondary.a < 255)) {
-                throw std::runtime_error("Native opacity badges did not follow Primary/Alt alpha independently");
+            const std::string primary_alpha = "(" + std::to_string((*editor).document.ink.primary.a) + "/255)";
+            const std::string alternate_alpha = "(" + std::to_string((*editor).document.ink.secondary.a) + "/255)";
+            if ((*primary).state().description.find(primary_alpha) == std::string::npos ||
+                (*alternate).state().description.find(alternate_alpha) == std::string::npos) {
+                throw std::runtime_error("Native opacity descriptions did not follow Primary/Alt alpha independently");
             }
-            (*primary).set_show_opacity(true);
-            (*alternate).set_show_opacity(true);
             return;
         }
         if (stamp_placement_review) {
-            const gf::Control::Ptr apply = window.find("context-stamp-apply");
-            const gf::Control::Ptr cancel = window.find("context-stamp-cancel");
-            if (!painted || !apply || !cancel || !(*apply).visible() || !(*apply).enabled() ||
-                !(*cancel).visible() || (*apply).absolute_bounds().right() > size.width ||
+            static_cast<void>(select_ribbon_tab(window, "tool-tab"));
+            const std::optional<gf::Rect> apply = ribbon_command_bounds(window, "context-stamp-apply");
+            const std::shared_ptr<gf::Command> apply_command = ribbon_command(window, "context-stamp-apply");
+            if (!painted || !apply || !apply_command || !(*apply_command).state().enabled ||
+                !ribbon_command_bounds(window, "context-stamp-cancel") || (*apply).right() > size.width ||
                 !(*editor).stamp_placement_active()) {
                 throw std::runtime_error("Native imported stamp placement controls did not render");
             }
@@ -507,45 +794,45 @@ struct NativeExercise {
         if (icon_index_paint_review) {
             const paint::IconFrame& frame = (*editor).document.atlas.icons[0];
             if (!painted || !paint::has_icon_palette(frame) || !(*editor).icon_index_paint ||
-                !(*std::dynamic_pointer_cast<gf::Button>(window.find("icon-index-paint"))).selected()) {
+                !(*std::dynamic_pointer_cast<gf::Button>(find_shown(window, "icon-index-paint"))).selected.read()) {
                 throw std::runtime_error("Native indexed canvas or mode control did not render");
             }
             return;
         }
         if (icon_batch_review) {
             const std::shared_ptr<gf::TextBox> manifest =
-                std::dynamic_pointer_cast<gf::TextBox>(window.find("batch-manifest"));
-            const gf::Rect close = (*window.find("dialog-cancel")).absolute_bounds();
+                std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "batch-manifest"));
+            const gf::Rect close = (*find_shown(window, "dialog-cancel")).absolute_bounds();
             if (!painted || !manifest ||
-                (*manifest).text().find(icon_shared_review ? "app-icon-2-palette.ico" : icon_stamp_review ? "app-icon-2-stamped.png"
+                (*manifest).text.read().find(icon_shared_review ? "app-icon-2-palette.ico" : icon_stamp_review ? "app-icon-2-stamped.png"
                                                           : "app-icon-2-icon.ico") == std::string::npos ||
-                !(*window.find("batch-run")).enabled() || close.x < 0 || close.y < 0 ||
+                !(*find_shown(window, "batch-run")).enabled.read() || close.x < 0 || close.y < 0 ||
                 close.right() > size.width || close.bottom() > size.height) {
                 throw std::runtime_error("Native batch manifest or minimum-window controls did not render");
             }
             return;
         }
         if (icon_production_review) {
-            const gf::Control::Ptr after = window.find("icon-target-after");
-            const gf::Control::Ptr accept = window.find("dialog-ok");
-            if (!painted || !window.find("icon-size-manifest") || !after || !accept ||
+            const gf::Control::Ptr after = find_shown(window, "icon-target-after");
+            const gf::Control::Ptr accept = find_shown(window, "dialog-ok");
+            if (!painted || !find_shown(window, "icon-size-manifest") || !after || !accept ||
                 (*after).committed_arranged_bounds().width < 160 ||
                 (*accept).committed_arranged_bounds().bottom() > window.client_size().height) {
                 throw std::runtime_error("Native icon generation review did not render");
             }
             if (icon_svg_review) {
-                const std::shared_ptr<gf::TextBox> manifest = std::dynamic_pointer_cast<gf::TextBox>(window.find("icon-size-manifest"));
-                if ((*manifest).text().find("SVG") == std::string::npos || (*manifest).text().find("Upscaling") != std::string::npos) {
+                const std::shared_ptr<gf::TextBox> manifest = std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "icon-size-manifest"));
+                if ((*manifest).text.read().find("SVG") == std::string::npos || (*manifest).text.read().find("Upscaling") != std::string::npos) {
                     throw std::runtime_error("Native SVG generation preview lost vector provenance");
                 }
             }
             return;
         }
         if (external_file_review) {
-            const std::shared_ptr<gf::Label> notice = std::dynamic_pointer_cast<gf::Label>(window.find("file-change-notice"));
-            const gf::Control::Ptr reload = window.find("file-reload");
-            if (!painted || !notice || !reload || !(*reload).visible() || !(*reload).enabled() ||
-                (*notice).text() != "File changed outside Plan Paint." ||
+            const std::shared_ptr<gf::Label> notice = std::dynamic_pointer_cast<gf::Label>(find_shown(window, "file-change-notice"));
+            const gf::Control::Ptr reload = find_shown(window, "file-reload");
+            if (!painted || !notice || !reload || !(*reload).visible.read() || !(*reload).enabled.read() ||
+                (*notice).text.read() != "File changed outside Plan Paint." ||
                 (*reload).absolute_bounds().right() > window.client_size().width ||
                 (*notice).absolute_bounds().bottom() > (*editor).canvas().absolute_bounds().y) {
                 throw std::runtime_error("Native external-file notice did not render or fit");
@@ -553,9 +840,9 @@ struct NativeExercise {
             return;
         }
         if (icon_validation_review) {
-            const std::shared_ptr<gf::TextBox> report=std::dynamic_pointer_cast<gf::TextBox>(window.find("validation-report"));
-            const gf::Control::Ptr close=window.find("dialog-cancel");
-            if (!painted || !report || (*report).text().find("Duplicate size/depth entries: 1")==std::string::npos ||
+            const std::shared_ptr<gf::TextBox> report=std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "validation-report"));
+            const gf::Control::Ptr close=find_shown(window, "dialog-cancel");
+            if (!painted || !report || (*report).text.read().find("Duplicate size/depth entries: 1")==std::string::npos ||
                 (*close).absolute_bounds().bottom()>window.client_size().height) { throw std::runtime_error("Native validation report did not render or fit"); }
             return;
         }
@@ -563,87 +850,85 @@ struct NativeExercise {
             std::size_t visible = 0;
             for (const paint::Color color : image.pixels) { if (color.r || color.g || color.b) { ++visible; } }
             if (visible < image.pixels.size()/2) { throw std::runtime_error("Native strip captured only a partial repaint"); }
-            const gf::Control::Ptr output=window.find("strip-export");
-            if (!painted || !output || !(*output).enabled() || (*output).absolute_bounds().bottom()>window.client_size().height) {
+            const gf::Control::Ptr output=find_shown(window, "strip-export");
+            if (!painted || !output || !(*output).enabled.read() || (*output).absolute_bounds().bottom()>window.client_size().height) {
                 throw std::runtime_error("Native toolbar strip did not render or fit");
             }
             return;
         }
         if (numeric_transform_review) {
-            const gf::Control::Ptr apply = window.find("transform-apply");
-            if (!painted || !apply || !(*apply).enabled() || (*apply).absolute_bounds().bottom() > window.client_size().height) {
+            const gf::Control::Ptr apply = find_shown(window, "transform-apply");
+            if (!painted || !apply || !(*apply).enabled.read() || (*apply).absolute_bounds().bottom() > window.client_size().height) {
                 throw std::runtime_error("Native numeric transform did not render or fit");
             }
             return;
         }
         if (icon_effects_review) {
-            const gf::Control::Ptr apply = window.find("effect-apply");
-            const std::shared_ptr<gf::TextBox> status = std::dynamic_pointer_cast<gf::TextBox>(window.find("effect-status"));
-            if (!painted || !apply || !status || (!advanced_effects_review && (*status).text().find("clipped") == std::string::npos) ||
+            const gf::Control::Ptr apply = find_shown(window, "effect-apply");
+            const std::shared_ptr<gf::TextBox> status = std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "effect-status"));
+            if (!painted || !apply || !status || (!advanced_effects_review && (*status).text.read().find("clipped") == std::string::npos) ||
                 (*apply).absolute_bounds().bottom() > window.client_size().height) { throw std::runtime_error("Native effect preview did not fit or render"); }
             if (advanced_effects_review) {
-                const gf::Control::Ptr last=window.find("effect-value-4");
-                if (!last || !(*last).visible() || (*last).absolute_bounds().right()>window.client_size().width) {
+                const gf::Control::Ptr last=find_shown(window, "effect-value-4");
+                if (!last || !(*last).visible.read() || (*last).absolute_bounds().right()>window.client_size().width) {
                     throw std::runtime_error("Native levels controls did not fit");
                 }
             }
             return;
         }
         if (icon_ribbon_review) {
-            const std::shared_ptr<gf::Button> tab =
-                std::dynamic_pointer_cast<gf::Button>(window.find("icon-tab"));
             const std::shared_ptr<gf::Label> status =
-                std::dynamic_pointer_cast<gf::Label>(window.find("icon-status"));
-            if (!painted || !tab || !(*tab).selected() || !status ||
-                (*status).text().find("32 × 32") == std::string::npos ||
-                !(*window.find("icon-export")).enabled()) {
+                std::dynamic_pointer_cast<gf::Label>(find_shown(window, "icon-status"));
+            if (!painted || !ribbon_tab_selected(window, "icon-tab") || !status ||
+                (*status).text.read().find("32 × 32") == std::string::npos ||
+                !(*find_shown(window, "icon-export")).enabled.read()) {
                 throw std::runtime_error("Native contextual icon ribbon did not render");
             }
             return;
         }
         if (icon_states_review) {
             const std::shared_ptr<gf::RasterCanvas> preview =
-                std::dynamic_pointer_cast<gf::RasterCanvas>(window.find("state-after"));
-            if (!painted || !preview || !(*preview).bitmap() || !(*window.find("state-export")).enabled()) {
+                std::dynamic_pointer_cast<gf::RasterCanvas>(find_shown(window, "state-after"));
+            if (!painted || !preview || !(*preview).bitmap.read() || !(*find_shown(window, "state-export")).enabled.read()) {
                 throw std::runtime_error("Native state preview did not render");
             }
             return;
         }
         if (icon_formats_review) {
             const std::shared_ptr<gf::Label> status =
-                std::dynamic_pointer_cast<gf::Label>(window.find("icon-status"));
-            if (!painted || !status || (*status).text().find("Save: 32 bpp DIB") == std::string::npos) {
+                std::dynamic_pointer_cast<gf::Label>(find_shown(window, "icon-status"));
+            if (!painted || !status || (*status).text.read().find("Save: 32 bpp DIB") == std::string::npos) {
                 throw std::runtime_error("Native representation format status did not render");
             }
             return;
         }
         if (icon_export_review) {
-            if (!painted || !window.find("export-run") || !(*window.find("export-run")).enabled()) {
+            if (!painted || !find_shown(window, "export-run") || !(*find_shown(window, "export-run")).enabled.read()) {
                 throw std::runtime_error("Native representation export manifest did not render");
             }
             return;
         }
         if (alpha_tools_review || icon_palette_review) {
             const std::shared_ptr<gf::RasterCanvas> preview = std::dynamic_pointer_cast<gf::RasterCanvas>(
-                window.find(icon_palette_review ? "palette-after" : "alpha-before"));
-            if (!painted || !preview || !(*preview).bitmap()) {
+                find_shown(window, icon_palette_review ? "palette-after" : "alpha-before"));
+            if (!painted || !preview || !(*preview).bitmap.read()) {
                 throw std::runtime_error("Native alpha inspection did not render");
             }
             return;
         }
         if (asset_browser_review) {
-            const gf::Control::Ptr reveal=window.find("asset-reveal");
-            if (!reveal || !(*reveal).enabled() || (*reveal).absolute_bounds().right()>window.client_size().width ||
+            const gf::Control::Ptr reveal=find_shown(window, "asset-reveal");
+            if (!reveal || !(*reveal).enabled.read() || (*reveal).absolute_bounds().right()>window.client_size().width ||
                 (*reveal).absolute_bounds().bottom()>window.client_size().height) { throw std::runtime_error("Native reveal control did not fit"); }
-            if (!painted || !window.find("asset-stamp") || !(*window.find("asset-stamp")).enabled()) {
+            if (!painted || !find_shown(window, "asset-stamp") || !(*find_shown(window, "asset-stamp")).enabled.read()) {
                 throw std::runtime_error("Native asset browser preview did not render");
             }
             return;
         }
         if (icon_sheet_review) {
-            const gf::Control::Ptr open = window.find("sheet-open");
-            if (!painted || !window.find("sheet-export") || !(*window.find("sheet-export")).enabled() ||
-                !open || !(*open).enabled() || (*open).committed_arranged_bounds().x < 0 ||
+            const gf::Control::Ptr open = find_shown(window, "sheet-open");
+            if (!painted || !find_shown(window, "sheet-export") || !(*find_shown(window, "sheet-export")).enabled.read() ||
+                !open || !(*open).enabled.read() || (*open).committed_arranged_bounds().x < 0 ||
                 (*open).committed_arranged_bounds().bottom() > window.client_size().height) {
                 throw std::runtime_error("Native contact sheet preview did not render");
             }
@@ -660,11 +945,11 @@ struct NativeExercise {
     }
     void stroke(gf::Window& window, paint::Point first, paint::Point last) {
         gf::RasterCanvas& canvas = (*editor).canvas();
-        gui_drawing::PointF origin = canvas.view_origin();
+        gui_drawing::PointF origin = canvas.view_origin.read();
         gf::Point start = canvas.point_to_window(
-            {(first.x - origin.x) * canvas.zoom(), (first.y - origin.y) * canvas.zoom()});
+            {(first.x - origin.x) * canvas.zoom.read(), (first.y - origin.y) * canvas.zoom.read()});
         gf::Point end = canvas.point_to_window(
-            {(last.x - origin.x) * canvas.zoom(), (last.y - origin.y) * canvas.zoom()});
+            {(last.x - origin.x) * canvas.zoom.read(), (last.y - origin.y) * canvas.zoom.read()});
         if (!window.dispatch_pointer({gf::PointerAction::down, gf::PointerButton::primary, start})) {
             throw std::runtime_error("Native canvas did not consume down");
         }
@@ -674,6 +959,476 @@ struct NativeExercise {
         if (canvas.has_pointer_capture()) {
             throw std::runtime_error("Native canvas retained capture after release");
         }
+    }
+    // --pan-probe: the cost of panning the canvas, as the host meets it.
+    // Sixty trackpad-sized wheel steps (8 pixels each) over a 3000 x 2000
+    // image, each followed by the damage the window reports and one paint of
+    // that damage into a framebuffer at the window's device scale; prints the
+    // damage area and the paint time per step, then closes.
+    void pan_probe_run(gf::Window& window, gf::ApplicationWindowHandle handle) {
+        paint::Document& document = (*editor).document;
+        // PAINT_PAN_PROBE_WIDTH picks another image width (height two thirds).
+        int width = 3000;
+        const char* width_override = std::getenv("PAINT_PAN_PROBE_WIDTH");
+        if (width_override && *width_override) {
+            width = std::clamp(std::atoi(width_override), 300, 12000);
+        }
+        const int height = width * 2 / 3;
+        // PAINT_PAN_PROBE_BACKING picks another canvas surround (by index).
+        const char* backing_override = std::getenv("PAINT_PAN_PROBE_BACKING");
+        if (backing_override && *backing_override) {
+            (*editor).settings.canvas_backing = static_cast<paint::CanvasBacking>(
+                std::clamp(std::atoi(backing_override), 0, paint::canvas_backing_count - 1));
+            await_backing(window);
+        }
+        document.new_image(width, height);
+        for (int y = 0; y < document.image.height; ++y) {
+            for (int x = 0; x < document.image.width; ++x) {
+                document.image.set(x, y, {static_cast<std::uint8_t>(x * 255 / width),
+                                          static_cast<std::uint8_t>(y * 255 / height), 160, 255});
+            }
+        }
+        (*editor).refresh();
+        window.perform_layout();
+        const gf::Size size = window.client_size();
+        std::unique_ptr<gf::PaintFramebuffer> framebuffer = window.create_framebuffer(size, window.scale());
+        const gf::Rect full{0, 0, size.width, size.height};
+        if (!framebuffer || !(*framebuffer).begin(window.image_resources(), full)) {
+            throw std::runtime_error("Native framebuffer is unavailable");
+        }
+        static_cast<void>(window.paint((*framebuffer).painter(), full));
+        static_cast<void>(window.take_damage());
+        gf::RasterCanvas& canvas = (*editor).canvas();
+        const gf::Rect area = canvas.committed_arranged_bounds();
+        const gf::Point centre = canvas.point_to_window({area.width * 0.5, area.height * 0.5});
+        double total_area = 0;
+        double total_ms = 0;
+        double worst_ms = 0;
+        const int steps = 60;
+        const gf::MetricsSnapshot start_metrics = window.metrics_snapshot();
+        for (int step = 0; step < steps; ++step) {
+            gf::PointerEvent wheel{gf::PointerAction::wheel, gf::PointerButton::none, centre};
+            wheel.wheel_delta = {0, -8};
+            wheel.wheel_unit = gf::WheelDeltaUnit::pixels;
+            static_cast<void>(window.dispatch_pointer(wheel));
+            window.perform_layout();
+            const gf::DamageRegion damage = window.take_damage();
+            const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+            static_cast<void>(window.paint((*framebuffer).painter(), damage.rectangles()));
+            const std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+            const double ms = std::chrono::duration<double, std::milli>(end - start).count();
+            total_area += damage.area();
+            total_ms += ms;
+            worst_ms = std::max(worst_ms, ms);
+        }
+        // Plan Paint's share of the canvas paint: its overlay alone, over
+        // the whole canvas, timed apart from the window's paint.
+        const gf::MetricsSnapshot metrics = window.metrics_snapshot();
+        const std::chrono::steady_clock::time_point overlay_start = std::chrono::steady_clock::now();
+        for (int step = 0; step < 10; ++step) {
+            (*editor).paint_canvas_overlay((*framebuffer).painter(), {0, 0, area.width, area.height});
+        }
+        const double overlay_ms = std::chrono::duration<double, std::milli>(
+                                      std::chrono::steady_clock::now() - overlay_start).count() / 10;
+        // The canvas's own paint operations, each timed alone over the
+        // canvas: the felt surround, the light gradient and the sheet shadow.
+        const paint::Image felt = paint::canvas_backing_texture(paint::CanvasBacking::PaleFelt);
+        std::vector<std::byte> felt_pixels(felt.pixels.size() * 4);
+        for (std::size_t index = 0; index < felt.pixels.size(); ++index) {
+            felt_pixels[index * 4] = static_cast<std::byte>(felt.pixels[index].b);
+            felt_pixels[index * 4 + 1] = static_cast<std::byte>(felt.pixels[index].g);
+            felt_pixels[index * 4 + 2] = static_cast<std::byte>(felt.pixels[index].r);
+            felt_pixels[index * 4 + 3] = std::byte{255};
+        }
+        const gf::ImageLoadResult felt_image =
+            window.load_bgra32_premultiplied(felt.width, felt.height, felt.width * 4, felt_pixels);
+        const gf::Rect bounds{0, 0, area.width, area.height};
+        gf::Painter& painter = (*framebuffer).painter();
+        const double tile = paint::canvas_backing_tile_size(paint::CanvasBacking::PaleFelt);
+        std::chrono::steady_clock::time_point mark = std::chrono::steady_clock::now();
+        for (int step = 0; step < 5; ++step) {
+            painter.fill_image_pattern(felt_image.image, {128, 128}, bounds, {tile, tile});
+        }
+        const double felt_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - mark).count() / 5;
+        const gf::GradientStop light[] = {{0, gf::Color::rgba(255, 255, 255, 22)},
+                                          {1, gf::Color::rgba(60, 77, 95, 15)}};
+        mark = std::chrono::steady_clock::now();
+        for (int step = 0; step < 5; ++step) {
+            painter.fill_linear_gradient(bounds, {0, 0}, {0, bounds.height}, light);
+        }
+        const double gradient_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - mark).count() / 5;
+        const gf::Rect sheet = canvas.bitmap_to_client({0, 0, width, height});
+        mark = std::chrono::steady_clock::now();
+        for (int step = 0; step < 5; ++step) {
+            painter.draw_box_shadow(sheet, 0, {1.5, 2.5}, 6, 0, gf::Color::rgba(42, 53, 67, 75));
+        }
+        const double shadow_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - mark).count() / 5;
+        std::cout << "Pan probe canvas operations: felt surround " << felt_ms << " ms, gradient " << gradient_ms
+                  << " ms, sheet shadow " << shadow_ms << " ms\n";
+        (*framebuffer).end();
+        std::cout << "Pan probe overlay: " << overlay_ms << " ms per canvas; controls painted "
+                  << (metrics.controls_painted - start_metrics.controls_painted) / steps
+                  << " per step, display commands replayed "
+                  << (metrics.display_commands_replayed - start_metrics.display_commands_replayed) / steps
+                  << " per step, chunks rebuilt "
+                  << (metrics.display_chunks_rebuilt - start_metrics.display_chunks_rebuilt) / steps << " per step" << "\n";
+        std::cout << "Pan probe: image " << width << " x " << height << ", scale " << window.scale() << ", window " << size.width << " x " << size.height
+                  << ", canvas " << area.width << " x " << area.height << "; per step: damage "
+                  << total_area / steps << " (logical units), paint " << total_ms / steps << " ms average, "
+                  << worst_ms << " ms worst\n"
+                  << std::flush;
+        if (!handle.request_close().accepted()) {
+            throw std::runtime_error("Native pan probe close failed");
+        }
+    }
+    // The window rectangle of the ribbon tab `id`, or none when it is not
+    // shown.
+    std::optional<gf::Rect> ribbon_tab_rect(gf::Window& window, const std::string& id) {
+        const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(find_shown(window, "ribbon-bar"));
+        if (!bar) {
+            return std::nullopt;
+        }
+        const gf::Rect origin = (*bar).absolute_bounds();
+        for (const gf::Ribbon::Tab& tab : (*bar).realized_tabs()) {
+            if (tab.stable_id == id) {
+                const gf::Rect local = tab.parts.tab.bounds;
+                const gf::Rect placed{origin.x + local.x, origin.y + local.y, local.width, local.height};
+                return placed;
+            }
+        }
+        return std::nullopt;
+    }
+    void tab_hover_run(gf::Window& window, gf::ApplicationWindowHandle handle) {
+        tab_hover_window = &window;
+        tab_hover_handle = handle;
+        const char* width = std::getenv("PAINT_TOOL_TAB_WIDTH");
+        if (width && *width) {
+            const std::shared_ptr<paint::forms::Ribbon> ribbon =
+                std::dynamic_pointer_cast<paint::forms::Ribbon>(find_shown(window, "ribbon"));
+            if (ribbon) {
+                (*ribbon).set_tool_tab_width(std::clamp(std::atof(width), 20.0, 400.0));
+            }
+        }
+        (*editor).choose_tool(paint::Tool::Pencil);
+        (*editor).refresh();
+        window.perform_layout();
+        tab_hover_begin("tool-tab");
+    }
+    void tab_hover_fail(const std::string& failure) {
+        if (tab_hover_failure.empty()) {
+            tab_hover_failure = failure;
+        }
+        if (tab_hover_timer) {
+            (*tab_hover_timer).stop();
+        }
+        static_cast<void>(tab_hover_handle.request_close());
+    }
+    // Clicks the tab, then hovers it; the series timer captures it every
+    // 100 ms out to 1500 ms after the hover, and once more at 3 s.
+    void tab_hover_begin(const std::string& id) {
+        gf::Window& window = *tab_hover_window;
+        tab_hover_id = id;
+        tab_hover_plate_seen.clear();
+        const std::optional<gf::Rect> shown = ribbon_tab_rect(window, id);
+        if (!shown) {
+            tab_hover_fail("Tab hover probe: the ribbon shows no " + id);
+            return;
+        }
+        const gf::Point press{(*shown).x + (*shown).width / 2, (*shown).y + (*shown).height / 2};
+        static_cast<void>(window.dispatch_pointer({gf::PointerAction::down, gf::PointerButton::primary, press}));
+        static_cast<void>(window.dispatch_pointer({gf::PointerAction::up, gf::PointerButton::primary, press}));
+        window.perform_layout();
+        if (!ribbon_tab_selected(window, id)) {
+            tab_hover_fail("Tab hover probe: a click did not select " + id);
+            return;
+        }
+        // The selected tab stands taller: hover the centre of where it is now.
+        const std::optional<gf::Rect> selected = ribbon_tab_rect(window, id);
+        const gf::Rect bounds = selected ? *selected : *shown;
+        tab_hover_point = {bounds.x + bounds.width / 2, bounds.y + bounds.height / 2};
+        tab_hover_metrics = window.metrics_snapshot();
+        tab_hover_cache = window.engine_parts().cache_statistics();
+        static_cast<void>(window.dispatch_pointer({gf::PointerAction::move, gf::PointerButton::none, tab_hover_point}));
+        tab_hover_started = std::chrono::steady_clock::now();
+        tab_hover_ticks = 0;
+        tab_hover_timer = std::make_unique<gf::Timer>(window, std::chrono::milliseconds(100));
+        const TabHoverTick tick{this};
+        tab_hover_tick = (*tab_hover_timer).tick().subscribe(tick);
+        (*tab_hover_timer).start();
+    }
+    // One timer tick of the series: ticks 1 to 15 (100 to 1500 ms) and 30
+    // (3 s) capture; the last ends the tab's series.
+    void tab_hover_step() {
+        ++tab_hover_ticks;
+        gf::Window& window = *tab_hover_window;
+        // The engine reads the pointer the window last saw: keep it on the
+        // tab's centre, where the owner's pointer rests, whatever the real
+        // cursor does meanwhile (a move to the same point keeps the hover).
+        static_cast<void>(window.dispatch_pointer({gf::PointerAction::move, gf::PointerButton::none, tab_hover_point}));
+        if (tab_hover_ticks <= 15 || tab_hover_ticks == 30) {
+            tab_hover_capture();
+        }
+        if (!tab_hover_failure.empty() || tab_hover_ticks < 30) {
+            return;
+        }
+        (*tab_hover_timer).stop();
+        if (tab_hover_id == "tool-tab") {
+            tab_hover_pencil_end = tab_hover_last_face;
+            if (!tab_hover_plate_seen.empty()) {
+                tab_hover_fail("The hovered selected Pencil tab showed the menu-item hot plate (" + tab_hover_plate_seen + ")");
+                return;
+            }
+            tab_hover_begin("home-tab");
+            return;
+        }
+        const TabFace& pencil = tab_hover_pencil_end;
+        const TabFace& home = tab_hover_last_face;
+        std::cout << "Tab hover end states at 3 s: Pencil dominant " << pencil.dominant_share << "% of " << pencil.pixels
+                  << " px (" << pencil.distinct << " colours, outline " << pencil.outline_share
+                  << "%); Home dominant " << home.dominant_share << "% of " << home.pixels << " px (" << home.distinct
+                  << " colours, outline " << home.outline_share << "%)\n"
+                  << std::flush;
+        // The owner's look: a flat face with a rectangular outline over it,
+        // unlike the Home tab's settled rise.
+        const bool pencil_flat = pencil.dominant_share >= 60 && pencil.outline_share >= 80;
+        const bool home_flat = home.dominant_share >= 60 && home.outline_share >= 80;
+        if (pencil_flat && !home_flat) {
+            tab_hover_fail("The hovered selected Pencil tab settles flat with a rectangular outline (dominant " +
+                           std::to_string(pencil.dominant_share) + "%, outline " + std::to_string(pencil.outline_share) +
+                           "%), unlike the Home tab");
+            return;
+        }
+        tab_hover_done = true;
+        static_cast<void>(tab_hover_handle.request_close());
+    }
+    void tab_hover_capture() {
+        gf::Window& window = *tab_hover_window;
+        window.perform_layout();
+        const std::optional<gf::Rect> shown = ribbon_tab_rect(window, tab_hover_id);
+        const std::shared_ptr<gf::Ribbon> bar = std::dynamic_pointer_cast<gf::Ribbon>(find_shown(window, "ribbon-bar"));
+        if (!shown || !bar) {
+            tab_hover_fail("Tab hover probe: " + tab_hover_id + " is gone after its hover");
+            return;
+        }
+        bool hot = false;
+        for (const gf::Ribbon::Tab& tab : (*bar).realized_tabs()) {
+            if (tab.stable_id == tab_hover_id) {
+                hot = tab.states.hot;
+            }
+        }
+        const long long elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      std::chrono::steady_clock::now() - tab_hover_started)
+                                      .count();
+        bool painted = false;
+        const gf::Size client = window.client_size();
+        const paint::Image frame = render_snapshot(window, client, painted);
+        const double scale = client.width > 0 ? frame.width / client.width : 1.0;
+        const gf::Rect ribbon = (*bar).absolute_bounds();
+        const paint::Rect region{static_cast<int>(std::floor(ribbon.x * scale)), static_cast<int>(std::floor(ribbon.y * scale)),
+                                 static_cast<int>(std::ceil(ribbon.width * scale)),
+                                 static_cast<int>(std::ceil(ribbon.height * scale))};
+        const paint::Image captured = paint::cropped(frame, region);
+        const char* directory = std::getenv("PAINT_TAB_HOVER_DIR");
+        const std::filesystem::path folder = directory && *directory ? paint::path_from_utf8(directory)
+                                                                     : std::filesystem::temp_directory_path();
+        const char* width = std::getenv("PAINT_TOOL_TAB_WIDTH");
+        const std::string variant = width && *width ? std::string("-w") + width : std::string();
+        const std::string step = std::to_string(tab_hover_ticks * 100);
+        const std::filesystem::path capture =
+            folder / ("plan-paint-tab-hover-" + tab_hover_id + variant + "-" + std::string(4 - std::min<std::size_t>(4, step.size()), '0') + step + "ms.png");
+        paint::save_image(captured, paint::path_to_utf8(capture));
+        // The tab's face: the hot plate's colours, the most common colour's
+        // share, the colours seen, and how much of its one-pixel inner ring
+        // differs from the most common colour (an outline).
+        const int left = std::max(0, static_cast<int>(std::floor((*shown).x * scale)));
+        const int top = std::max(0, static_cast<int>(std::floor((*shown).y * scale)));
+        const int right = std::min(frame.width, static_cast<int>(std::ceil(((*shown).x + (*shown).width) * scale)));
+        const int bottom = std::min(frame.height, static_cast<int>(std::ceil(((*shown).y + (*shown).height) * scale)));
+        std::size_t edge = 0;
+        std::size_t floor = 0;
+        std::map<std::uint32_t, std::size_t> counts;
+        for (int y = top; y < bottom; ++y) {
+            for (int x = left; x < right; ++x) {
+                const paint::Color pixel = frame.get(x, y);
+                if (near_colour(pixel, 0x48, 0x8b, 0xc4, 8)) { ++edge; }
+                if (near_colour(pixel, 0xd5, 0xe9, 0xfa, 3)) { ++floor; }
+                const std::uint32_t key = (static_cast<std::uint32_t>(pixel.r) << 16) |
+                                          (static_cast<std::uint32_t>(pixel.g) << 8) | pixel.b;
+                ++counts[key];
+            }
+        }
+        std::uint32_t dominant = 0;
+        std::size_t dominant_count = 0;
+        std::size_t pixels = 0;
+        for (const std::pair<const std::uint32_t, std::size_t>& entry : counts) {
+            pixels += entry.second;
+            if (entry.second > dominant_count) {
+                dominant = entry.first;
+                dominant_count = entry.second;
+            }
+        }
+        // The ring one device pixel inside the tab's bounds.
+        std::size_t ring = 0;
+        std::size_t ring_other = 0;
+        for (int y = top + 1; y < bottom - 1; ++y) {
+            for (int x = left + 1; x < right - 1; ++x) {
+                const bool on_ring = y == top + 1 || y == bottom - 2 || x == left + 1 || x == right - 2;
+                if (!on_ring) { continue; }
+                const paint::Color pixel = frame.get(x, y);
+                const std::uint32_t key = (static_cast<std::uint32_t>(pixel.r) << 16) |
+                                          (static_cast<std::uint32_t>(pixel.g) << 8) | pixel.b;
+                ++ring;
+                if (key != dominant) { ++ring_other; }
+            }
+        }
+        TabFace face;
+        face.pixels = pixels;
+        face.distinct = counts.size();
+        face.dominant_share = pixels > 0 ? static_cast<int>(dominant_count * 100 / pixels) : 0;
+        face.outline_share = ring > 0 ? static_cast<int>(ring_other * 100 / ring) : 0;
+        tab_hover_last_face = face;
+        const std::size_t across = static_cast<std::size_t>(std::max(0, right - left));
+        if (tab_hover_id == "tool-tab" && (floor >= 16 || edge >= across / 2) && tab_hover_plate_seen.empty()) {
+            tab_hover_plate_seen = step + " ms: floor " + std::to_string(floor) + " px, edge " + std::to_string(edge) + " px";
+        }
+        const gf::MetricsSnapshot after = window.metrics_snapshot();
+        const gf::RasterCacheStatistics cache = window.engine_parts().cache_statistics();
+        const gf::MetricsSnapshot& before = tab_hover_metrics;
+        std::cout << "Tab hover " << tab_hover_id << " +" << step << " ms (measured " << elapsed << ", width "
+                  << (*shown).width << ", painted " << (painted ? "yes" : "no") << ", hot " << (hot ? "yes" : "no")
+                  << "): refusals " << before.engine_primitive_refusals << "->" << after.engine_primitive_refusals
+                  << ", dither_degradations " << before.engine_dither_degradations << "->"
+                  << after.engine_dither_degradations << ", built_in_fallbacks "
+                  << counter_text(built_in_fallbacks(before)) << "->" << counter_text(built_in_fallbacks(after))
+                  << ", raster_failures " << counter_text(raster_failures(before)) << "->"
+                  << counter_text(raster_failures(after)) << ", keyframe_demand_bakes "
+                  << tab_hover_cache.keyframe_demand_bakes << "->" << cache.keyframe_demand_bakes
+                  << ", keyframe_idle_bakes " << tab_hover_cache.keyframe_idle_bakes << "->"
+                  << cache.keyframe_idle_bakes << ", keyframe_hits " << tab_hover_cache.keyframe_hits << "->"
+                  << cache.keyframe_hits << ", idle_keyframes_queued " << cache.idle_keyframes_queued << ", hits "
+                  << tab_hover_cache.hits << "->" << cache.hits << ", bakes " << tab_hover_cache.bakes << "->"
+                  << cache.bakes << "; face: dominant " << face.dominant_share << "% of " << face.pixels << " px, "
+                  << face.distinct << " colours, outline " << face.outline_share << "%; hot plate: floor " << floor
+                  << ", edge " << edge << "; " << paint::path_to_utf8(capture) << "\n"
+                  << std::flush;
+    }
+    // An editor dialog in a window of its own: first driven from this loop
+    // (modal_dialogs off), then modally through show_modal.
+    void dialog_window_run(gf::Window& window, gf::ApplicationWindowHandle handle) {
+        static_cast<void>((*editor).begin_invoke(DialogWindowStart{this, &window, handle}));
+    }
+    void dialog_window_checks(gf::Window& window, gf::ApplicationWindowHandle handle) {
+        const gf::ApplicationWindows windows = handle.windows();
+        (*editor).modal_dialogs = false;
+        // Every editor dialog (all but the Linux print pair, which this
+        // host never opens) is a window of its own, owned by the editor's,
+        // and goes with its dialog.
+        const paint::forms::EditorDialogKind every_kind[] = {
+            paint::forms::EditorDialogKind::dither,          paint::forms::EditorDialogKind::tool_size,
+            paint::forms::EditorDialogKind::carpet,          paint::forms::EditorDialogKind::about,
+            paint::forms::EditorDialogKind::color,           paint::forms::EditorDialogKind::gradient_color,
+            paint::forms::EditorDialogKind::resize,          paint::forms::EditorDialogKind::atlas_grid,
+            paint::forms::EditorDialogKind::icon_sizes,      paint::forms::EditorDialogKind::cursor_sizes,
+            paint::forms::EditorDialogKind::hotspot,         paint::forms::EditorDialogKind::atlas_gallery,
+            paint::forms::EditorDialogKind::icon_sheet,      paint::forms::EditorDialogKind::icon_validation,
+            paint::forms::EditorDialogKind::toolbar_strip,   paint::forms::EditorDialogKind::icon_export,
+            paint::forms::EditorDialogKind::icon_batch,      paint::forms::EditorDialogKind::asset_browser,
+            paint::forms::EditorDialogKind::alpha_tools,     paint::forms::EditorDialogKind::icon_palette,
+            paint::forms::EditorDialogKind::icon_states,     paint::forms::EditorDialogKind::icon_effects,
+            paint::forms::EditorDialogKind::numeric_transform, paint::forms::EditorDialogKind::properties,
+            paint::forms::EditorDialogKind::settings,        paint::forms::EditorDialogKind::english_help,
+            paint::forms::EditorDialogKind::print_preview};
+        // The cursor and icon dialogs edit the active image of a cursor set
+        // (the hotspot dialog opens only for one).
+        (*editor).document.new_image(64, 64);
+        (*editor).document.make_icon_sizes({32, 16}, true, paint::IconSizePolicy::ExactProfile);
+        for (std::size_t index = 0; index < std::size(every_kind); ++index) {
+            (*editor).open_editor_dialog(every_kind[index]);
+            gf::Window* opened = (*editor).dialog_window();
+            if (opened == nullptr || opened == &window || windows.window_count() != 2 ||
+                window.find("editor-dialog") || !(*opened).find("editor-dialog")) {
+                throw std::runtime_error("Editor dialog kind " + std::to_string(index) +
+                                         " did not open as a window of its own (window " +
+                                         std::string(opened == nullptr ? "none" : opened == &window ? "main" : "own") +
+                                         ", windows " + std::to_string(windows.window_count()) + ", in main " +
+                                         std::string(window.find("editor-dialog") ? "yes" : "no") + ")");
+            }
+            const gf::Size size = (*opened).client_size();
+            if (size.width <= 0 || size.height <= 0) {
+                throw std::runtime_error("Editor dialog kind " + std::to_string(index) + " has an empty window");
+            }
+            (*editor).close_editor_dialog();
+            drain_all(window);
+            if (windows.window_count() != 1) {
+                throw std::runtime_error("Editor dialog kind " + std::to_string(index) + "'s window outlived it");
+            }
+        }
+        // Settings after a Canvas surround choice (the owner's report of
+        // 2026-11-13 to 2026-11-17: open Settings, change Canvas surround,
+        // press OK or Cancel, and the dialog does not close). The surround
+        // list lifts into the dialog window's warm Popup, which stays open,
+        // hidden, for the window's life; GUI.Forms refused to destroy a
+        // window that owned any live window, so DestroyDialogWindow did
+        // nothing and the modal loop never ended.
+        (*editor).execute("settings");
+        gf::Window* settings = (*editor).dialog_window();
+        const std::shared_ptr<gf::ComboBox> surround = settings == nullptr ? nullptr
+            : std::dynamic_pointer_cast<gf::ComboBox>((*settings).find("settings-background"));
+        if (surround == nullptr) {
+            throw std::runtime_error("The Settings dialog has no Canvas surround list in its own window");
+        }
+        (*settings).perform_layout();
+        (*surround).dropped_down = true;
+        const std::size_t windows_while_dropped = windows.window_count();
+        (*surround).selected_index =
+            stxlib::Optional<std::size_t>::of(static_cast<std::size_t>(paint::CanvasBacking::TanFelt));
+        (*surround).dropped_down = false;
+        // Cancel ("dialog-cancel" calls close_editor_dialog).
+        (*editor).close_editor_dialog();
+        drain_all(window);
+        if (windows.window_count() != 1) {
+            throw std::runtime_error("The Settings dialog's window outlived Cancel after a Canvas surround choice (" +
+                                     std::to_string(windows.window_count()) + " windows; " +
+                                     std::to_string(windows_while_dropped) + " while the list was down)");
+        }
+        (*editor).execute("about");
+        gf::Window* dialog = (*editor).dialog_window();
+        if (dialog == nullptr || dialog == &window || windows.window_count() != 2) {
+            throw std::runtime_error("The About dialog did not open as a second window");
+        }
+        // About has one button, Close ("dialog-ok").
+        if (window.find("dialog-ok") || !(*dialog).find("dialog-ok") || !find_shown(window, "dialog-ok")) {
+            throw std::runtime_error("The dialog's controls are not in the dialog's own window");
+        }
+        const gf::Size client = (*dialog).client_size();
+        if (client.width <= 0 || client.height <= 0 || client.width > window.client_size().width) {
+            throw std::runtime_error("The dialog window has no sensible size");
+        }
+        (*editor).close_editor_dialog();
+        if ((*editor).dialog_window() != nullptr) {
+            throw std::runtime_error("Closing the dialog left its window known to the editor");
+        }
+        // The window goes on the editor's next turn.
+        drain_all(window);
+        if (windows.window_count() != 1) {
+            throw std::runtime_error("The dialog's window outlived the dialog");
+        }
+        (*editor).modal_dialogs = true;
+        (*editor).execute("about");
+        if ((*editor).dialog_window() != nullptr) {
+            throw std::runtime_error("A modal dialog's window opened before the opening command finished");
+        }
+        // The show_modal call runs from the editor's posted work, so work
+        // posted behind it waits for the nested loop to end; a timer tick
+        // reaches the loop itself. The probe queues the finish check once it
+        // has closed the dialog.
+        main_handle = handle;
+        modal_timer = std::make_unique<gf::Timer>(window, std::chrono::milliseconds(200));
+        modal_tick = (*modal_timer).tick().subscribe(std::bind(&NativeExercise::modal_probe_tick, std::ref(*this)));
+        (*modal_timer).start();
     }
     void ready(gf::Window& window, gf::ApplicationWindowHandle handle) {
         if (!window.host_services()) {
@@ -688,6 +1443,21 @@ struct NativeExercise {
         if (!clipboard_role.empty()) {
             clipboard_exchange = std::make_unique<paint::tests::NativeClipboardExchange>(
                 *editor, window, handle, clipboard_directory, clipboard_role == "--clipboard-producer");
+            entered = true;
+            return;
+        }
+        if (pan_probe) {
+            pan_probe_run(window, handle);
+            entered = true;
+            return;
+        }
+        if (dialog_window_review) {
+            dialog_window_run(window, handle);
+            entered = true;
+            return;
+        }
+        if (tab_hover_probe) {
+            tab_hover_run(window, handle);
             entered = true;
             return;
         }
@@ -708,7 +1478,7 @@ struct NativeExercise {
             document.ink.geometry.start = paint::EndpointMarker::Arrow;
             document.ink.geometry.end = paint::EndpointMarker::ZeroMany;
             (*editor).choose_shape(paint::Shape::Line);
-            (*std::dynamic_pointer_cast<gf::Button>(window.find("tool-tab"))).perform_click();
+            static_cast<void>(select_ribbon_tab(window, "tool-tab"));
             (*editor).refresh(); window.perform_layout(); inspect_frame(window);
             document.saved_revision = document.revision;
             entered = true;
@@ -739,7 +1509,7 @@ struct NativeExercise {
                 document.ink.geometry.organic = 3;
             }
             (*editor).choose_shape(paint::Shape::Rectangle);
-            (*std::dynamic_pointer_cast<gf::Button>(window.find("tool-tab"))).perform_click();
+            static_cast<void>(select_ribbon_tab(window, "tool-tab"));
             (*editor).refresh(); window.perform_layout(); inspect_frame(window);
             document.saved_revision = document.revision;
             entered = true;
@@ -748,8 +1518,7 @@ struct NativeExercise {
         }
         if (sticky_review) {
             (*editor).execute("sticky-note");
-            gf::TextInputEvent text{"Plan the next step\n\nMake something useful."};
-            (*editor).text_input(text);
+            static_cast<void>((*editor).canvas_text().replace_selection("Plan the next step\n\nMake something useful."));
             window.perform_layout();
             inspect_frame(window);
             (*editor).execute("text-place");
@@ -783,9 +1552,9 @@ struct NativeExercise {
             frame = paint::convert_icon_palette(frame, options).frame;
             (*editor).open_container({paint::ContainerKind::Icon, {frame}}, "indexed-paint.ico");
             (*editor).execute("atlas-palette");
-            const std::shared_ptr<gf::ComboBox> entry = std::dynamic_pointer_cast<gf::ComboBox>(window.find("palette-entry"));
-            (*entry).set_selected_index(1);
-            (*std::dynamic_pointer_cast<gf::Button>(window.find("palette-primary"))).perform_click();
+            const std::shared_ptr<gf::ComboBox> entry = std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "palette-entry"));
+            (*entry).selected_index = stxlib::Optional<std::size_t>::of(1);
+            (*std::dynamic_pointer_cast<gf::Button>(find_shown(window, "palette-primary"))).perform_click();
             stroke(window, {10, 30}, {100, 90});
             (*editor).refresh();
             window.perform_layout();
@@ -818,16 +1587,16 @@ struct NativeExercise {
             const std::size_t history = document.undo_history.size();
             (*editor).execute("icon-batch");
             const std::shared_ptr<gf::TextBox> destination =
-                std::dynamic_pointer_cast<gf::TextBox>(window.find("batch-destination"));
-            (*destination).set_text(outputs.path.string());
+                std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "batch-destination"));
+            (*destination).text = outputs.path.string();
             if (icon_shared_review) {
                 const std::string text = paint::encode_icon_palette({{0, 0, 0, 255}, {245, 180, 40, 255}, {30, 80, 160, 255}, {255, 255, 255, 255}});
                 const std::string path = (inputs.path / "shared.gpl").string();
                 paint::write_file_atomic(std::vector<std::uint8_t>(text.begin(), text.end()), path, "shared palette fixture");
-                const std::shared_ptr<gf::ComboBox> operation = std::dynamic_pointer_cast<gf::ComboBox>(window.find("batch-operation"));
-                (*operation).set_selected_index(5);
-                const std::shared_ptr<gf::TextBox> file = std::dynamic_pointer_cast<gf::TextBox>(window.find("batch-palette-path"));
-                (*file).set_text(path);
+                const std::shared_ptr<gf::ComboBox> operation = std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "batch-operation"));
+                (*operation).selected_index = stxlib::Optional<std::size_t>::of(5);
+                const std::shared_ptr<gf::TextBox> file = std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "batch-palette-path"));
+                (*file).text = path;
             }
             if (icon_stamp_review) {
                 paint::Image badge;
@@ -835,32 +1604,32 @@ struct NativeExercise {
                 const std::string stamp_path = (inputs.path / "badge.png").string();
                 paint::save_image(badge, stamp_path);
                 const std::shared_ptr<gf::ComboBox> operation =
-                    std::dynamic_pointer_cast<gf::ComboBox>(window.find("batch-operation"));
-                (*operation).set_selected_index(4);
+                    std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "batch-operation"));
+                (*operation).selected_index = stxlib::Optional<std::size_t>::of(4);
                 const std::shared_ptr<gf::TextBox> stamp =
-                    std::dynamic_pointer_cast<gf::TextBox>(window.find("batch-stamp-path"));
-                (*stamp).set_text(stamp_path);
+                    std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "batch-stamp-path"));
+                (*stamp).text = stamp_path;
                 const std::shared_ptr<gf::ComboBox> scale =
-                    std::dynamic_pointer_cast<gf::ComboBox>(window.find("batch-stamp-scale"));
-                (*scale).set_selected_index(1);
+                    std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "batch-stamp-scale"));
+                (*scale).selected_index = stxlib::Optional<std::size_t>::of(1);
                 const std::shared_ptr<gf::NumericUpDown> percent =
-                    std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("batch-stamp-percent"));
-                (*percent).set_value(40);
+                    std::dynamic_pointer_cast<gf::NumericUpDown>(find_shown(window, "batch-stamp-percent"));
+                (*percent).value = 40;
                 const std::shared_ptr<gf::ComboBox> anchor =
-                    std::dynamic_pointer_cast<gf::ComboBox>(window.find("batch-stamp-anchor"));
-                (*anchor).set_selected_index(8);
+                    std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "batch-stamp-anchor"));
+                (*anchor).selected_index = stxlib::Optional<std::size_t>::of(8);
             }
             const std::shared_ptr<gf::Button> review =
-                std::dynamic_pointer_cast<gf::Button>(window.find("batch-review"));
+                std::dynamic_pointer_cast<gf::Button>(find_shown(window, "batch-review"));
             (*review).perform_click();
             await_batch(window);
             window.perform_layout();
             inspect_frame(window);
-            if (!std::filesystem::is_empty(outputs.path) || (*window.find("batch-preset")).enabled()) {
+            if (!std::filesystem::is_empty(outputs.path) || (*find_shown(window, "batch-preset")).enabled.read()) {
                 throw std::runtime_error("Batch review wrote files or enabled an irrelevant recipe");
             }
             const std::shared_ptr<gf::Button> run =
-                std::dynamic_pointer_cast<gf::Button>(window.find("batch-run"));
+                std::dynamic_pointer_cast<gf::Button>(find_shown(window, "batch-run"));
             (*run).perform_click();
             await_batch(window);
             for (int index = 1; index <= 2; ++index) {
@@ -886,7 +1655,7 @@ struct NativeExercise {
                 }
             }
             if (document.revision != revision || document.undo_history.size() != history ||
-                (*run).enabled() || !(*window.find("batch-report")).enabled()) {
+                (*run).enabled.read() || !(*find_shown(window, "batch-report")).enabled.read()) {
                 throw std::runtime_error(
                     "Batch execution changed document history or left stale Run enabled");
             }
@@ -932,8 +1701,8 @@ struct NativeExercise {
             frame.image.reset(48,48,{180,40,150,255}); source.frames.push_back(frame);
             paint::save_container(source,path);
             const std::chrono::steady_clock::time_point deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
-            const std::shared_ptr<gf::Label> notice=std::dynamic_pointer_cast<gf::Label>(window.find("file-change-notice"));
-            while ((*notice).text() != "File changed outside Plan Paint.") {
+            const std::shared_ptr<gf::Label> notice=std::dynamic_pointer_cast<gf::Label>(find_shown(window, "file-change-notice"));
+            while ((*notice).text.read() != "File changed outside Plan Paint.") {
                 (*editor).file_watch_tick(); window.perform_layout();
                 if (std::chrono::steady_clock::now()>deadline) { throw std::runtime_error("Native file notice timed out"); }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -951,8 +1720,8 @@ struct NativeExercise {
             frame.image.reset(32,32,{70,180,110,255}); source.frames.push_back(frame);
             (*editor).open_container(source,""); (*editor).execute("atlas-validate");
             const std::chrono::steady_clock::time_point deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
-            while (!(*window.find("validation-check")).enabled()) {
-                static_cast<void>(window.drain_posted_work());
+            while (!(*find_shown(window, "validation-check")).enabled.read()) {
+                static_cast<void>(drain_all(window));
                 if (std::chrono::steady_clock::now()>deadline) { throw std::runtime_error("Native validation timed out"); }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
@@ -968,13 +1737,13 @@ struct NativeExercise {
             document.replace(source,"");
             paint::AtlasGrid grid; grid.columns=3; document.configure_atlas(grid); document.atlas.sequence={2,0,1};
             (*editor).execute("atlas-export");
-            const std::shared_ptr<gf::NumericUpDown> gap=std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("strip-value-3"));
-            (*gap).set_value(6);
-            const std::shared_ptr<gf::Button> preview=std::dynamic_pointer_cast<gf::Button>(window.find("strip-preview"));
+            const std::shared_ptr<gf::NumericUpDown> gap=std::dynamic_pointer_cast<gf::NumericUpDown>(find_shown(window, "strip-value-3"));
+            (*gap).value = 6;
+            const std::shared_ptr<gf::Button> preview=std::dynamic_pointer_cast<gf::Button>(find_shown(window, "strip-preview"));
             (*preview).perform_click();
             const std::chrono::steady_clock::time_point deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
-            while (!(*preview).enabled()) {
-                static_cast<void>(window.drain_posted_work());
+            while (!(*preview).enabled.read()) {
+                static_cast<void>(drain_all(window));
                 if (std::chrono::steady_clock::now()>deadline) { throw std::runtime_error("Native strip timed out"); }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
@@ -992,19 +1761,19 @@ struct NativeExercise {
             source.frames.push_back(frame);
             (*editor).open_container(source, "");
             (*editor).execute("numeric-transform");
-            const std::shared_ptr<gf::NumericUpDown> angle = std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("transform-value-4"));
-            (*angle).set_value(25);
-            const std::shared_ptr<gf::Button> preview = std::dynamic_pointer_cast<gf::Button>(window.find("transform-preview"));
+            const std::shared_ptr<gf::NumericUpDown> angle = std::dynamic_pointer_cast<gf::NumericUpDown>(find_shown(window, "transform-value-4"));
+            (*angle).value = 25;
+            const std::shared_ptr<gf::Button> preview = std::dynamic_pointer_cast<gf::Button>(find_shown(window, "transform-preview"));
             (*preview).perform_click();
             const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now()+std::chrono::seconds(30);
-            while (!(*preview).enabled()) {
-                static_cast<void>(window.drain_posted_work());
+            while (!(*preview).enabled.read()) {
+                static_cast<void>(drain_all(window));
                 if (std::chrono::steady_clock::now() > deadline) { throw std::runtime_error("Native transform timed out"); }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             window.perform_layout();
             inspect_frame(window);
-            const std::shared_ptr<gf::Button> apply = std::dynamic_pointer_cast<gf::Button>(window.find("transform-apply"));
+            const std::shared_ptr<gf::Button> apply = std::dynamic_pointer_cast<gf::Button>(find_shown(window, "transform-apply"));
             (*apply).perform_click();
             if (document.image.width != 32 || document.undo_history.size()!=1) { throw std::runtime_error("Native transform history or dimensions wrong"); }
             document.undo();
@@ -1024,22 +1793,22 @@ struct NativeExercise {
             source.frames.push_back(frame);
             (*editor).open_container(source, "");
             (*editor).execute("atlas-effects");
-            const std::shared_ptr<gf::ComboBox> choice = std::dynamic_pointer_cast<gf::ComboBox>(window.find("effect-choice"));
-            (*choice).set_selected_index(6);
+            const std::shared_ptr<gf::ComboBox> choice = std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "effect-choice"));
+            (*choice).selected_index = stxlib::Optional<std::size_t>::of(6);
             if (advanced_effects_review) {
-                const std::shared_ptr<gf::CheckBox> advanced=std::dynamic_pointer_cast<gf::CheckBox>(window.find("effect-advanced"));
+                const std::shared_ptr<gf::CheckBox> advanced=std::dynamic_pointer_cast<gf::CheckBox>(find_shown(window, "effect-advanced"));
                 (*advanced).perform_click();
-                (*choice).set_selected_index(9);
-                const std::shared_ptr<gf::NumericUpDown> gamma=std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("effect-value-2"));
-                (*gamma).set_value(1.5);
-                const std::shared_ptr<gf::NumericUpDown> black=std::dynamic_pointer_cast<gf::NumericUpDown>(window.find("effect-value-0"));
-                (*black).set_value(16);
+                (*choice).selected_index = stxlib::Optional<std::size_t>::of(9);
+                const std::shared_ptr<gf::NumericUpDown> gamma=std::dynamic_pointer_cast<gf::NumericUpDown>(find_shown(window, "effect-value-2"));
+                (*gamma).value = 1.5;
+                const std::shared_ptr<gf::NumericUpDown> black=std::dynamic_pointer_cast<gf::NumericUpDown>(find_shown(window, "effect-value-0"));
+                (*black).value = 16;
             }
             window.perform_layout();
             (*editor).invalidate(gf::Dirty::paint);
             inspect_frame(window);
-            if (!(*window.find("effect-apply")).enabled()) { throw std::runtime_error("Native shadow preview cannot apply"); }
-            const std::shared_ptr<gf::Button> apply = std::dynamic_pointer_cast<gf::Button>(window.find("effect-apply"));
+            if (!(*find_shown(window, "effect-apply")).enabled.read()) { throw std::runtime_error("Native shadow preview cannot apply"); }
+            const std::shared_ptr<gf::Button> apply = std::dynamic_pointer_cast<gf::Button>(find_shown(window, "effect-apply"));
             (*apply).perform_click();
             if (document.image.width != 32 || document.undo_history.size() != 1) { throw std::runtime_error("Native effect changed dimensions or history incorrectly"); }
             document.undo();
@@ -1069,16 +1838,16 @@ struct NativeExercise {
             (*editor).execute("atlas-states");
             const std::chrono::steady_clock::time_point deadline =
                 std::chrono::steady_clock::now() + std::chrono::seconds(10);
-            while (!(*window.find("state-export")).enabled()) {
-                static_cast<void>(window.drain_posted_work());
+            while (!(*find_shown(window, "state-export")).enabled.read()) {
+                static_cast<void>(drain_all(window));
                 if (std::chrono::steady_clock::now() > deadline) {
                     throw std::runtime_error("Native state preview timed out");
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             const std::shared_ptr<gf::ComboBox> image =
-                std::dynamic_pointer_cast<gf::ComboBox>(window.find("state-image"));
-            (*image).set_selected_index(3);
+                std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "state-image"));
+            (*image).selected_index = stxlib::Optional<std::size_t>::of(3);
             window.perform_layout();
             inspect_frame(window);
             (*editor).close_editor_dialog();
@@ -1110,15 +1879,15 @@ struct NativeExercise {
             (*editor).execute(icon_palette_review ? "atlas-palette" : "atlas-alpha-tools");
             if (icon_indexed_review) {
                 const std::shared_ptr<gf::ComboBox> mode =
-                    std::dynamic_pointer_cast<gf::ComboBox>(window.find("palette-mode"));
+                    std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "palette-mode"));
                 const std::shared_ptr<gf::ComboBox> entry =
-                    std::dynamic_pointer_cast<gf::ComboBox>(window.find("palette-entry"));
+                    std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "palette-entry"));
                 const std::shared_ptr<gf::TextBox> rgb =
-                    std::dynamic_pointer_cast<gf::TextBox>(window.find("palette-rgb"));
-                (*mode).set_selected_index(1);
-                (*entry).set_selected_index(7);
-                (*rgb).set_text("#F0B020");
-                if (!(*window.find("palette-apply")).enabled() || !document.undo_history.empty()) {
+                    std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "palette-rgb"));
+                (*mode).selected_index = stxlib::Optional<std::size_t>::of(1);
+                (*entry).selected_index = stxlib::Optional<std::size_t>::of(7);
+                (*rgb).text = "#F0B020";
+                if (!(*find_shown(window, "palette-apply")).enabled.read() || !document.undo_history.empty()) {
                     throw std::runtime_error("Native indexed entry preview did not prepare without mutation");
                 }
             }
@@ -1135,24 +1904,24 @@ struct NativeExercise {
             (*editor).asset_directory = (root / "assets").string();
             (*editor).execute("browse-assets");
             const std::shared_ptr<gf::ListBox> list =
-                std::dynamic_pointer_cast<gf::ListBox>(window.find("asset-list"));
+                std::dynamic_pointer_cast<gf::ListBox>(find_shown(window, "asset-list"));
             const std::chrono::steady_clock::time_point deadline =
                 std::chrono::steady_clock::now() + std::chrono::seconds(15);
-            while ((*list).items().empty()) {
-                static_cast<void>(window.drain_posted_work());
+            while ((*list).items.read().empty()) {
+                static_cast<void>(drain_all(window));
                 if (std::chrono::steady_clock::now() > deadline) {
                     throw std::runtime_error("Native asset directory timed out");
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
-            for (std::size_t index = 0; index < (*list).items().size(); ++index) {
-                if ((*list).items()[index] == "app-icon.png") {
+            for (std::size_t index = 0; index < (*list).items.read().size(); ++index) {
+                if ((*list).items.read()[index] == "app-icon.png") {
                     (*list).select_index(index);
                     break;
                 }
             }
-            while (!(*window.find("asset-stamp")).enabled()) {
-                static_cast<void>(window.drain_posted_work());
+            while (!(*find_shown(window, "asset-stamp")).enabled.read()) {
+                static_cast<void>(drain_all(window));
                 if (std::chrono::steady_clock::now() > deadline) {
                     throw std::runtime_error("Native asset preview timed out");
                 }
@@ -1174,12 +1943,12 @@ struct NativeExercise {
             document.make_icon_sizes({16, 32, 48, 128}, false);
             (*editor).execute("atlas-export");
             const std::shared_ptr<gf::TextBox> destination =
-                std::dynamic_pointer_cast<gf::TextBox>(window.find("export-destination"));
-            (*destination).set_text(outputs.path.string());
+                std::dynamic_pointer_cast<gf::TextBox>(find_shown(window, "export-destination"));
+            (*destination).text = outputs.path.string();
             const std::chrono::steady_clock::time_point deadline =
                 std::chrono::steady_clock::now() + std::chrono::seconds(10);
-            while ((*window.find("export-cancel")).enabled()) {
-                static_cast<void>(window.drain_posted_work());
+            while ((*find_shown(window, "export-cancel")).enabled.read()) {
+                static_cast<void>(drain_all(window));
                 if (std::chrono::steady_clock::now() > deadline) {
                     throw std::runtime_error("Native export review timed out");
                 }
@@ -1210,23 +1979,23 @@ struct NativeExercise {
             window.perform_layout();
             const std::chrono::steady_clock::time_point deadline =
                 std::chrono::steady_clock::now() + std::chrono::seconds(10);
-            while (!(*window.find("sheet-export")).enabled()) {
-                static_cast<void>(window.drain_posted_work());
+            while (!(*find_shown(window, "sheet-export")).enabled.read()) {
+                static_cast<void>(drain_all(window));
                 if (std::chrono::steady_clock::now() > deadline) {
                     throw std::runtime_error("Native contact sheet worker timed out");
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             const std::shared_ptr<gf::ComboBox> zoom =
-                std::dynamic_pointer_cast<gf::ComboBox>(window.find("sheet-zoom"));
+                std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "sheet-zoom"));
             const std::shared_ptr<gf::RasterCanvas> preview =
-                std::dynamic_pointer_cast<gf::RasterCanvas>(window.find("sheet-preview"));
-            (*zoom).set_selected_index(1);
+                std::dynamic_pointer_cast<gf::RasterCanvas>(find_shown(window, "sheet-preview"));
+            (*zoom).selected_index = stxlib::Optional<std::size_t>::of(1);
             window.perform_layout();
             if (std::abs((*preview).bitmap_to_client({0, 0, 1, 1}).width * window.scale() - 1) > 1e-8) {
                 throw std::runtime_error("Native actual-size proof did not map physical pixels one to one");
             }
-            (*zoom).set_selected_index(0);
+            (*zoom).selected_index = stxlib::Optional<std::size_t>::of(0);
             window.perform_layout();
             inspect_frame(window);
             (*editor).close_editor_dialog();
@@ -1251,17 +2020,17 @@ struct NativeExercise {
             (*editor).execute("atlas-icons");
             (*editor).close_editor_dialog();
             window.perform_layout();
-            const gf::Rect panel = (*window.find("icon-panel")).absolute_bounds();
+            const gf::Rect panel = (*find_shown(window, "icon-panel")).absolute_bounds();
             const char* commands[] = {"icon-alpha-tools", "icon-palette"};
             for (const char* command : commands) {
-                const gf::Rect bounds = (*window.find(command)).absolute_bounds();
+                const gf::Rect bounds = (*find_shown(window, command)).absolute_bounds();
                 if (bounds.y < panel.y || bounds.bottom() > panel.bottom()) {
                     throw std::runtime_error("Native icon command is clipped by the ribbon");
                 }
                 const gf::Point point{bounds.x + bounds.width / 2, bounds.y + bounds.height / 2};
                 window.dispatch_pointer({gf::PointerAction::down, gf::PointerButton::primary, point});
                 window.dispatch_pointer({gf::PointerAction::up, gf::PointerButton::primary, point});
-                if (!window.find(std::string(command) == "icon-palette" ? "palette-after" : "alpha-before")) {
+                if (!find_shown(window, std::string(command) == "icon-palette" ? "palette-after" : "alpha-before")) {
                     throw std::runtime_error("Native pointer could not open icon command");
                 }
                 (*editor).close_editor_dialog();
@@ -1287,15 +2056,15 @@ struct NativeExercise {
             (*editor).execute("atlas-icons");
             window.perform_layout();
             const std::shared_ptr<gf::ComboBox> policy =
-                std::dynamic_pointer_cast<gf::ComboBox>(window.find("icon-size-policy"));
+                std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "icon-size-policy"));
             if (!policy) { throw std::runtime_error("Native icon generation policy is unavailable"); }
-            (*policy).set_selected_index(2);
+            (*policy).selected_index = stxlib::Optional<std::size_t>::of(2);
             const std::shared_ptr<gf::ListBox> targets =
-                std::dynamic_pointer_cast<gf::ListBox>(window.find("icon-target-list"));
+                std::dynamic_pointer_cast<gf::ListBox>(find_shown(window, "icon-target-list"));
             const std::shared_ptr<gf::ComboBox> depth =
-                std::dynamic_pointer_cast<gf::ComboBox>(window.find("icon-target-depth"));
+                std::dynamic_pointer_cast<gf::ComboBox>(find_shown(window, "icon-target-depth"));
             (*targets).select_index(icon_svg_review ? 3 : 4);
-            (*depth).set_selected_index(1);
+            (*depth).selected_index = stxlib::Optional<std::size_t>::of(1);
             window.perform_layout();
             inspect_frame(window);
             (*editor).close_editor_dialog();
@@ -1426,14 +2195,50 @@ struct WindowsFixtureReady {
     gf::Window* window;
     void operator()(std::function<void()>, std::function<void()>,
                     std::function<gf::HostDialogResult(const gf::HostDialogRequest&)>,
-                    std::function<gf::HostServiceStatus(const gf::HostTooltipRequest&)>,
-                    std::function<void()>, std::function<gf::HostClipboardTextResult()>,
+                    std::function<gf::HostClipboardTextResult()>,
                     std::function<gf::HostServiceStatus(std::string_view)>) const {
         (*exercise).ready(*window, {});
     }
 };
 #endif
 } // namespace
+void TabHoverTick::operator()() const {
+    try {
+        (*exercise).tab_hover_step();
+    } catch (const std::exception& failure) {
+        (*exercise).tab_hover_fail(failure.what());
+    }
+}
+void DialogWindowStart::operator()() const {
+    try {
+        (*exercise).dialog_window_checks(*window, handle);
+    } catch (const std::exception& failure) {
+        (*exercise).dialog_failure = failure.what();
+        static_cast<void>(handle.request_close());
+    }
+}
+void ModalDialogProbe::operator()() const {
+    paint::forms::Editor& editor = *(*exercise).editor;
+    gf::Window* dialog = editor.dialog_window();
+    if (dialog == nullptr) {
+        (*exercise).dialog_failure = "The modal About dialog has no window of its own inside its loop";
+    } else if (!(*dialog).find("dialog-ok")) {
+        (*exercise).dialog_failure = "The modal dialog's controls are not in its window";
+    }
+    (*exercise).modal_seen = true;
+    // Ends the nested loop: the window goes on the editor's next turn, and
+    // the finish check is queued behind that.
+    editor.close_editor_dialog();
+    static_cast<void>(editor.begin_invoke(ModalDialogFinish{exercise, (*exercise).main_handle}));
+}
+void ModalDialogFinish::operator()() const {
+    if (!(*exercise).modal_seen) {
+        (*exercise).dialog_failure = "The modal loop ended before its probe ran";
+    } else if (handle.windows().window_count() != 1) {
+        (*exercise).dialog_failure = "The modal dialog's window outlived its loop";
+    }
+    static_cast<void>(handle.request_close());
+}
 int main(int argc, char** argv) {
     try {
         // Outlive the editor and its recovery worker. Never inspect or retire
@@ -1503,8 +2308,26 @@ int main(int argc, char** argv) {
         exercise.view_review = argc > 1 && std::string(argv[1]) == "--view";
         exercise.guide_review = argc > 1 && std::string(argv[1]) == "--guide";
         exercise.bugs = argc > 1 && std::string(argv[1]) == "--bugs";
+        exercise.pan_probe = argc > 1 && std::string(argv[1]) == "--pan-probe";
+        exercise.dialog_window_review = argc > 1 && std::string(argv[1]) == "--dialog-window";
+        exercise.tab_hover_probe = argc > 1 && std::string(argv[1]) == "--tab-hover";
+        if (exercise.tab_hover_probe) {
+            exercise.keep_open = false;
+        }
+        // Owned windows need the Application run (its window set), not the
+        // single-window fixture host the other argument modes use.
+        if (exercise.dialog_window_review) {
+            exercise.keep_open = false;
+        }
+        if (exercise.pan_probe) {
+            exercise.keep_open = false;
+        }
         exercise.resize_preview = argc > 1 && std::string(argv[1]) == "--resize-preview";
         exercise.editor = gf::make_control<paint::forms::Editor>(gf::StableId("native.editor"));
+        native_editor = exercise.editor.get();
+        // The exercises drive dialogs from their own loop: their windows open
+        // at once, without show_modal's nested loop (--dialog-window covers it).
+        (*exercise.editor).modal_dialogs = false;
         (*exercise.editor).recovery_root = recovery.path;
         gf::ApplicationWindowOptions options;
         options.title = "Plan Paint — GUI.Forms native interaction check";
@@ -1530,10 +2353,37 @@ int main(int argc, char** argv) {
             return gf::host::run_windows(std::move(window), std::move(host_options));
         }
 #endif
-        gf::ApplicationResult result = gf::Application::run(
-            std::make_unique<gf::Window>(exercise.editor, options.initial_size), std::move(options));
+        // The Application-first lifecycle, as main.cpp: the GUI.Forms base and
+        // Plan Paint's theme package, compiled once for the exercised window.
+        gf::ApplicationConfig config{};
+        config.theme.base = gf::ThemeBase::gui_forms;
+        config.theme.packages.push_back(paint::plan_paint_theme());
+        gf::ApplicationCreateResult created = gf::Application::create(std::move(config));
+        for (const gf::ThemeCompileDiagnostic& finding : created.findings) {
+            std::cerr << "Plan Paint theme: " << finding.code << ' ' << finding.file << ':' << finding.line << ' '
+                      << finding.rule << ' ' << finding.property << ' ' << finding.detail << '\n';
+        }
+        if (!created) {
+            throw std::runtime_error("the GUI.Forms application could not be created (error " +
+                                     std::to_string(static_cast<int>(created.error)) + ")");
+        }
+        gf::ApplicationResult result = (*created.application)
+                                           .run(std::make_unique<gf::Window>(exercise.editor, options.initial_size),
+                                                std::move(options));
         if (result.callback_exception) {
             std::rethrow_exception(result.callback_exception);
+        }
+        if (!exercise.dialog_failure.empty()) {
+            throw std::runtime_error(exercise.dialog_failure);
+        }
+        if (!exercise.tab_hover_failure.empty()) {
+            throw std::runtime_error(exercise.tab_hover_failure);
+        }
+        if (exercise.tab_hover_probe && !exercise.tab_hover_done) {
+            throw std::runtime_error("The tab hover probe did not finish");
+        }
+        if (exercise.dialog_window_review && !exercise.modal_seen) {
+            throw std::runtime_error("The modal dialog never ran its loop");
         }
         if (exercise.clipboard_exchange && !(*exercise.clipboard_exchange).success()) {
             throw std::runtime_error((*exercise.clipboard_exchange).error());

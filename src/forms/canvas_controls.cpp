@@ -5,7 +5,7 @@ namespace paint::forms {
 namespace gf = gui_forms;
 void Editor::initialize_canvas_controls() {
     canvas_controls_ = gf::make_control<gf::Panel>(gf::StableId("canvas-controls"));
-    (*canvas_controls_).set_accessible_name(tr("Canvas controls"));
+    (*canvas_controls_).accessible_name = tr("Canvas controls");
     add_child(canvas_controls_);
     const std::string names[] = {tr("Canvas X"), tr("Canvas Y"), tr("Step (pixels)")};
     for (int i = 0; i < 3; ++i) {
@@ -16,9 +16,9 @@ void Editor::initialize_canvas_controls() {
         canvas_positions_[i] = gf::make_control<gf::NumericUpDown>(
             gf::StableId("canvas-position-" + std::to_string(i)));
         gf::NumericUpDown& field = *canvas_positions_[i];
-        field.set_accessible_name(names[i]);
+        field.accessible_name = names[i];
         field.set_range(i == 2 ? 1 : 0, 100000);
-        field.set_value(i == 2 ? 1 : 0);
+        field.value = i == 2 ? 1 : 0;
         field.set_requested_bounds({10 + i * 165.0, 26, 150, 28});
         (*canvas_controls_).add_child(canvas_positions_[i]);
     }
@@ -28,8 +28,8 @@ void Editor::initialize_canvas_controls() {
     for (int i = 0; i < 12; ++i) {
         std::shared_ptr<gf::Button> button = gf::make_control<gf::Button>(
             gf::StableId("canvas-action-" + std::to_string(i)), names2[i]);
-        (*button).set_accessible_name(names2[i]);
-        (*button).set_use_mnemonic(false);
+        (*button).accessible_name = names2[i];
+        (*button).use_mnemonic = false;
         subscriptions_.push_back((*button).clicked().subscribe(
             *this, gf::Delegate<gf::ButtonBase&>::bind<Editor, &Editor::canvas_control_clicked>(*this)));
         canvas_actions_.push_back(button);
@@ -45,7 +45,7 @@ void Editor::initialize_canvas_controls() {
     }
 }
 void Editor::arrange_canvas_controls(gf::Rect area) {
-    (*canvas_controls_).set_visible(settings.canvas_controls && !pattern_editing);
+    (*canvas_controls_).visible = settings.canvas_controls && !pattern_editing;
     set_child_layout(canvas_controls_, area);
     const double width = (area.width - 20) / 6;
     for (std::size_t i = 0; i < canvas_actions_.size(); ++i) {
@@ -58,8 +58,8 @@ void Editor::arrange_canvas_controls(gf::Rect area) {
 void Editor::canvas_control_pointer(gf::PointerAction action, gf::PointerButton button) {
     gf::Control::Ptr focus = window() ? (*window()).focused_control() : gf::Control::Ptr{};
     gf::PointerEvent event{action, button, canvas().point_to_window(screen({canvas_position_.x + 0.5, canvas_position_.y + 0.5}))};
-    if ((*canvas_shift_).checked()) { event.modifiers = event.modifiers | gf::Modifier::shift; }
-    if ((*canvas_center_).checked()) { event.modifiers = event.modifiers | gf::Modifier::control; }
+    if ((*canvas_shift_).checked.read()) { event.modifiers = event.modifiers | gf::Modifier::shift; }
+    if ((*canvas_center_).checked.read()) { event.modifiers = event.modifiers | gf::Modifier::control; }
     canvas_control_dispatch_ = true;
     pointer(event);
     canvas_control_dispatch_ = false;
@@ -74,20 +74,20 @@ void Editor::canvas_control_pointer(gf::PointerAction action, gf::PointerButton 
 void Editor::canvas_control_action(int action) {
     if (!settings.canvas_controls) { return; }
     if (action >= 6 && action <= 9) {
-        const double step = (*canvas_positions_[2]).value();
+        const double step = (*canvas_positions_[2]).value.read();
         if (action == 6) { canvas_position_.x -= step; }
         if (action == 7) { canvas_position_.x += step; }
         if (action == 8) { canvas_position_.y -= step; }
         if (action == 9) { canvas_position_.y += step; }
     } else {
-        canvas_position_ = {(*canvas_positions_[0]).value(), (*canvas_positions_[1]).value()};
+        canvas_position_ = {(*canvas_positions_[0]).value.read(), (*canvas_positions_[1]).value.read()};
     }
     canvas_position_.x = std::clamp(canvas_position_.x, 0.0, static_cast<double>(std::max(0, document.image.width - 1)));
     canvas_position_.y = std::clamp(canvas_position_.y, 0.0, static_cast<double>(std::max(0, document.image.height - 1)));
-    (*canvas_positions_[0]).set_value(canvas_position_.x);
-    (*canvas_positions_[1]).set_value(canvas_position_.y);
+    (*canvas_positions_[0]).value = canvas_position_.x;
+    (*canvas_positions_[1]).value = canvas_position_.y;
     const gf::PointerButton button = canvas_control_stroke_ ? canvas_control_button_ :
-        (*canvas_alt_).checked() ? gf::PointerButton::secondary : gf::PointerButton::primary;
+        (*canvas_alt_).checked.read() ? gf::PointerButton::secondary : gf::PointerButton::primary;
     if (action == 0 || (action >= 6 && action <= 9)) {
         canvas_control_pointer(gf::PointerAction::move, button);
     } else if ((action == 1 || action == 2) && !canvas_control_stroke_) {
@@ -111,7 +111,7 @@ void Editor::canvas_control_action(int action) {
         rotate_view(0);
         refresh();
     }
-    (*canvas_actions_[3]).set_selected(canvas_control_stroke_);
+    (*canvas_actions_[3]).selected = canvas_control_stroke_;
     canvas().invalidate(gf::Dirty::paint);
 }
 void Editor::canvas_control_clicked(gf::ButtonBase& button) {

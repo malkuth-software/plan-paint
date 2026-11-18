@@ -29,7 +29,9 @@ std::vector<std::uint8_t> FloatingSelection::transformed_mask(const AffineMap& m
     return mask;
 }
 void FloatingSelection::composite_onto(Image& target) const {
-    if (on_canvas) {
+    // A superimposed paste is drawn by the view over the work, never into
+    // a picture (Document::commit_selection turns it into `superimposed`).
+    if (on_canvas || superimpose) {
         return;
     }
     // Putting an untouched lifted selection back must preserve its original
@@ -139,10 +141,16 @@ void Document::new_image(int width, int height) {
     replacement.reset(width, height);
     replace(std::move(replacement), "");
 }
-void Document::paste(const Image& pasted, int x, int y) {
+void Document::paste(const Image& pasted, int x, int y, bool superimpose) {
     commit_selection();
     commit_path();
     commit_curve();
+    if (superimpose) {
+        selection = {pasted, x, y, true, std::vector<std::uint8_t>(pasted.pixels.size(), 1), {}, {}};
+        selection.superimpose = true;
+        tool = Tool::Select;
+        return;
+    }
     checkpoint();
     if (atlas.kind == AtlasKind::None && (pasted.width > image.width || pasted.height > image.height)) {
         Image larger;
@@ -328,6 +336,11 @@ void Document::constrain_selection(Image& target, const Image& base) const {
 }
 void Document::commit_selection() {
     if (!selection.active) {
+        return;
+    }
+    if (selection.superimpose) {
+        superimposed = {std::move(selection.image), selection.x, selection.y, true};
+        selection = {};
         return;
     }
     selection.composite_onto(image);

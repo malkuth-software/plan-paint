@@ -9,13 +9,24 @@ Drawing into the native application.
 
 ## Toolchain and source
 
-Use CMake 3.25+, Ninja, Python 3.11+ and LLVM **22.1.8**. Install libtiff,
-libwebp and dav1d development packages for the same toolchain. Paint builds
-pinned libavif, LunaSVG/PlutoVG and TinyXML-2 from source. The native scripts
-also build the reduced TIFF codec profile from source. On macOS install Meson;
-the recipe builds pinned libwebp 1.6.0 and dav1d 1.5.4 for macOS 14 into
-`.build/codecs-macos14`, ahead of Homebrew's libraries. CI caches that audited
-prefix by compiler/runtime environment and recipe content.
+Use CMake 3.25+, Ninja, Meson, Python 3.11+ and LLVM **22.1.8** (and NASM
+on x86-64 hosts, for dav1d's assembly). A shipped program is one module that
+imports only system libraries, so every codec is a static archive built from
+pinned source by the product's own CMake (`cmake/ImportFormats.cmake`): the
+reduced libtiff 4.7.2 profile and libwebp 1.6.0 at pinned commits, dav1d
+through libavif 1.4.2's `AVIF_CODEC_DAV1D=LOCAL` at libavif's own pin, and
+libavif, LunaSVG/PlutoVG and TinyXML-2 by archive hash. No codec package is
+installed. `-DRAINSTAR_SYSTEM_CODECS=ON` links installed libtiff, libwebp and
+dav1d for a quick development tree; that program is not shippable.
+
+Every package script runs `scripts/check_system_libraries.py` on the program
+first: `otool -L` on macOS must show only `/System/` and `/usr/lib/`, the
+ELF `NEEDED` entries must be the C library and the X11, ATK and GLib
+libraries GUI.Forms' Linux host uses (and `ldd` must resolve each one in a
+system directory), and the Windows imports must be system DLLs. macOS admits the shared libc++, libc++abi and libunwind only
+while the harness toolchain found no static archives in the runtime tree
+(`HARNESS_STATIC_CXX_RUNTIME` OFF); with the archives it links them, as Linux
+and Windows do.
 
 | Platform | Compiler distribution | Build/runtime contract |
 | --- | --- | --- |
@@ -97,8 +108,10 @@ do not rebuild its gallery or proving tests. Toolkit tests are the provider's
 responsibility; Paint's editing, numerical and native-host tests are consumer gates.
 
 Windows build outputs stage both toolkit DLLs beside Paint and its UI tests.
-Packaging computes the transitive runtime closure. Fonts are selected from
-`packaging/fonts.txt`, with their notices, from either toolkit source or SDK.
+Packaging computes the transitive runtime closure. The interface faces are
+compiled into GUI.Forms (font pack stage 4), so packages carry only their
+licences, in `licenses/fonts`. The canvas text tool's faces are Plan Paint's
+own (`assets/fonts/cairo-unicode`, `assets/fonts/poster`), shipped in `fonts`.
 `RAINSTAR_LEGACY_UI=ON` retains the deprecated SDL/ImGui frontend for historical
 comparison; it is excluded from release packages.
 
@@ -119,10 +132,11 @@ orientation, margins and pixel quadrants. Physical printer output and every
 scanner/desktop combination have not been verified. Missing optional desktop
 services produce an error rather than reporting success.
 
-New Linux builds target the GUI.Forms Ubuntu 24.04 ABI. Their archives bundle
-application libraries, fonts and X11 locale data; glibc and its loader remain
-system dependencies. Run the top-level `Plan Paint` launcher and retain the
-complete directory. Previously released 1.1.4 musl archives are unchanged. No package manager or network connection is needed to draw, use help,
+New Linux archives carry the program alone (owner, 2026-11-15: no build
+against any distribution's copies): the desktop's glibc, X11 or XWayland, ATK
+and GLib are used at run time, and no library, loader or X11 locale data is
+copied. Run the top-level `Plan Paint` launcher and retain the complete
+directory. Previously released 1.1.4 musl archives are unchanged. No package manager or network connection is needed to draw, use help,
 open or save pictures. The Mac application is signed ad hoc; the installer is
 unsigned and not Developer ID notarized.
 

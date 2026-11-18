@@ -1,6 +1,5 @@
 #include "platform.hpp"
 #include <algorithm>
-#include <cstdlib>
 #include <filesystem>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -11,10 +10,9 @@ namespace paint {
 std::vector<std::string> installed_fonts() {
     std::vector<std::string> result;
     std::filesystem::path bundled;
-    const char* override_directory = std::getenv("GUI_FORMS_FONT_DIR");
-    if (override_directory) {
-        bundled = override_directory;
-    } else {
+    // Plan Paint's own canvas faces, beside the executable (the interface's
+    // faces are compiled into GUI.Forms and are not files).
+    {
 #ifdef __APPLE__
         std::uint32_t length = 0;
         _NSGetExecutablePath(nullptr, &length);

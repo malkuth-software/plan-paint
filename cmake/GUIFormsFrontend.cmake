@@ -3,112 +3,104 @@ if(RAINSTAR_TOOLKIT_SOURCE_DIR)
   set(GUI_FORMS_BUILD_GALLERY OFF CACHE BOOL "" FORCE)
   set(GUI_FORMS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
   set(GUI_FORMS_ENABLE_HARFBUZZ_TEXT ON CACHE BOOL "" FORCE)
-  if(WIN32)
-    set(GUI_FORMS_ENABLE_SKIA OFF CACHE BOOL "" FORCE)
-  elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # The Win32 host renders through the private CPU Skia adapter since cp22.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(GUI_FORMS_ENABLE_LINUX_HOST ON CACHE BOOL "" FORCE)
   endif()
   add_subdirectory("${RAINSTAR_TOOLKIT_SOURCE_DIR}" toolkit EXCLUDE_FROM_ALL)
   set(GUIForms_FONT_DIR "${RAINSTAR_TOOLKIT_SOURCE_DIR}/assets/fonts")
+  # gui_forms_add_theme finds its embed script through a directory variable
+  # that the toolkit's add_subdirectory scope keeps to itself (and the module
+  # returns early once the function exists), so name it here as well.
+  set(GUI_FORMS_THEME_EMBED_SCRIPT "${RAINSTAR_TOOLKIT_SOURCE_DIR}/cmake/GUIFormsThemeEmbed.cmake")
 else()
 # Keep the explicitly selected SDK ahead of ambient /usr/local headers. Mixing
 # installed GUI.Forms headers from another SDK with these libraries breaks ABI.
 set(CMAKE_NO_SYSTEM_FROM_IMPORTED ON)
-find_package(GUIForms 0.2 CONFIG REQUIRED COMPONENTS Application Threading)
+find_package(GUIForms 0.6 CONFIG REQUIRED COMPONENTS Application Threading)
 set_property(TARGET GUIForms::Application PROPERTY IMPORTED_NO_SYSTEM TRUE)
 include(CheckCXXSourceCompiles)
 set(CMAKE_REQUIRED_LIBRARIES GUIForms::Application)
-check_cxx_source_compiles("#include <gui_forms/live_surface.hpp>
-int main() {
-  gui_forms::LiveSurfaceDescription description{2, 2};
-  description.opaque = true;
-  description.pixel_format = gui_forms::native_live_surface_pixel_format();
-  return gui_forms::LiveSurface::create(description) ? 0 : 1;
-}" RAINSTAR_LIVE_SURFACE)
-if(NOT RAINSTAR_LIVE_SURFACE)
-  message(FATAL_ERROR "Plan Paint requires the pinned standalone GUI.Forms LiveSurface API.")
-endif()
-check_cxx_source_compiles("#include <gui_forms/canvas.hpp>
-#include <type_traits>
-static_assert(!std::is_final_v<gui_forms::RasterCanvas>);
-int main() { return 0; }" RAINSTAR_EXTENSIBLE_CANVAS)
-check_cxx_source_compiles("#include <gui_forms/basic_controls.hpp>
-#include <gui_forms/application.hpp>
-int main() {
-  gui_forms::DropDownButton button(gui_forms::StableId(\"ribbon\"));
-  button.set_drop_down_edge(gui_forms::DropDownButtonEdge::bottom);
-  gui_forms::ApplicationWindowHandle handle;
-  static_cast<void>(handle.toggle_full_screen());
-  return 0;
-}" RAINSTAR_RIBBON_CONTROLS)
-check_cxx_source_compiles("#include <gui_forms/controls/scrollable_control/scrollable_control.hpp>
-#include <gui_forms/events/input_events/input_events.hpp>
-class Probe : public gui_forms::ScrollableControl {
- public:
-  Probe() : ScrollableControl(gui_forms::StableId(\"probe\")) {}
-  void check() { arrange_scroll_viewport({100, 100}, {200, 200}); }
+# Plan Paint is written against the cp22 checkpoint's standard (the
+# Application-first lifecycle, property cells and the canonical ribbon) and
+# cp29's: flat control headers and the target-phase mouse raisers that
+# replaced Control::on_pointer.
+check_cxx_source_compiles("#include <gui_forms/application.hpp>
+#include <gui_forms/controls/ribbon.hpp>
+#include <gui_forms/basic_controls.hpp>
+class Probe final : public gui_forms::Control {
+public:
+  using gui_forms::Control::Control;
+protected:
+  void on_mouse_down(gui_forms::MouseEventArgs& arguments) override { gui_forms::Control::on_mouse_down(arguments); }
 };
 int main() {
-  Probe probe; probe.check();
-  probe.set_cursor(gui_forms::CursorKind::resize_diagonal_down);
-  return gui_forms::PhysicalKey::f12 == 0x45U ? 0 : 1;
-}" RAINSTAR_SCROLLING_LAYOUT)
-check_cxx_source_compiles("#include <gui_forms/host.hpp>
-#include <type_traits>
-#include <utility>
-static_assert(std::is_same_v<decltype(std::declval<gui_forms::HostServices&>().read_clipboard_files()),
-                             gui_forms::HostClipboardFilesResult>);
-int main() { return 0; }" RAINSTAR_CLIPBOARD_FILES)
-check_cxx_source_compiles("#include <gui_forms/control.hpp>
-int main() { gui_forms::Control probe(gui_forms::StableId(\"probe\"));
-probe.set_custom_cursor({}, gui_forms::CursorKind::crosshair); return 0; }
-" RAINSTAR_CUSTOM_CURSORS)
-if(NOT RAINSTAR_CUSTOM_CURSORS)
-  message(FATAL_ERROR "Plan Paint requires the GUI.Forms custom cursor extension. See docs/CUSTOM_CURSORS.md.")
-endif()
+  gui_forms::ApplicationConfig config{};
+  static_cast<void>(config);
+  gui_forms::Label label(gui_forms::StableId(\"probe\"));
+  label.text = \"probe\";
+  return label.text.read().empty() ? 1 : 0;
+}" PLAN_PAINT_GUI_FORMS_STANDARD)
 unset(CMAKE_REQUIRED_LIBRARIES)
-if(NOT RAINSTAR_CLIPBOARD_FILES)
-  message(FATAL_ERROR "Plan Paint requires the GUI.Forms file-reference clipboard service. Fetch the pinned SDK from third_party/gui-forms.lock.json.")
-endif()
-if(NOT RAINSTAR_EXTENSIBLE_CANVAS)
-  message(FATAL_ERROR "Plan Paint requires GUI.Forms with the RasterCanvas extension (7444815 or later). See docs/GUI_FORMS_PORT.md.")
-endif()
-if(NOT RAINSTAR_RIBBON_CONTROLS)
-  message(FATAL_ERROR "Plan Paint requires the GUI.Forms ribbon composition extension. See docs/GUI_FORMS_PORT.md.")
-endif()
-if(NOT RAINSTAR_SCROLLING_LAYOUT)
-  message(FATAL_ERROR "Plan Paint requires the GUI.Forms scrolling-layout, keyboard, and diagonal-cursor extensions. See docs/GUI_FORMS_PORT.md.")
+if(NOT PLAN_PAINT_GUI_FORMS_STANDARD)
+  message(FATAL_ERROR "Plan Paint requires the GUI.Forms SDK pinned in third_party/gui-forms.lock.json (package version 0.6: checkpoint cp29 or later).")
 endif()
 endif()
-add_library(paint_forms STATIC src/forms/canvas_controls.cpp src/forms/gradient_controls.cpp src/forms/recovery.cpp src/forms/file_change.cpp src/forms/interface_theme.cpp src/cursors/tool_cursors.cpp src/forms/editor.cpp src/forms/pattern_canvas.cpp src/forms/display.cpp src/forms/ribbon.cpp src/forms/dialog.cpp src/forms/carpet_dialog.cpp src/forms/dither_dialog.cpp src/forms/icon_validation_dialog.cpp src/forms/icon_sheet_dialog.cpp src/forms/toolbar_strip_dialog.cpp src/forms/icon_export_dialog.cpp src/forms/asset_browser_dialog.cpp src/forms/asset_reveal.cpp src/forms/alpha_dialog.cpp src/forms/icon_effects_dialog.cpp src/forms/sticky_note_ribbon.cpp src/forms/numeric_transform_dialog.cpp src/forms/icon_palette_dialog.cpp src/forms/icon_states_dialog.cpp src/forms/icon_variant_export.cpp src/forms/icon_ribbon.cpp src/forms/icon_index_paint.cpp src/forms/icon_generation_dialog.cpp src/forms/icon_batch_dialog.cpp src/forms/icon_batch_stamp.cpp src/forms/icon_batch_palette.cpp src/forms/text.cpp src/forms/warp.cpp src/forms/atlas.cpp src/forms/selection.cpp src/forms/help.cpp src/forms/surface.cpp src/forms/guide.cpp src/forms/spirograph.cpp)
+
+# paint_core's CONV* uses stx_conv. An SDK's GUIFormsConfig finds it in this
+# scope; a pinned in-tree toolkit defines it as a global target; a toolkit
+# that installs stx at configure time leaves it in <build>/stx-prefix (or the
+# GUI_FORMS_STX_PREFIX it was given), where it is found here.
+if(NOT TARGET stx_conv::stx_conv)
+  if(GUI_FORMS_STX_PREFIX)
+    set(paint_stx_prefix "${GUI_FORMS_STX_PREFIX}")
+  else()
+    set(paint_stx_prefix "${CMAKE_BINARY_DIR}/stx-prefix")
+  endif()
+  find_package(stx_conv CONFIG REQUIRED NO_DEFAULT_PATH PATHS "${paint_stx_prefix}")
+endif()
+target_link_libraries(paint_core PUBLIC stx_conv::stx_conv)
+# The curve tools flatten through GUI.Drawing's GraphicsPath (src/curve.cpp),
+# which the static Application archive carries; the frontend-free build keeps
+# its own flattening.
+target_link_libraries(paint_core PRIVATE GUIForms::Application)
+target_compile_definitions(paint_core PRIVATE RAINSTAR_GUI_DRAWING=1)
+add_library(paint_forms STATIC src/forms/canvas_controls.cpp src/forms/gradient_controls.cpp src/forms/recovery.cpp src/forms/file_change.cpp src/forms/interface_theme.cpp src/cursors/tool_cursors.cpp src/forms/editor.cpp src/forms/pattern_canvas.cpp src/forms/display.cpp src/forms/ribbon.cpp src/forms/ribbon_tabs.cpp src/forms/identity.cpp src/forms/open_link.cpp src/forms/ribbon_galleries.cpp src/forms/ribbon_popups.cpp src/forms/dialog.cpp src/forms/carpet_dialog.cpp src/forms/dither_dialog.cpp src/forms/icon_validation_dialog.cpp src/forms/icon_sheet_dialog.cpp src/forms/toolbar_strip_dialog.cpp src/forms/icon_export_dialog.cpp src/forms/asset_browser_dialog.cpp src/forms/asset_reveal.cpp src/forms/alpha_dialog.cpp src/forms/icon_effects_dialog.cpp src/forms/sticky_note_ribbon.cpp src/forms/numeric_transform_dialog.cpp src/forms/icon_palette_dialog.cpp src/forms/icon_states_dialog.cpp src/forms/icon_variant_export.cpp src/forms/icon_ribbon.cpp src/forms/icon_index_paint.cpp src/forms/icon_generation_dialog.cpp src/forms/icon_batch_dialog.cpp src/forms/icon_batch_stamp.cpp src/forms/icon_batch_palette.cpp src/forms/text.cpp src/forms/content_layout.cpp src/forms/warp.cpp src/forms/atlas.cpp src/forms/selection.cpp src/forms/help.cpp src/forms/surface.cpp src/forms/guide.cpp src/forms/spirograph.cpp)
 target_link_libraries(paint_forms PUBLIC paint_core GUIForms::Application)
 target_include_directories(paint_forms PUBLIC src)
 target_compile_definitions(paint_forms PUBLIC RAINSTAR_VERSION="${PAINT_RELEASE_VERSION}")
+# The static dialogs' content as form documents (forms/), generated at build
+# time into Panel subclasses that EditorDialog adopts.
+gui_forms_add_form(paint_forms forms/about.form CLASS AboutForm NAMESPACE paint::forms DERIVED)
+gui_forms_add_form(paint_forms forms/english_help.form CLASS EnglishHelpForm NAMESPACE paint::forms DERIVED)
+gui_forms_add_form(paint_forms forms/tool_size.form CLASS ToolSizeForm NAMESPACE paint::forms DERIVED)
 add_executable(plan-paint MACOSX_BUNDLE src/forms/main.cpp)
 target_link_libraries(plan-paint PRIVATE paint_forms)
+# Plan Paint's theme package (colours, fonts and the bubble ribbon buttons),
+# embedded and compiled once by Application::create.
+gui_forms_add_theme(plan-paint themes/plan-paint FUNCTION plan_paint_theme NAMESPACE paint)
 set_target_properties(plan-paint PROPERTIES
   MACOSX_BUNDLE_BUNDLE_NAME "Plan Paint"
   MACOSX_BUNDLE_GUI_IDENTIFIER "com.malkuthsoft.planpaint"
   MACOSX_BUNDLE_BUNDLE_VERSION "${PAINT_RELEASE_VERSION}"
   MACOSX_BUNDLE_SHORT_VERSION_STRING "${PAINT_RELEASE_VERSION}")
-# The consumer selects its font pack; optional CJK/emoji and extra mono faces
-# remain available in the SDK without being bundled into Paint.
-file(STRINGS "${PROJECT_SOURCE_DIR}/packaging/fonts.txt" paint_font_names)
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/packaging/fonts.txt")
-set(toolkit_fonts)
-foreach(name IN LISTS paint_font_names)
-  list(APPEND toolkit_fonts "${GUIForms_FONT_DIR}/${name}")
-endforeach()
+# The interface faces are compiled into GUI.Forms (font pack stage 4):
+# GUIForms_FONT_DIR holds only their licences and attribution, which Plan
+# Paint carries in licenses/fonts. The canvas text tool's faces are Plan
+# Paint's own content faces (the interface/content split), shipped in fonts.
+file(GLOB toolkit_font_notices CONFIGURE_DEPENDS "${GUIForms_FONT_DIR}/OFL-*.txt"
+     "${GUIForms_FONT_DIR}/LICENSE-*.txt" "${GUIForms_FONT_DIR}/ATTRIBUTION.md")
 file(GLOB cairo_files CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/assets/fonts/cairo-unicode/*")
 file(GLOB poster_files CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/assets/fonts/poster/*")
-list(APPEND toolkit_fonts ${cairo_files} ${poster_files})
+set(canvas_fonts ${cairo_files} ${poster_files})
 if(APPLE)
   enable_language(OBJCXX)
   target_sources(paint_forms PRIVATE src/platform_mac.mm src/file_reveal_mac.mm)
   target_link_libraries(paint_forms PRIVATE "-framework Cocoa" "-framework UniformTypeIdentifiers")
   target_compile_definitions(paint_forms PRIVATE RAINSTAR_FORMS_NATIVE_PRINT=1)
-  set_source_files_properties(${toolkit_fonts} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/fonts")
-  target_sources(plan-paint PRIVATE ${toolkit_fonts} assets/app-icon.icns)
+  set_source_files_properties(${canvas_fonts} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/fonts")
+  set_source_files_properties(${toolkit_font_notices} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/licenses/fonts")
+  target_sources(plan-paint PRIVATE ${canvas_fonts} ${toolkit_font_notices} assets/app-icon.icns)
   set_source_files_properties(assets/app-icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   set_target_properties(plan-paint PROPERTIES MACOSX_BUNDLE_ICON_FILE app-icon.icns)
 endif()
@@ -155,14 +147,21 @@ target_link_libraries(paint-cursor-tests PRIVATE paint_forms)
 add_test(NAME paint-cursors COMMAND paint-cursor-tests)
 add_executable(paint-forms-tests tests/forms_tests.cpp)
 target_link_libraries(paint-forms-tests PRIVATE paint_forms)
+# The sticky-note contract runs with Plan Paint's theme, as the application does.
+gui_forms_add_theme(paint-forms-tests themes/plan-paint FUNCTION plan_paint_theme NAMESPACE paint)
 add_test(NAME paint-forms COMMAND paint-forms-tests --general)
 add_test(NAME paint-icon-production-forms COMMAND paint-forms-tests --icon-production)
 install(TARGETS plan-paint BUNDLE DESTINATION . RUNTIME DESTINATION .)
+if(NOT APPLE)
+  install(FILES ${toolkit_font_notices} DESTINATION licenses/fonts)
+endif()
 if(APPLE OR WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_executable(paint-forms-native-tests MACOSX_BUNDLE tests/forms_native.cpp)
   target_link_libraries(paint-forms-native-tests PRIVATE paint_forms)
+  # The native exercise runs Application-first with Plan Paint's package, as main.cpp.
+  gui_forms_add_theme(paint-forms-native-tests themes/plan-paint FUNCTION plan_paint_theme NAMESPACE paint)
   if(APPLE)
-    target_sources(paint-forms-native-tests PRIVATE ${toolkit_fonts})
+    target_sources(paint-forms-native-tests PRIVATE ${canvas_fonts})
     set_target_properties(paint-forms-native-tests PROPERTIES
       MACOSX_BUNDLE_GUI_IDENTIFIER "com.malkuthsoft.planpaint.forms.validation")
   endif()
@@ -171,24 +170,19 @@ if(APPLE OR WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # One producer owns these shared resources even under parallel builds.
     set(forms_runtime_directory "$<TARGET_FILE_DIR:plan-paint>")
     set(forms_runtime_stamp "${CMAKE_CURRENT_BINARY_DIR}/forms-runtime-$<CONFIG>.stamp")
-    set(forms_runtime_fonts ${toolkit_fonts})
     set(runtime_font_commands)
-    foreach(font IN LISTS forms_runtime_fonts)
+    foreach(font IN LISTS canvas_fonts)
       list(APPEND runtime_font_commands COMMAND ${CMAKE_COMMAND} -E copy_if_different "${font}" "${forms_runtime_directory}/fonts")
     endforeach()
     add_custom_command(OUTPUT "${forms_runtime_stamp}"
       COMMAND ${CMAKE_COMMAND} -E make_directory "${forms_runtime_directory}/fonts"
       ${runtime_font_commands}
       COMMAND ${CMAKE_COMMAND} -E touch "${forms_runtime_stamp}"
-      DEPENDS ${forms_runtime_fonts}
+      DEPENDS ${canvas_fonts}
       VERBATIM)
     add_custom_target(paint-forms-runtime DEPENDS "${forms_runtime_stamp}")
-    if(WIN32)
-      add_dependencies(paint-forms-runtime GUIForms::Application GUIForms::Threading)
-      add_custom_command(TARGET paint-forms-runtime POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:GUIForms::Application>" "$<TARGET_FILE:GUIForms::Threading>" "${forms_runtime_directory}"
-        VERBATIM)
-    endif()
+    # One module (GUI.Forms 66f82629b): GUI.Forms and its threading library
+    # link statically into each executable, so no library is copied here.
     foreach(forms_target IN ITEMS plan-paint paint-forms-native-tests paint-forms-tests)
       add_dependencies(${forms_target} paint-forms-runtime)
     endforeach()
@@ -198,6 +192,14 @@ if(APPLE OR WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
     "${PROJECT_SOURCE_DIR}/tests/native_clipboard.py" "$<TARGET_FILE:paint-forms-native-tests>")
   set_tests_properties(paint-clipboard-native PROPERTIES SKIP_RETURN_CODE 77 RUN_SERIAL TRUE TIMEOUT 90)
   add_test(NAME paint-healing-native COMMAND paint-forms-native-tests --healing)
+  add_test(NAME paint-dialog-window-native COMMAND paint-forms-native-tests --dialog-window)
+  # The owner's hovered selected Pencil tab (2026-11-17): fails while the
+  # tab shows the menu-item hot plate; prints the engine's counters and
+  # writes the ribbon captures (PAINT_TAB_HOVER_DIR, PAINT_TOOL_TAB_WIDTH).
+  add_test(NAME paint-tab-hover-native COMMAND paint-forms-native-tests --tab-hover)
+  add_test(NAME paint-tab-hover-narrow-native COMMAND paint-forms-native-tests --tab-hover)
+  set_tests_properties(paint-tab-hover-narrow-native PROPERTIES ENVIRONMENT "PAINT_TOOL_TAB_WIDTH=100")
+  set_tests_properties(paint-tab-hover-native paint-tab-hover-narrow-native PROPERTIES RUN_SERIAL TRUE TIMEOUT 90)
   add_test(NAME paint-icon-production-native COMMAND paint-forms-native-tests --icon-production)
   add_test(NAME paint-icon-svg-native COMMAND paint-forms-native-tests --icon-svg)
   add_test(NAME paint-icon-formats-native COMMAND paint-forms-native-tests --icon-formats)
@@ -254,7 +256,11 @@ endif()
 
 if(Python3_Interpreter_FOUND)
   if(RAINSTAR_TOOLKIT_SOURCE_DIR)
-    set(paint_package_toolkit "${RAINSTAR_TOOLKIT_SOURCE_DIR}")
+    # The packages read GUI.Forms' notices (and on Windows its fonts) from an
+    # installed SDK: since the text stack moved to STXlib the notices exist only
+    # as the install collects them. scripts/native-build.sh package installs the
+    # embedded toolkit here before building paint-package.
+    set(paint_package_toolkit "${CMAKE_BINARY_DIR}/gui-forms-sdk")
   else()
     get_filename_component(paint_package_toolkit "${GUIForms_FONT_DIR}/../../.." ABSOLUTE)
   endif()

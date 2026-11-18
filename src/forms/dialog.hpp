@@ -13,11 +13,12 @@
 #include "image.hpp"
 #include <gui_forms/basic_controls.hpp>
 #include <gui_forms/canvas.hpp>
-#include <gui_forms/controls/panel/combo_box/combo_box.hpp>
-#include <gui_forms/controls/panel/list_box/list_box.hpp>
-#include <gui_forms/controls/panel/numeric_up_down/numeric_up_down.hpp>
-#include <gui_forms/controls/panel/text_box/text_box.hpp>
-#include <gui_forms/controls/range_control/track_bar/track_bar.hpp>
+#include <gui_forms/controls/combo_box.hpp>
+#include <gui_forms/controls/list_box.hpp>
+#include <gui_forms/controls/numeric_up_down.hpp>
+#include <gui_forms/controls/text_box.hpp>
+#include <gui_forms/controls/track_bar.hpp>
+#include <stxlib/optional.hpp>
 #include <memory>
 #include <thread>
 namespace paint::forms {
@@ -71,10 +72,19 @@ class ColorPlane final : public gui_forms::Control {
   public:
     ColorPlane(gui_forms::StableId id, std::weak_ptr<EditorDialog> dialog, bool hue_strip);
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
-    void on_pointer(gui_forms::PointerEvent& event) override;
-    void on_detaching_from_window(gui_forms::Window& window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& window) noexcept override;
+
+  protected:
+    // The mouse raisers hand the target phase to handle_pointer.
+    void on_mouse_down(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_up(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_move(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_wheel(gui_forms::MouseEventArgs& arguments) override;
 
   private:
+    // A primary press captures the pointer; while captured, down, move and up
+    // choose the colour under the pointer.
+    void handle_pointer(gui_forms::PointerEvent& event);
     std::weak_ptr<EditorDialog> dialog_;
     bool hue_strip_;
     gui_forms::ImageId mosaic_image_;
@@ -89,8 +99,13 @@ class EditorDialog final : public gui_forms::Control {
   public:
     EditorDialog(gui_forms::StableId id, std::weak_ptr<Editor> editor, EditorDialogKind kind, bool secondary);
     ~EditorDialog() override;
+    // Cancels and joins every background job the dialog started, so none
+    // posts to the dialog's window after this returns. The editor calls it
+    // while that window still lives (a windowed dialog's window goes on
+    // the editor's next turn); the destructor calls it again.
+    void stop_background_work();
     void on_attached_to_window() override;
-    void on_detaching_from_window(gui_forms::Window& window) noexcept override;
+    void on_detaching_from_window(gui_forms::SurfaceRoot& window) noexcept override;
     void deliver_carpet();
     void deliver_dither();
     void deliver_icon_sheet();
@@ -106,7 +121,12 @@ class EditorDialog final : public gui_forms::Control {
     void initialize_control_tree();
     void arrange(gui_forms::Rect bounds) override;
     void on_paint(gui_forms::Painter& painter, gui_forms::Rect damage) override;
-    void on_pointer(gui_forms::PointerEvent& event) override;
+    // The dialog's own surface ends every pointer route that reaches it, so
+    // nothing behind the dialog sees the press.
+    void on_mouse_down(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_up(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_move(gui_forms::MouseEventArgs& arguments) override;
+    void on_mouse_wheel(gui_forms::MouseEventArgs& arguments) override;
     void on_key_preview(gui_forms::KeyEvent& event) override;
     gui_forms::SemanticDescriptor semantic_descriptor() const override;
     int interface_hue() const;
@@ -116,6 +136,16 @@ class EditorDialog final : public gui_forms::Control {
     const ColorMosaic& color_mosaic(double hue) const;
     PickerSpace picker_space = PickerSpace::RGB;
     bool mosaic = false;
+    // The dialog as the root of its own owned window (the window's title bar
+    // carries the title and the close box) instead of an overlay drawn over
+    // the editor with its own title band. Set before the dialog is attached.
+    void set_windowed(bool windowed);
+    // The client size of the dialog's own window: the panel less its title band.
+    [[nodiscard]] gui_forms::Size window_client_size() const;
+    // The dialog's title, as its window or its title band shows it.
+    [[nodiscard]] std::string title() const;
+    // The height of the title band an overlay dialog draws at its top.
+    static constexpr double title_band = 36;
 
   private:
     void initialize_numeric_transform();
@@ -123,7 +153,7 @@ class EditorDialog final : public gui_forms::Control {
     void stop_numeric_transform();
     void invalidate_numeric_transform();
     void numeric_transform_number(double);
-    void numeric_transform_choice(std::optional<std::size_t>);
+    void numeric_transform_choice(stxlib::Optional<std::size_t>);
     void numeric_transform_clicked(gui_forms::ButtonBase&);
     std::shared_ptr<const NumericTransformSource> numeric_source_;
     std::shared_ptr<NumericTransformJob> numeric_job_;
@@ -135,7 +165,7 @@ class EditorDialog final : public gui_forms::Control {
     std::shared_ptr<gui_forms::Button> numeric_preview_, numeric_apply_;
     void initialize_icon_effects();
     void render_icon_effects();
-    void effect_choice_changed(std::optional<std::size_t>);
+    void effect_choice_changed(stxlib::Optional<std::size_t>);
     void effect_number_changed(double);
     void effect_advanced_changed(gui_forms::ButtonBase&);
     void restore_icon_effect(const IconEffectSettings& settings);
@@ -166,8 +196,8 @@ class EditorDialog final : public gui_forms::Control {
     void stop_icon_batch();
     void start_icon_batch(bool execute);
     void batch_clicked(gui_forms::ButtonBase&);
-    void batch_choice_changed(std::optional<std::size_t>);
-    void batch_preset_changed(std::optional<std::size_t>);
+    void batch_choice_changed(stxlib::Optional<std::size_t>);
+    void batch_preset_changed(stxlib::Optional<std::size_t>);
     void batch_number_changed(double);
     void batch_text_changed(const std::string&);
     void batch_checked(bool);
@@ -194,9 +224,9 @@ class EditorDialog final : public gui_forms::Control {
     void initialize_icon_states();
     void stop_icon_states();
     void render_icon_states();
-    void show_icon_state_image(std::optional<std::size_t>);
-    void state_choice_changed(std::optional<std::size_t>);
-    void state_preset_changed(std::optional<std::size_t>);
+    void show_icon_state_image(stxlib::Optional<std::size_t>);
+    void state_choice_changed(stxlib::Optional<std::size_t>);
+    void state_preset_changed(stxlib::Optional<std::size_t>);
     void state_number_changed(double);
     void state_clicked(gui_forms::ButtonBase&);
     std::shared_ptr<const ImageContainer> state_source_;
@@ -219,12 +249,12 @@ class EditorDialog final : public gui_forms::Control {
     std::thread asset_reveal_thread_;
     void request_assets(bool scan);
     void asset_clicked(gui_forms::ButtonBase&);
-    void asset_filter_changed(std::optional<std::size_t>);
+    void asset_filter_changed(stxlib::Optional<std::size_t>);
     void asset_input_changed(const std::string&);
     void asset_selected(const gui_forms::ListSelectionChange&);
     void asset_activated(std::size_t index);
-    void asset_representation_changed(std::optional<std::size_t>);
-    void asset_bookmark_changed(std::optional<std::size_t>);
+    void asset_representation_changed(stxlib::Optional<std::size_t>);
+    void asset_bookmark_changed(stxlib::Optional<std::size_t>);
     void clear_asset_preview();
     void show_asset_representation();
     std::shared_ptr<AssetBrowserWorker> asset_worker_;
@@ -244,7 +274,7 @@ class EditorDialog final : public gui_forms::Control {
     void review_icon_export();
     void stop_icon_export();
     void icon_export_clicked(gui_forms::ButtonBase&);
-    void icon_export_choice_changed(std::optional<std::size_t>);
+    void icon_export_choice_changed(stxlib::Optional<std::size_t>);
     void icon_export_text_changed(const std::string&);
     void icon_export_destination_changed(const std::string&);
     void start_icon_export(bool execute);
@@ -265,8 +295,8 @@ class EditorDialog final : public gui_forms::Control {
     void palette_file_clicked(gui_forms::ButtonBase&);
     std::vector<Color> palette_file_colors_;
     std::shared_ptr<gui_forms::Button> palette_export_, palette_primary_, palette_alt_;
-    void palette_choice_changed(std::optional<std::size_t>);
-    void palette_entry_changed(std::optional<std::size_t>);
+    void palette_choice_changed(stxlib::Optional<std::size_t>);
+    void palette_entry_changed(stxlib::Optional<std::size_t>);
     void palette_number_changed(double);
     void palette_text_changed(const std::string&);
     IconFrame palette_source_, palette_result_;
@@ -282,7 +312,7 @@ class EditorDialog final : public gui_forms::Control {
     void initialize_alpha_tools();
     void render_alpha_tools();
     void alpha_clicked(gui_forms::ButtonBase&);
-    void alpha_view_changed(std::optional<std::size_t>);
+    void alpha_view_changed(stxlib::Optional<std::size_t>);
     Image alpha_source_, alpha_mask_, alpha_result_;
     std::uint64_t alpha_revision_ = 0, alpha_epoch_ = 0;
     int alpha_current_ = -1;
@@ -296,7 +326,7 @@ class EditorDialog final : public gui_forms::Control {
     void stop_toolbar_strip();
     void invalidate_toolbar_strip();
     void strip_number(double);
-    void strip_choice(std::optional<std::size_t>);
+    void strip_choice(stxlib::Optional<std::size_t>);
     void strip_text(const std::string&);
     void strip_clicked(gui_forms::ButtonBase&);
     std::shared_ptr<const ImageContainer> strip_source_;
@@ -314,7 +344,7 @@ class EditorDialog final : public gui_forms::Control {
     void stop_icon_validation();
     void invalidate_icon_validation();
     void validation_text(const std::string&);
-    void validation_choice(std::optional<std::size_t>);
+    void validation_choice(stxlib::Optional<std::size_t>);
     void validation_clicked(gui_forms::ButtonBase&);
     std::shared_ptr<IconValidationJob> validation_job_;
     std::thread validation_worker_;
@@ -325,8 +355,8 @@ class EditorDialog final : public gui_forms::Control {
     void render_icon_sheet_preview();
     void stop_icon_sheet();
     void icon_sheet_number_changed(double);
-    void icon_sheet_choice_changed(std::optional<std::size_t>);
-    void icon_sheet_zoom_changed(std::optional<std::size_t>);
+    void icon_sheet_choice_changed(stxlib::Optional<std::size_t>);
+    void icon_sheet_zoom_changed(stxlib::Optional<std::size_t>);
     void icon_sheet_clicked(gui_forms::ButtonBase&);
     std::shared_ptr<const ImageContainer> sheet_source_;
     std::vector<int> sheet_selected_;
@@ -350,7 +380,7 @@ class EditorDialog final : public gui_forms::Control {
     void stop_dither();
     void accept_dither();
     void dither_count_changed(double);
-    void dither_pattern_changed(std::optional<std::size_t>);
+    void dither_pattern_changed(stxlib::Optional<std::size_t>);
     std::shared_ptr<DitherRenderJob> dither_job_;
     std::thread dither_worker_;
     std::shared_ptr<gui_forms::NumericUpDown> dither_count_;
@@ -373,7 +403,7 @@ class EditorDialog final : public gui_forms::Control {
     void sync_carpet();
     void carpet_changed(double value);
     void carpet_color_changed(const std::string& value);
-    void carpet_preset_changed(std::optional<std::size_t> index);
+    void carpet_preset_changed(stxlib::Optional<std::size_t> index);
     void render_carpet_preview();
     void stop_carpet();
     std::weak_ptr<Editor> editor_;
@@ -386,6 +416,7 @@ class EditorDialog final : public gui_forms::Control {
     Color original_, color_;
     int original_width_ = 1, original_height_ = 1, custom_slot_ = 0;
     gui_forms::Rect panel_;
+    bool windowed_ = false;
     std::vector<gui_forms::Control::Ptr> controls_;
     std::vector<gui_forms::SubscriptionToken> subscriptions_;
     std::vector<std::shared_ptr<SwatchButton>> custom_;
@@ -401,6 +432,8 @@ class EditorDialog final : public gui_forms::Control {
         okhsl_tab_;
     void put(gui_forms::Control::Ptr control, gui_forms::Rect bounds);
     void label(const std::string& id, const std::string& text, gui_forms::Rect bounds, bool heading = false);
+    void style_label(gui_forms::Label& control, bool heading);
+    void adopt_form(gui_forms::Control& form, const std::string& heading_id, bool translate);
     std::shared_ptr<gui_forms::Button> button(const std::string& id, const std::string& text,
                                               gui_forms::Rect bounds);
     std::shared_ptr<gui_forms::NumericUpDown> number(const std::string& id, gui_forms::Rect bounds,
@@ -436,14 +469,13 @@ class EditorDialog final : public gui_forms::Control {
     void initialize_icon_targets();
     void render_icon_targets();
     void icon_target_selected(const gui_forms::ListSelectionChange& change);
-    void icon_target_changed(std::optional<std::size_t> index);
+    void icon_target_changed(stxlib::Optional<std::size_t> index);
     void icon_target_clicked(gui_forms::ButtonBase& control);
     void apply_icon_targets();
     std::vector<int> chosen_icon_sizes() const;
     void icon_size_clicked(gui_forms::ButtonBase& control);
-    void icon_policy_changed(std::optional<std::size_t> index);
+    void icon_policy_changed(stxlib::Optional<std::size_t> index);
     void refresh_icon_plan();
-    std::string title() const;
     void atlas_changed(double value);
     void accept();
 };

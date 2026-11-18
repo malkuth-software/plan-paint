@@ -1,5 +1,6 @@
 #include "localization.hpp"
 #include "forms/help.hpp"
+#include "forms/identity.hpp"
 #include "help_content.hpp"
 #include <algorithm>
 namespace paint::forms {
@@ -32,65 +33,84 @@ class HelpHeader final : public gf::Button {
 };
 } // namespace
 HelpBook::HelpBook(gf::StableId id) : ScrollableControl(std::move(id)) {
-    set_auto_scroll(true);
-    gf::ThemeDefinition theme = gf::windows_professional_theme_definition();
-    theme.id = "rainstar-help-book";
-    for (std::size_t i = 0; i < gf::control_surface_state_count; ++i) {
-        gf::ControlVisualRecipe& recipe =
-            theme.roles[static_cast<std::size_t>(gf::ControlVisualRole::button)].ordinary[i];
-        recipe.material.fills = {gf::MaterialFillLayer::solid(
-            i == static_cast<std::size_t>(gf::ControlSurfaceState::hot) ? gf::Color::rgba(230, 225, 150)
-                                                                        : gf::Color::rgba(238, 234, 168))};
-        recipe.material.border.reset();
-        recipe.material.corner_radius = 0;
-        recipe.text = gf::Color::rgba(0, 0, 0);
-    }
-    set_theme_override(gf::Theme::create(std::move(theme)));
+    auto_scroll = true;
+    // Sticky-note yellow buttons and black text: the package's .help-book rules.
+    static_cast<void>(add_class("help-book"));
 }
 void HelpBook::initialize_control_tree() {
     close_ = gf::make_control<gf::Button>(gf::StableId("help-close"), "×");
-    (*close_).set_font({gf::FontRole::control, 24, 400, false});
-    (*close_).set_accessible_name(tr("Close Paint Help"));
+    (*close_).font = gf::FontSpec{gf::FontRole::control, 24, 400, false};
+    (*close_).accessible_name = tr("Close Paint Help");
     add_child(close_);
     title_ = gf::make_control<gf::Label>(gf::StableId("help-title"), tr("Plan Paint Help"));
     introduction_ = gf::make_control<gf::Label>(gf::StableId("help-welcome"), tr(help_welcome));
     for (const std::shared_ptr<gf::Label>& label : {title_, introduction_}) {
-        (*label).set_font({gf::FontRole::control, 18, 400, false});
-        (*label).set_foreground(gf::Color::rgba(0, 0, 0));
-        (*label).set_text_wrapping(gf::TextWrapping::word);
-        if (current_language().right_to_left) { (*label).set_alignment(gf::HorizontalAlignment::far); }
+        (*label).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 18, 400, false});
+        (*label).text_wrapping = gf::TextWrapping::word;
+        if (current_language().right_to_left) { (*label).alignment = gf::HorizontalAlignment::end; }
         add_child(label);
     }
     for (std::size_t i = 0; i < std::size(help_topics); ++i) {
         const HelpTopic& topic = help_topics[i];
         std::shared_ptr<gf::Button> header = gf::make_control<HelpHeader>(
             gf::StableId("help-topic-" + std::to_string(i)), tr(topic.title), topic.open);
-        (*header).set_font({gf::FontRole::control, 18, 400, false});
-        (*header).set_text_alignment(gf::ContentAlignment::middle_left);
-        (*header).set_content_padding({4, 1, 4, 1});
-        (*header).set_accessible_name(tr(topic.title));
+        (*header).font = gf::FontSpec{gf::FontRole::control, 18, 400, false};
+        (*header).text_alignment = gf::ContentAlignment::middle_left;
+        (*header).content_padding = {4, 1, 4, 1};
+        (*header).accessible_name = tr(topic.title);
         subscriptions_.push_back((*header).clicked().subscribe(
             *this, gf::Delegate<gf::ButtonBase&>::bind<HelpBook, &HelpBook::toggle>(*this)));
         std::shared_ptr<gf::Label> body = gf::make_control<gf::Label>(
             gf::StableId("help-body-" + std::to_string(i)), tr(topic.body));
-        (*body).set_font({gf::FontRole::control, 18, 400, false});
-        (*body).set_foreground(gf::Color::rgba(0, 0, 0));
-        (*body).set_text_wrapping(gf::TextWrapping::word);
-        if (current_language().right_to_left) { (*body).set_alignment(gf::HorizontalAlignment::far); }
-        (*body).set_visible(topic.open);
+        (*body).font = stxlib::Optional<gf::FontSpec>::of(gf::FontSpec{gf::FontRole::control, 18, 400, false});
+        (*body).text_wrapping = gf::TextWrapping::word;
+        if (current_language().right_to_left) { (*body).alignment = gf::HorizontalAlignment::end; }
+        (*body).visible = topic.open;
         headers_.push_back(header);
         bodies_.push_back(body);
         add_child(header);
         add_child(body);
     }
+    card_ = gf::make_control<gf::BusinessCard>(gf::StableId("business-card"), gf::BusinessCardPresentation::page);
+    add_child(card_);
+    card_open_ = (*card_).open_requested().subscribe(
+        *this, gf::Delegate<gf::BusinessCardRequest&>::bind<HelpBook, &HelpBook::card_open_requested>(*this));
+}
+void HelpBook::card_open_requested(gf::BusinessCardRequest& request) {
+    gf::BorrowedPointer<gf::Window> window = attached_window();
+    if (!window) { return; }
+    // Shown here rather than by the card's default, so the hand card's
+    // website request is routed before it can be pressed.
+    static_cast<void>(gf::show_business_card(*window));
+    request.handled = true;
+    const std::shared_ptr<gf::BusinessCard> hand = gf::shown_business_card(*window);
+    if (hand == nullptr || hand == hand_card_.lock()) { return; }
+    hand_website_.disconnect();
+    hand_card_ = hand;
+    hand_website_ = (*hand).website_requested().subscribe(
+        *this, gf::Delegate<gf::BusinessCardRequest&>::bind<HelpBook, &HelpBook::website_requested>(*this));
+}
+void HelpBook::website_requested(gf::BusinessCardRequest& request) {
+    const WebsiteOpener opener = website_opener();
+    const std::string& address = gf::program_identity().website;
+    if (opener != nullptr && !address.empty()) {
+        opener(address);
+        request.handled = true;
+    }
+}
+void HelpBook::on_dispose() noexcept {
+    card_open_.disconnect();
+    hand_website_.disconnect();
+    hand_card_.reset();
+    ScrollableControl::on_dispose();
 }
 gf::Event<gf::ButtonBase&>& HelpBook::close_clicked() {
     return (*close_).clicked();
 }
 void HelpBook::toggle(gf::ButtonBase& button) {
     std::size_t index = std::stoul(std::string(button.stable_id().value().substr(11)));
-    bool open = !(*bodies_[index]).visible();
-    (*bodies_[index]).set_visible(open);
+    bool open = !(*bodies_[index]).visible.read();
+    (*bodies_[index]).visible = open;
     (*std::static_pointer_cast<HelpHeader>(headers_[index])).set_expanded(open);
     invalidate(gf::Dirty::layout | gf::Dirty::paint);
 }
@@ -104,7 +124,7 @@ void HelpBook::arrange(gf::Rect bounds) {
     std::vector<std::shared_ptr<gf::Control>> controls{introduction_};
     for (std::size_t i = 0; i < headers_.size(); ++i) {
         controls.push_back(headers_[i]);
-        if ((*bodies_[i]).visible()) {
+        if ((*bodies_[i]).visible.read()) {
             controls.push_back(bodies_[i]);
         }
     }
@@ -113,6 +133,12 @@ void HelpBook::arrange(gf::Rect bounds) {
         rectangles.push_back({12, y, width, height});
         y += height + 7;
     }
+    // The card, centred under the topics at most 300 points wide; its
+    // measure includes the margin it keeps for its shadow and tilt.
+    const gf::Size card_size = (*card_).measure({std::min(300.0, width - 24), 100000});
+    controls.push_back(card_);
+    rectangles.push_back({12 + (width - card_size.width) * 0.5, y + 12, card_size.width, card_size.height});
+    y += 12 + card_size.height + 12;
     arrange_scroll_viewport({bounds.width, bounds.height}, {width + 24, y + 5});
     gf::Point offset = scroll_position();
     for (std::size_t i = 0; i < controls.size(); ++i) {

@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 project(PlanPaint VERSION 1.2.0 LANGUAGES C CXX)
+# Every shipped program imports only system DLLs (scripts/check_system_libraries.py):
+# link libc++, libunwind, compiler-rt and winpthreads statically, as GUI.Forms does
+# for its own programs (gui_forms/CMakeLists.txt, add_link_options(-static) under
+# MINGW, which reaches only GUI.Forms' own directory).
+if(MINGW)
+  add_link_options(-static)
+endif()
 set(PAINT_RELEASE_VERSION "${PROJECT_VERSION}" CACHE STRING "Tested publication version")
 if(NOT PAINT_RELEASE_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
   message(FATAL_ERROR "PAINT_RELEASE_VERSION must be numeric major.minor.patch")
@@ -40,39 +47,14 @@ if(RAINSTAR_LEGACY_UI)
     FetchContent_MakeAvailable(SDL3)
   endif()
 endif()
-option(RAINSTAR_BUNDLED_TIFF "Build the pinned TIFF library with the reduced import codec surface" OFF)
-if(RAINSTAR_BUNDLED_TIFF)
-  # win32-io would make libtiff's own sources see thandle_t as a Win32
-  # HANDLE while our TIFFClientOpen callbacks see void*: a call through
-  # a mismatched function type. Plan Paint opens TIFF only from memory.
-  foreach(option tiff-tools tiff-tests tiff-contrib tiff-docs tiff-cxx tiff-install
-                 tiff-opengl win32-io
-                 ccitt packbits lzw thunder next logluv mdi zlib libdeflate pixarlog jpeg old-jpeg jpeg12
-                 jbig lerc lzma zstd webp)
-    set(${option} OFF CACHE BOOL "" FORCE)
-  endforeach()
-  set(CMAKE_DISABLE_FIND_PACKAGE_Deflate ON CACHE BOOL "" FORCE)
-  set(HAVE_JPEGTURBO_DUAL_MODE_8_12 OFF CACHE INTERNAL "" FORCE)
-  set(JPEG_DUAL_MODE_8_12 OFF CACHE INTERNAL "" FORCE)
-  set(tiff-static ON CACHE BOOL "" FORCE)
-  FetchContent_Declare(tiff GIT_REPOSITORY https://gitlab.com/libtiff/libtiff.git GIT_TAG v4.7.2 GIT_SHALLOW TRUE)
-  FetchContent_MakeAvailable(tiff)
-  set(RAINSTAR_TIFF_TARGET TIFF::tiff)
-else()
-  find_package(TIFF REQUIRED)
-  set(RAINSTAR_TIFF_TARGET TIFF::TIFF)
-endif()
-find_package(PkgConfig QUIET)
-find_package(WebP CONFIG QUIET)
-if(TARGET WebP::webp)
-  set(RAINSTAR_WEBP_TARGET WebP::webp)
-else()
-  find_path(WEBP_INCLUDE_DIR webp/decode.h REQUIRED)
-  find_library(WEBP_LIBRARY NAMES webp REQUIRED)
-  set(RAINSTAR_WEBP_TARGET ${WEBP_LIBRARY})
-endif()
+# A shipped program is one module that imports only system libraries (owner
+# rule, 2026-11-15), so the import codecs (libtiff, libwebp, dav1d under
+# libavif) are built statically from pinned sources by default. The system
+# option links installed copies for a quick development tree; its program is
+# not shippable, and scripts/check_system_libraries.py refuses its package.
+option(RAINSTAR_SYSTEM_CODECS "Link installed libtiff, libwebp and dav1d (development only; not shippable)" OFF)
 include(cmake/ImportFormats.cmake)
-add_library(paint_core src/sticky_note.cpp vendor/playsuite-paper/paper.cpp src/localization.cpp src/localization_platform.cpp src/gradient.cpp src/recovery.cpp src/dither.cpp src/spirograph.cpp src/carpet.cpp src/canvas_backing.cpp src/desktop.cpp src/safe_file.cpp src/warp_session.cpp src/text.cpp src/embedded_font.cpp src/text_session.cpp src/font_inventory.cpp src/image.cpp src/color_palette.cpp src/color_tools.cpp src/paint_tools.cpp src/guide.cpp src/conv.cpp src/raster.cpp src/material.cpp src/atlas.cpp src/icon_validation.cpp src/icon_sheet.cpp src/toolbar_strip.cpp src/icon_export.cpp src/asset_browser.cpp src/file_change.cpp src/file_reveal.cpp src/alpha_tools.cpp src/icon_effects.cpp src/numeric_transform.cpp src/icon_palette.cpp src/icon_palette_file.cpp src/icon_generation.cpp src/icon_states.cpp src/icon_batch.cpp src/icon_stamp.cpp src/document.cpp src/document_atlas.cpp src/curve.cpp src/document_curve.cpp src/document_path.cpp src/codecs.cpp src/icon_codec.cpp src/import_codecs.cpp src/warp.cpp)
+add_library(paint_core src/sticky_note.cpp vendor/playsuite-paper/paper.cpp src/localization.cpp src/localization_platform.cpp src/gradient.cpp src/recovery.cpp src/dither.cpp src/spirograph.cpp src/carpet.cpp src/canvas_backing.cpp src/desktop.cpp src/safe_file.cpp src/warp_session.cpp src/text.cpp src/embedded_font.cpp src/text_session.cpp src/font_inventory.cpp src/image.cpp src/color_palette.cpp src/color_tools.cpp src/paint_tools.cpp src/guide.cpp src/conv.cpp src/raster.cpp src/material.cpp src/atlas.cpp src/icon_validation.cpp src/icon_sheet.cpp src/toolbar_strip.cpp src/icon_export.cpp src/asset_browser.cpp src/file_change.cpp src/file_reveal.cpp src/alpha_tools.cpp src/icon_effects.cpp src/numeric_transform.cpp src/icon_palette.cpp src/icon_palette_file.cpp src/icon_generation.cpp src/icon_states.cpp src/icon_batch.cpp src/icon_stamp.cpp src/document.cpp src/document_atlas.cpp src/curve.cpp src/document_curve.cpp src/document_path.cpp src/superimpose.cpp src/file_type.cpp src/command_line.cpp src/codecs.cpp src/icon_codec.cpp src/import_codecs.cpp src/warp.cpp)
 target_sources(paint_core PRIVATE src/geometry_style.cpp src/geometry_organic.cpp src/geometry_markers.cpp)
 target_include_directories(paint_core PUBLIC src PRIVATE vendor/playsuite-paper vendor/stb ${WEBP_INCLUDE_DIR})
 if(MSVC)
@@ -81,6 +63,17 @@ else()
   set_source_files_properties(vendor/playsuite-paper/paper.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off;-fno-fast-math")
 endif()
 target_link_libraries(paint_core PUBLIC ${RAINSTAR_TIFF_TARGET} ${RAINSTAR_WEBP_TARGET} avif lunasvg::lunasvg tinyxml2::tinyxml2)
+# CONV* resampling (src/conv.cpp) uses stx_conv, which ships beside GUI.Forms:
+# cmake/GUIFormsFrontend.cmake links it once the toolkit or SDK has found it.
+# Without the GUI.Forms frontend it must be found on CMAKE_PREFIX_PATH.
+if(NOT RAINSTAR_GUI_FORMS)
+  find_package(stx_conv CONFIG REQUIRED)
+  target_link_libraries(paint_core PUBLIC stx_conv::stx_conv)
+endif()
+if(WIN32)
+  # command_line.cpp reads the UTF-16 command line with CommandLineToArgvW.
+  target_link_libraries(paint_core PRIVATE shell32)
+endif()
 if(APPLE)
   target_link_libraries(paint_core PUBLIC "-framework ImageIO" "-framework CoreGraphics" "-framework CoreFoundation")
 endif()
@@ -236,6 +229,9 @@ add_executable(paint-format-tests tests/format_tests.cpp)
 target_link_libraries(paint-format-tests PRIVATE paint_core)
 target_compile_definitions(paint-format-tests PRIVATE FORMAT_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/formats")
 add_test(NAME paint-formats COMMAND paint-format-tests)
+add_executable(paint-file-open-tests tests/file_open_tests.cpp)
+target_link_libraries(paint-file-open-tests PRIVATE paint_core)
+add_test(NAME paint-file-open COMMAND paint-file-open-tests)
 add_executable(paint-icon-states-tests tests/icon_states_tests.cpp)
 target_link_libraries(paint-icon-states-tests PRIVATE paint_core)
 add_test(NAME paint-icon-states COMMAND paint-icon-states-tests)

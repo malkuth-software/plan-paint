@@ -155,13 +155,21 @@ void unpremultiply(Image& image) {
 void reject_animation(const std::uint8_t* data, std::size_t size) {
     const unsigned char png[8] = {137, 80, 78, 71, 13, 10, 26, 10};
     if (size >= 8 && std::memcmp(data, png, 8) == 0) {
+        // APNG requires acTL before the first IDAT, so the walk ends at IDAT
+        // (or IEND). Bytes after the image data are not chunks: many tools
+        // append metadata or padding after IEND, and walking into it rejected
+        // ordinary PNGs as "truncated".
         std::size_t offset = 8;
         while (offset + 12 <= size) {
+            const std::uint8_t* type = data + offset + 4;
+            if (std::memcmp(type, "IDAT", 4) == 0 || std::memcmp(type, "IEND", 4) == 0) {
+                return;
+            }
             std::size_t length = big32(data + offset);
             if (length > size - offset - 12) {
                 throw std::runtime_error("PNG chunk is truncated.");
             }
-            if (std::memcmp(data + offset + 4, "acTL", 4) == 0) {
+            if (std::memcmp(type, "acTL", 4) == 0) {
                 throw std::runtime_error(animation_error);
             }
             offset += length + 12;
