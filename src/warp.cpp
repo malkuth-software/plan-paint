@@ -14,861 +14,6 @@
 #include <utility>
 
 namespace paint {
-namespace {
-using Index = std::size_t;
-using Byte = unsigned char;
-constexpr double EPS = std::numeric_limits<double>::epsilon();
-constexpr double STORAGE_EPS = 65536.0 * EPS;
-static void bernstein(double t, double values[6]) {
-    double u = 1.0 - t, t2 = t * t, u2 = u * u;
-    values[0] = u2 * u2 * u;
-    values[1] = 5.0 * u2 * u2 * t;
-    values[2] = 10.0 * u2 * u * t2;
-    values[3] = 10.0 * u2 * t2 * t;
-    values[4] = 5.0 * u * t2 * t2;
-    values[5] = t2 * t2 * t;
-}
-// Exact source-state construction from conv_warp/reference_source.c. All
-// previous float storage is double here; no global mutable state remains.
-struct AtlasBuilder {
-    int sw = 0, sh = 0, lw = 0, lh = 0, build_phase = 0, build_lane = 0, build_channel = 0;
-    std::size_t native_groups = 0;
-    std::vector<double> native_control, native_source, stage, line, first, second;
-    std::vector<double> raw, admitted, refined, beta, ring, capacity, cone_cache;
-    std::vector<Byte> cone_counts;
-    std::vector<int> coarse, locations, boundary_sign;
-    int constant_channel[4] = {1, 1, 1, 1};
-    double inv[6][6] = {}, native_diagnostic[5] = {};
-    double channel_minimum = 0.0, completion_ray = 1.0;
-    explicit AtlasBuilder(const Image& image) {
-        sw = std::max(5, image.width);
-        sh = std::max(5, image.height);
-        lw = 5 * (sw - 1) + 1;
-        lh = 5 * (sh - 1) + 1;
-        std::size_t pixels = static_cast<std::size_t>(sw) * sh;
-        if (pixels > 1048576) {
-            throw std::length_error(
-                "CONV warp material exceeds the 1 megapixel atlas limit; split the selection.");
-        }
-        native_groups = sh * (sw - 1) + sw * (sh - 1) + (sw - 1) * (sh - 1);
-        native_source.resize(pixels * 4);
-        native_control.resize(static_cast<std::size_t>(lw) * lh * 4);
-        for (int y = 0; y < sh; ++y) {
-            for (int x = 0; x < sw; ++x) {
-                Color color = image.get(std::min(x, image.width - 1), std::min(y, image.height - 1));
-                double alpha = color.a / 255.0;
-                std::size_t index = (static_cast<std::size_t>(y) * sw + x) * 4;
-                native_source[index] = color.r / 255.0 * alpha;
-                native_source[index + 1] = color.g / 255.0 * alpha;
-                native_source[index + 2] = color.b / 255.0 * alpha;
-                native_source[index + 3] = alpha;
-            }
-        }
-        stage.resize(std::max(static_cast<std::size_t>(lw) * sh, static_cast<std::size_t>(sw) * lh) * 4);
-        beta.resize(pixels);
-        ring.resize(static_cast<std::size_t>(lw) * 24);
-        std::size_t axis = static_cast<std::size_t>(std::max(sw, sh));
-        line.resize(axis);
-        first.resize(axis);
-        second.resize(axis);
-        raw.resize(axis * 5);
-        admitted.resize(axis * 5);
-        refined.resize(axis * 5);
-        coarse.resize(axis);
-        locations.resize(axis);
-        boundary_sign.resize(axis);
-        capacity.resize(native_groups);
-        cone_cache.resize(static_cast<std::size_t>(sw - 1) * (sh - 1) * 4);
-        cone_counts.resize(static_cast<std::size_t>(sw - 1) * (sh - 1));
-        inverse_collocation();
-    }
-    double src(int x, int y, int ch) {
-        return native_source[(static_cast<std::size_t>(y) * sw + x) * 4 + ch];
-    }
-    int signum(double x) {
-        return (x > 0) - (x < 0);
-    }
-    double base_control(Index id, int ch) {
-        int x = static_cast<int>(id % lw), y = static_cast<int>(id / lw), cx = std::min(sw - 2, x / 5),
-            cy = std::min(sh - 2, y / 5);
-        double u = (x - 5 * cx) / 5.0, v = (y - 5 * cy) / 5.0;
-        return (1 - u) * (1 - v) * src(cx, cy, ch) + u * (1 - v) * src(cx + 1, cy, ch) +
-               (1 - u) * v * src(cx, cy + 1, ch) + u * v * src(cx + 1, cy + 1, ch);
-    }
-    int owner(Index id) {
-        int x = static_cast<int>(id % lw), y = static_cast<int>(id / lw), rx = x % 5, ry = y % 5;
-        if (!rx && !ry) {
-            return -1;
-        }
-        if (!ry) {
-            return (y / 5) * (sw - 1) + x / 5;
-        }
-        int horizontal = sh * (sw - 1);
-        if (!rx) {
-            return horizontal + (x / 5) * (sh - 1) + y / 5;
-        }
-        return horizontal + sw * (sh - 1) + (y / 5) * (sw - 1) + x / 5;
-    }
-    void inverse_collocation(void) {
-        double a[6][12] = {};
-        for (int r = 0; r < 6; r++) {
-            bernstein(r / 5.0, a[r]);
-            for (int c = 0; c < 6; c++) {
-                a[r][6 + c] = r == c;
-            }
-        }
-        for (int c = 0; c < 6; c++) {
-            int p = c;
-            for (int r = c + 1; r < 6; r++) {
-                if (std::abs(a[r][c]) > std::abs(a[p][c])) {
-                    p = r;
-                }
-            }
-            for (int k = 0; k < 12; k++) {
-                double t = a[c][k];
-                a[c][k] = a[p][k];
-                a[p][k] = t;
-            }
-            double d = a[c][c];
-            for (int k = 0; k < 12; k++) {
-                a[c][k] /= d;
-            }
-            for (int r = 0; r < 6; r++) {
-                if (r != c) {
-                    double f = a[r][c];
-                    for (int k = 0; k < 12; k++) {
-                        a[r][k] -= f * a[c][k];
-                    }
-                }
-            }
-        }
-        for (int r = 0; r < 6; r++) {
-            for (int c = 0; c < 6; c++) {
-                inv[r][c] = a[r][c + 6];
-            }
-        }
-    }
-    /* Input is the complete original line, including sign witnesses across plateaus. */
-    int refine_line(int n) {
-        int intervals = n - 1;
-        first[0] = (-3 * line[0] + 4 * line[1] - line[2]) / 2;
-        first[1] = (line[2] - line[0]) / 2;
-        first[n - 2] = (line[n - 1] - line[n - 3]) / 2;
-        first[n - 1] = (3 * line[n - 1] - 4 * line[n - 2] + line[n - 3]) / 2;
-        second[0] = 2 * line[0] - 5 * line[1] + 4 * line[2] - line[3];
-        second[1] = line[0] - 2 * line[1] + line[2];
-        second[n - 2] = line[n - 3] - 2 * line[n - 2] + line[n - 1];
-        second[n - 1] = 2 * line[n - 1] - 5 * line[n - 2] + 4 * line[n - 3] - line[n - 4];
-        for (int i = 2; i < n - 2; i++) {
-            first[i] = (line[i - 2] - 8 * line[i - 1] + 8 * line[i + 1] - line[i + 2]) / 12;
-            second[i] =
-                (-line[i + 2] + 16 * line[i + 1] - 30 * line[i] + 16 * line[i - 1] - line[i - 2]) / 12;
-        }
-        for (int i = 0; i < intervals; i++) {
-            double b[6] = {line[i],
-                           line[i] + first[i] / 5,
-                           line[i] + 2 * first[i] / 5 + second[i] / 20,
-                           line[i + 1] - 2 * first[i + 1] / 5 + second[i + 1] / 20,
-                           line[i + 1] - first[i + 1] / 5,
-                           line[i + 1]};
-            for (int k = 0; k < 5; k++) {
-                raw[5 * i + k] = b[k + 1] - b[k];
-                admitted[5 * i + k] = 0;
-            }
-            coarse[i] = signum(line[i + 1] - line[i]);
-        }
-        int witness = 0;
-        while (witness < intervals && !coarse[witness]) {
-            witness++;
-        }
-        if (witness < intervals) {
-            for (int i = 0; i < witness; i++) {
-                coarse[i] = coarse[witness];
-            }
-            for (int i = witness + 1; i < intervals; i++) {
-                if (!coarse[i]) {
-                    coarse[i] = coarse[i - 1];
-                }
-            }
-            int count = 0, previous = 0;
-            for (int knot = 1; knot < intervals; knot++) {
-                if (coarse[knot - 1] != coarse[knot]) {
-                    int centre = 5 * knot, best = centre;
-                    double best_cost = 1e300;
-                    for (int candidate = std::max(previous + 1, centre - 4);
-                         candidate < std::min(5 * intervals, centre + 5); candidate++) {
-                        double cost = 0;
-                        for (int k = std::max(0, centre - 5); k < std::min(5 * intervals, centre + 5); k++) {
-                            if ((k < candidate ? coarse[knot - 1] : coarse[knot]) * raw[k] < 0) {
-                                cost += raw[k] * raw[k];
-                            }
-                        }
-                        if (cost < best_cost) {
-                            best_cost = cost;
-                            best = candidate;
-                        }
-                    }
-                    locations[count] = best;
-                    boundary_sign[count++] = coarse[knot];
-                    previous = best;
-                }
-            }
-            int boundary = 0, current_sign = coarse[witness];
-            for (int cell = 0; cell < intervals; cell++) {
-                int signs[5] = {}, order[5] = {}, masks[6] = {}, mask = 0, mask_count = 0;
-                double target[5] = {}, best_values[5] = {}, best_error = 1e300;
-                for (int k = 0; k < 5; k++) {
-                    while (boundary < count && 5 * cell + k >= locations[boundary]) {
-                        current_sign = boundary_sign[boundary++];
-                    }
-                    signs[k] = current_sign;
-                    target[k] = signs[k] * raw[5 * cell + k];
-                    order[k] = k;
-                    if (signs[k] > 0) {
-                        mask |= 1 << k;
-                    }
-                }
-                for (int k = 1; k < 5; k++) {
-                    int e = order[k], p = k;
-                    while (p > 0 && raw[5 * cell + order[p - 1]] > raw[5 * cell + e]) {
-                        order[p] = order[p - 1];
-                        p--;
-                    }
-                    order[p] = e;
-                }
-                if (mask) {
-                    masks[mask_count++] = mask;
-                }
-                for (int k = 0; k < 5; k++) {
-                    mask ^= 1 << order[k];
-                    if (mask) {
-                        masks[mask_count++] = mask;
-                    }
-                }
-                double total = line[cell + 1] - line[cell];
-                int found = 0;
-                for (int m = 0; m < mask_count; m++) {
-                    mask = masks[m];
-                    double numerator = -total;
-                    int active = 0;
-                    for (int k = 0; k < 5; k++) {
-                        if (mask & (1 << k)) {
-                            numerator += signs[k] * target[k];
-                            active++;
-                        }
-                    }
-                    double lambda = numerator / active, value[5] = {}, mass = 0, error = 0;
-                    int valid = 1;
-                    for (int k = 0; k < 5; k++) {
-                        value[k] = (mask & (1 << k)) ? target[k] - lambda * signs[k] : 0;
-                        if (value[k] < -64 * EPS) {
-                            valid = 0;
-                            break;
-                        }
-                        value[k] = std::max(0.0, value[k]);
-                        mass += signs[k] * value[k];
-                        double residual = value[k] - target[k];
-                        error += residual * residual;
-                    }
-                    if (valid && std::abs(mass - total) <= 256 * EPS * std::max(1.0, std::abs(total)) &&
-                        error < best_error) {
-                        found = 1;
-                        best_error = error;
-                        for (int k = 0; k < 5; k++) {
-                            best_values[k] = value[k];
-                        }
-                    }
-                }
-                if (!found) {
-                    return 1;
-                }
-                for (int k = 0; k < 5; k++) {
-                    admitted[5 * cell + k] = signs[k] * best_values[k];
-                }
-            }
-        }
-        for (int i = 0; i < intervals; i++) {
-            for (int r = 0; r < 5; r++) {
-                if (!r) {
-                    refined[5 * i] = line[i];
-                    continue;
-                }
-                double b[6] = {}, suffix = 0, value = line[i];
-                bernstein(r / 5.0, b);
-                for (int k = 4; k >= 0; k--) {
-                    suffix += b[k + 1];
-                    value += suffix * admitted[5 * i + k];
-                }
-                refined[5 * i + r] = value;
-            }
-        }
-        refined[5 * intervals] = line[n - 1];
-        return 0;
-    }
-    double source_axis_value(int x, int y, int ch, int vertical, int index) const {
-        int sx = vertical ? x : index;
-        int sy = vertical ? index : y;
-        double value = native_source[(static_cast<std::size_t>(sy) * sw + sx) * 4 + ch];
-        return value;
-    }
-    double source_jet(int x, int y, int ch, int vertical) {
-        int i = vertical ? y : x, n = vertical ? sh : sw;
-        if (i == 0) {
-            return (-3.0 * source_axis_value(x, y, ch, vertical, 0) +
-                    4.0 * source_axis_value(x, y, ch, vertical, 1) -
-                    source_axis_value(x, y, ch, vertical, 2)) /
-                   2.0;
-        }
-        if (i == n - 1) {
-            return (3.0 * source_axis_value(x, y, ch, vertical, i) -
-                    4.0 * source_axis_value(x, y, ch, vertical, i - 1) +
-                    source_axis_value(x, y, ch, vertical, i - 2)) /
-                   2.0;
-        }
-        if (i == 1 || i == n - 2) {
-            return (source_axis_value(x, y, ch, vertical, i + 1) -
-                    source_axis_value(x, y, ch, vertical, i - 1)) /
-                   2.0;
-        }
-        double value = (source_axis_value(x, y, ch, vertical, i - 2) -
-                        8.0 * source_axis_value(x, y, ch, vertical, i - 1) +
-                        8.0 * source_axis_value(x, y, ch, vertical, i + 1) -
-                        source_axis_value(x, y, ch, vertical, i + 2)) /
-                       12.0;
-        return value;
-    }
-    double blend(int x, int y) {
-        int cx = std::min(sw - 2, x / 5), cy = std::min(sh - 2, y / 5);
-        double u = (x - 5 * cx) / 5.0, v = (y - 5 * cy) / 5.0;
-        return (1 - u) * (1 - v) * beta[cy * sw + cx] + u * (1 - v) * beta[cy * sw + cx + 1] +
-               (1 - u) * v * beta[(cy + 1) * sw + cx] + u * v * beta[(cy + 1) * sw + cx + 1];
-    }
-    /* Geometry of the smallest containing positive cone, without atan2/trig. */
-    typedef struct {
-        double x, y;
-    } direction;
-    int half(direction a) {
-        return a.y < 0 || (a.y == 0 && a.x < 0);
-    }
-    double cross(direction a, direction b) {
-        return a.x * b.y - a.y * b.x;
-    }
-    int normals(int cx, int cy, int ch, direction* result) {
-        if (constant_channel[ch]) {
-            return 0;
-        }
-        direction dirs[100] = {}, anchor = {0, 0}, upper = {0, 0}, lower = {0, 0};
-        int count = 0, has_upper = 0, has_lower = 0;
-        const double witness_tolerance = 16384 * EPS;
-        int x0 = std::max(0, cx - 2), x1 = std::min(sw - 1, cx + 3), y0 = std::max(0, cy - 2),
-            y1 = std::min(sh - 1, cy + 3);
-        for (int y = y0; y < y1; y++) {
-            for (int x = x0; x < x1; x++) {
-                double a = src(x, y, ch), b = src(x + 1, y, ch), d = src(x, y + 1, ch),
-                       e = src(x + 1, y + 1, ch);
-                direction v[4] = {{b - a, d - a}, {b - a, e - b}, {e - d, d - a}, {e - d, e - b}};
-                for (int k = 0; k < 4; k++) {
-                    double length = std::sqrt(v[k].x * v[k].x + v[k].y * v[k].y);
-                    if (length <= 2048 * EPS) {
-                        continue;
-                    }
-                    v[k].x /= length;
-                    v[k].y /= length;
-                    // Three rays with strictly positive cyclic cross products already span
-                    // the plane. More support vectors cannot restore a directional bound.
-                    // Keep the original sorted construction for every restricted cone.
-                    if (!count) {
-                        anchor = v[k];
-                    } else {
-                        double side = cross(anchor, v[k]);
-                        if (side > witness_tolerance && (!has_upper || cross(upper, v[k]) > 0)) {
-                            upper = v[k];
-                            has_upper = 1;
-                        }
-                        if (side < -witness_tolerance && (!has_lower || cross(v[k], lower) > 0)) {
-                            lower = v[k];
-                            has_lower = 1;
-                        }
-                        if (has_upper && has_lower && cross(upper, lower) > witness_tolerance) {
-                            return 0;
-                        }
-                    }
-                    int p = count;
-                    while (p > 0 && (half(dirs[p - 1]) > half(v[k]) ||
-                                     (half(dirs[p - 1]) == half(v[k]) && cross(dirs[p - 1], v[k]) < 0))) {
-                        dirs[p] = dirs[p - 1];
-                        p--;
-                    }
-                    dirs[p] = v[k];
-                    count++;
-                }
-            }
-        }
-        if (!count) {
-            return 0;
-        }
-        direction start = dirs[0], last = dirs[count - 1];
-        int cut = -1, opposite = -1;
-        double tol = 4096 * EPS;
-        for (int i = 0; i < count; i++) {
-            direction a = dirs[i], b = dirs[(i + 1) % count];
-            double cr = cross(a, b), dot = a.x * b.x + a.y * b.y;
-            if (cr < -tol) {
-                cut = i;
-                break;
-            }
-            if (std::abs(cr) <= tol && dot < 0) {
-                opposite = i;
-            }
-        }
-        if (cut >= 0) {
-            start = dirs[(cut + 1) % count];
-            last = dirs[cut];
-        } else if (opposite >= 0) {
-            start = dirs[(opposite + 1) % count];
-            last = dirs[opposite];
-            result[0] = direction{-start.y, start.x};
-            for (int i = 0; i < count; i++) {
-                if (cross(start, dirs[i]) > tol) {
-                    return 1;
-                }
-            }
-            result[1] = direction{start.y, -start.x};
-            return 2;
-        } else {
-            for (int i = 1; i < count; i++) {
-                if (std::abs(cross(start, dirs[i])) > tol || start.x * dirs[i].x + start.y * dirs[i].y < 0) {
-                    return 0;
-                }
-            }
-            result[0] = direction{-start.y, start.x};
-            result[1] = direction{start.y, -start.x};
-            result[2] = start;
-            return 3;
-        }
-        result[0] = direction{-start.y, start.x};
-        result[1] = direction{last.y, -last.x};
-        return 2;
-    }
-    void clipped_cell(int cx, int cy) {
-        double low[4] = {1e300, 1e300, 1e300, 1e300}, high[4] = {-1e300, -1e300, -1e300, -1e300};
-        for (int y = std::max(0, cy - 2); y <= std::min(sh - 1, cy + 3); y++) {
-            for (int x = std::max(0, cx - 2); x <= std::min(sw - 1, cx + 3); x++) {
-                for (int ch = 0; ch < 4; ch++) {
-                    double v = src(x, y, ch);
-                    low[ch] = std::min(low[ch], v);
-                    high[ch] = std::max(high[ch], v);
-                }
-            }
-        }
-        for (int j = 0; j < 6; j++) {
-            for (int i = 0; i < 6; i++) {
-                Index id = static_cast<std::size_t>(cy * 5 + j) * lw + cx * 5 + i;
-                for (int ch = 0; ch < 4; ch++) {
-                    if (constant_channel[ch]) {
-                        native_control[id * 4 + ch] = src(0, 0, ch);
-                        continue;
-                    }
-                    double v = native_control[id * 4 + ch], bounded = std::clamp(v, low[ch], high[ch]);
-                    native_diagnostic[1] += v != bounded;
-                    native_control[id * 4 + ch] = bounded;
-                    if (!(i % 5) && !(j % 5)) {
-                        native_control[id * 4 + ch] = src(cx + i / 5, cy + j / 5, ch);
-                    }
-                }
-            }
-        }
-    }
-    typedef struct {
-        double candidate[36], base[36], limited[36];
-        int group[36];
-    } admission_patch;
-    void add_constraint_term(Index ids[5], double weights[5], int& count, int x, int y, double value) {
-        if (value == 0.0) {
-            return;
-        }
-        Index id = static_cast<std::size_t>(y * 6 + x);
-        int index = 0;
-        while (index < count && ids[index] != id) {
-            ++index;
-        }
-        if (index == count) {
-            ids[count] = id;
-            weights[count] = value;
-            ++count;
-        } else {
-            weights[index] += value;
-        }
-    }
-    void constraint_row(int i, int j, direction normal, int phase, admission_patch* patch) {
-        Index ids[5] = {};
-        double weights[5] = {};
-        int count = 0;
-        double dx = normal.x, dy = normal.y;
-        if (!i) {
-            add_constraint_term(ids, weights, count, 0, j, -5 * dx);
-            add_constraint_term(ids, weights, count, 1, j, 5 * dx);
-        } else if (i == 5) {
-            add_constraint_term(ids, weights, count, 4, j, -5 * dx);
-            add_constraint_term(ids, weights, count, 5, j, 5 * dx);
-        } else {
-            add_constraint_term(ids, weights, count, i - 1, j, -i * dx);
-            add_constraint_term(ids, weights, count, i, j, (2 * i - 5) * dx);
-            add_constraint_term(ids, weights, count, i + 1, j, (5 - i) * dx);
-        }
-        if (!j) {
-            add_constraint_term(ids, weights, count, i, 0, -5 * dy);
-            add_constraint_term(ids, weights, count, i, 1, 5 * dy);
-        } else if (j == 5) {
-            add_constraint_term(ids, weights, count, i, 4, -5 * dy);
-            add_constraint_term(ids, weights, count, i, 5, 5 * dy);
-        } else {
-            add_constraint_term(ids, weights, count, i, j - 1, -j * dy);
-            add_constraint_term(ids, weights, count, i, j, (2 * j - 5) * dy);
-            add_constraint_term(ids, weights, count, i, j + 1, (5 - j) * dy);
-        }
-
-        double candidate_margin = 0, base_margin = 0, limited_margin = 0, motion = 0;
-        int groups[5] = {}, ng = 0;
-        double contributions[5] = {};
-        for (int k = 0; k < count; k++) {
-            Index id = ids[k];
-            double a = weights[k], candidate = (*patch).candidate[id];
-            candidate_margin += a * candidate;
-            if (phase == 0 || phase == 3) {
-                continue;
-            }
-            double base = (*patch).base[id];
-            base_margin += a * base;
-            int g = (*patch).group[id];
-            if (phase == 1 && g >= 0) {
-                int p = 0;
-                while (p < ng && groups[p] != g) {
-                    p++;
-                }
-                if (p == ng) {
-                    groups[ng] = g;
-                    contributions[ng++] = 0;
-                }
-                contributions[p] += a * (candidate - base);
-            }
-            if (phase == 2) {
-                double limited = (*patch).limited[id];
-                limited_margin += a * limited;
-                motion += a * (candidate - limited);
-            }
-        }
-        if (phase == 0) {
-            native_diagnostic[0]++;
-            channel_minimum = std::min(channel_minimum, candidate_margin);
-        }
-        if (phase == 1) {
-            double harm = 0;
-            for (int p = 0; p < ng; p++) {
-                harm += std::max(0.0, -contributions[p]);
-            }
-            if (harm > STORAGE_EPS) {
-                double ratio = std::min(1.0, std::max(0.0, base_margin) / harm);
-                for (int p = 0; p < ng; p++) {
-                    if (contributions[p] < 0) {
-                        capacity[groups[p]] = std::min(capacity[groups[p]], ratio);
-                    }
-                }
-            }
-        }
-        if (phase == 2 && motion < -STORAGE_EPS) {
-            completion_ray = std::min(completion_ray, std::max(0.0, limited_margin) / -motion);
-        }
-        if (phase == 3) {
-            native_diagnostic[2] = std::min(native_diagnostic[2], candidate_margin);
-        }
-    }
-    void admit_cells(int y, int ch, int phase) {
-        for (int x = 0; x < sw - 1; x++) {
-            direction ns[3] = {};
-            int n = 0;
-            Index cell = static_cast<std::size_t>(y) * (sw - 1) + x;
-            if (phase == 0) {
-                n = normals(x, y, ch, ns);
-                cone_counts[cell] = static_cast<Byte>(n);
-                native_diagnostic[3] += n > 0;
-                for (int k = 0; k < std::min(2, n); k++) {
-                    cone_cache[cell * 4 + 2 * k] = ns[k].x;
-                    cone_cache[cell * 4 + 2 * k + 1] = ns[k].y;
-                }
-            } else {
-                n = cone_counts[cell];
-                for (int k = 0; k < std::min(2, n); k++) {
-                    ns[k] = direction{cone_cache[cell * 4 + 2 * k], cone_cache[cell * 4 + 2 * k + 1]};
-                }
-                if (n == 3) {
-                    ns[2] = direction{ns[0].y, -ns[0].x};
-                }
-            }
-            if (!n) {
-                continue;
-            }
-            // Every directional row reuses these same 36 values and group owners.
-            // In particular, do not reconstruct the bilinear base hundreds of times.
-            admission_patch patch{};
-            for (int j = 0; j < 6; j++) {
-                for (int i = 0; i < 6; i++) {
-                    int local = j * 6 + i;
-                    Index id = static_cast<std::size_t>(y * 5 + j) * lw + x * 5 + i;
-                    patch.candidate[local] = native_control[id * 4 + ch];
-                    if (phase == 1 || phase == 2) {
-                        double base = base_control(id, ch);
-                        int g = owner(id);
-                        patch.base[local] = base;
-                        patch.group[local] = g;
-                        if (phase == 2) {
-                            patch.limited[local] =
-                                base + (g < 0 ? 0 : capacity[g]) * (patch.candidate[local] - base);
-                        }
-                    }
-                }
-            }
-            for (int k = 0; k < n; k++) {
-                for (int j = 0; j < 6; j++) {
-                    for (int i = 0; i < 6; i++) {
-                        constraint_row(i, j, ns[k], phase, &patch);
-                    }
-                }
-            }
-        }
-    }
-    int build_native_step(int budget) {
-        while (budget > 0 && build_phase < 12) {
-            budget -= 1;
-            int p = build_lane, ch = build_channel;
-            if (build_phase == 0) {
-                for (int x = 0; x < sw; x++) {
-                    double xx = 0, yy = 0;
-                    for (int c = 0; c < 4; c++) {
-                        if (src(x, p, c) != src(0, 0, c)) {
-                            constant_channel[c] = 0;
-                        }
-                        double dx = source_jet(x, p, c, 0), dy = source_jet(x, p, c, 1);
-                        xx += dx * dx;
-                        yy += dy * dy;
-                    }
-                    beta[p * sw + x] = xx + yy > 0 ? yy / (xx + yy) : .5;
-                }
-                if (++build_lane == sh) {
-                    build_lane = 0;
-                    build_phase++;
-                }
-            } else if (build_phase == 1) {
-                for (int c = 0; c < 4; c++) {
-                    if (constant_channel[c]) {
-                        continue;
-                    }
-                    for (int x = 0; x < sw; x++) {
-                        line[x] = src(x, p, c);
-                    }
-                    if (refine_line(sw)) {
-                        return -1;
-                    }
-                    for (int x = 0; x < lw; x++) {
-                        stage[(static_cast<std::size_t>(p) * lw + x) * 4 + c] = refined[x];
-                    }
-                }
-                if (++build_lane == sh) {
-                    build_lane = 0;
-                    build_phase++;
-                }
-            } else if (build_phase == 2) {
-                for (int c = 0; c < 4; c++) {
-                    if (constant_channel[c]) {
-                        continue;
-                    }
-                    for (int y = 0; y < sh; y++) {
-                        line[y] = stage[(static_cast<std::size_t>(y) * lw + p) * 4 + c];
-                    }
-                    if (refine_line(sh)) {
-                        return -1;
-                    }
-                    for (int y = 0; y < lh; y++) {
-                        refined[y] *= 1 - blend(p, y);
-                    }
-                    for (int cy = 0; cy < sh - 1; cy++) {
-                        for (int j = cy ? 1 : 0; j < 6; j++) {
-                            double sum = 0;
-                            for (int k = 0; k < 6; k++) {
-                                sum += inv[j][k] * refined[5 * cy + k];
-                            }
-                            native_control[(static_cast<std::size_t>(5 * cy + j) * lw + p) * 4 + c] = sum;
-                        }
-                    }
-                }
-                if (++build_lane == lw) {
-                    build_lane = 0;
-                    build_phase++;
-                }
-            } else if (build_phase == 3) {
-                for (int cx = 0; cx < sw - 1; cx++) {
-                    for (int c = 0; c < 4; c++) {
-                        if (constant_channel[c]) {
-                            continue;
-                        }
-                        double values[6] = {};
-                        for (int k = 0; k < 6; k++) {
-                            values[k] =
-                                native_control[(static_cast<std::size_t>(p) * lw + 5 * cx + k) * 4 + c];
-                        }
-                        for (int i = 0; i < 6; i++) {
-                            double sum = 0;
-                            for (int k = 0; k < 6; k++) {
-                                sum += inv[i][k] * values[k];
-                            }
-                            native_control[(static_cast<std::size_t>(p) * lw + 5 * cx + i) * 4 + c] = sum;
-                        }
-                    }
-                }
-                if (++build_lane == lh) {
-                    build_lane = 0;
-                    build_phase++;
-                }
-            } else if (build_phase == 4) {
-                for (int c = 0; c < 4; c++) {
-                    if (constant_channel[c]) {
-                        continue;
-                    }
-                    for (int y = 0; y < sh; y++) {
-                        line[y] = src(p, y, c);
-                    }
-                    if (refine_line(sh)) {
-                        return -1;
-                    }
-                    for (int y = 0; y < lh; y++) {
-                        stage[(static_cast<std::size_t>(y) * sw + p) * 4 + c] = refined[y];
-                    }
-                }
-                if (++build_lane == sw) {
-                    build_lane = 0;
-                    build_phase++;
-                }
-            } else if (build_phase == 5) {
-                int row = p % 5;
-                if (p && row == 0) {
-                    row = 5;
-                }
-                for (int c = 0; c < 4; c++) {
-                    if (constant_channel[c]) {
-                        continue;
-                    }
-                    for (int x = 0; x < sw; x++) {
-                        line[x] = stage[(static_cast<std::size_t>(p) * sw + x) * 4 + c];
-                    }
-                    if (refine_line(sw)) {
-                        return -1;
-                    }
-                    for (int x = 0; x < lw; x++) {
-                        refined[x] *= blend(x, p);
-                    }
-                    for (int cx = 0; cx < sw - 1; cx++) {
-                        for (int i = cx ? 1 : 0; i < 6; i++) {
-                            double sum = 0;
-                            for (int k = 0; k < 6; k++) {
-                                sum += inv[i][k] * refined[5 * cx + k];
-                            }
-                            ring[(static_cast<std::size_t>(row) * lw + 5 * cx + i) * 4 + c] = sum;
-                        }
-                    }
-                }
-                if (row == 5) {
-                    int cy = p / 5 - 1;
-                    for (int j = cy ? 1 : 0; j < 6; j++) {
-                        for (int x = 0; x < lw; x++) {
-                            for (int c = 0; c < 4; c++) {
-                                if (constant_channel[c]) {
-                                    continue;
-                                }
-                                double sum = 0;
-                                for (int k = 0; k < 6; k++) {
-                                    sum += inv[j][k] * ring[(static_cast<std::size_t>(k) * lw + x) * 4 + c];
-                                }
-                                native_control[(static_cast<std::size_t>(5 * cy + j) * lw + x) * 4 + c] +=
-                                    sum;
-                            }
-                        }
-                    }
-                    for (Index k = 0; k < static_cast<std::size_t>(lw) * 4; k++) {
-                        ring[k] = ring[static_cast<std::size_t>(5) * lw * 4 + k];
-                    }
-                }
-                if (++build_lane == lh) {
-                    build_lane = 0;
-                    build_phase++;
-                }
-            } else if (build_phase == 6) {
-                for (int x = 0; x < sw - 1; x++) {
-                    clipped_cell(x, p);
-                }
-                if (++build_lane == sh - 1) {
-                    build_lane = 0;
-                    build_phase++;
-                    channel_minimum = 1e300;
-                }
-            } else if (build_phase == 7) {
-                admit_cells(p, ch, 0);
-                if (++build_lane == sh - 1) {
-                    build_lane = 0;
-                    if (channel_minimum >= -STORAGE_EPS) {
-                        native_diagnostic[2] = std::min(native_diagnostic[2], channel_minimum);
-                        if (++build_channel == 4) {
-                            build_phase = 12;
-                        }
-                        channel_minimum = 1e300;
-                    } else {
-                        for (Index k = 0; k < native_groups; k++) {
-                            capacity[k] = 1;
-                        }
-                        build_phase++;
-                    }
-                }
-            } else if (build_phase == 8) {
-                admit_cells(p, ch, 1);
-                if (++build_lane == sh - 1) {
-                    build_lane = 0;
-                    build_phase++;
-                    completion_ray = 1;
-                }
-            } else if (build_phase == 9) {
-                admit_cells(p, ch, 2);
-                if (++build_lane == sh - 1) {
-                    build_lane = 0;
-                    build_phase++;
-                }
-            } else if (build_phase == 10) {
-                for (int x = 0; x < lw; x++) {
-                    Index id = static_cast<std::size_t>(p) * lw + x;
-                    int g = owner(id);
-                    double base = base_control(id, ch), candidate = native_control[id * 4 + ch],
-                           limited = base + (g < 0 ? 0 : capacity[g]) * (candidate - base);
-                    native_control[id * 4 + ch] = limited + completion_ray * (candidate - limited);
-                }
-                if (++build_lane == lh) {
-                    build_lane = 0;
-                    build_phase++;
-                }
-            } else if (build_phase == 11) {
-                admit_cells(p, ch, 3);
-                if (++build_lane == sh - 1) {
-                    build_lane = 0;
-                    channel_minimum = 1e300;
-                    build_phase = ++build_channel == 4 ? 12 : 7;
-                }
-            }
-        }
-        if (build_phase == 12) {
-            return 1;
-        }
-        return 0;
-    }
-};
-} // namespace
-
 void ConvWarpField::compile(const Image& source, const std::atomic<bool>* cancelled) {
     if (source.width < 1 || source.height < 1 || source.width > 32768 || source.height > 32768 ||
         source.pixels.size() != static_cast<std::size_t>(source.width) * source.height) {
@@ -889,67 +34,76 @@ void ConvWarpField::compile(const Image& source, const std::atomic<bool>* cancel
         const double alpha = first.a / 255.0;
         constant_value_ = {first.r / 255.0 * alpha, first.g / 255.0 * alpha, first.b / 255.0 * alpha, alpha};
         constant_ = true;
-        controls_ = {};
-        controls_.shrink_to_fit();
+        surface_.clear();
         width_ = source.width;
         height_ = source.height;
-        lattice_width_ = 0;
         return;
+    }
+    // A one-pixel axis is repeated: the surface across it is then constant
+    // and along the other axis it is that line's CONV curve.
+    CanvasSurface surface;
+    if (source.width == 1 || source.height == 1) {
+        Image padded;
+        padded.reset(std::max(2, source.width), std::max(2, source.height));
+        for (int y = 0; y < padded.height; ++y) {
+            for (int x = 0; x < padded.width; ++x) {
+                padded.set(x, y, source.get(std::min(x, source.width - 1), std::min(y, source.height - 1)));
+            }
+        }
+        surface.build(padded);
+    } else {
+        surface.build(source);
     }
     if (cancelled && (*cancelled).load(std::memory_order_relaxed)) {
         throw std::runtime_error("CONV preparation superseded.");
     }
-    AtlasBuilder builder(source);
-    while (builder.build_phase < 12) {
-        if (cancelled && (*cancelled).load(std::memory_order_relaxed)) {
-            throw std::runtime_error("CONV preparation superseded.");
-        }
-        int status = builder.build_native_step(64);
-        if (status < 0) {
-            throw std::runtime_error("CONV signed-current projection failed.");
-        }
-    }
-    controls_.swap(builder.native_control);
+    surface_ = std::move(surface);
     constant_ = false;
     width_ = source.width;
     height_ = source.height;
-    lattice_width_ = builder.lw;
 }
 std::size_t ConvWarpField::storage_bytes() const {
-    std::size_t bytes = controls_.size() * sizeof(double);
-    return bytes;
+    if (constant_ || !surface_.ready()) {
+        return 0;
+    }
+    // The surface's cells (seven doubles a channel) and premultiplied pixels.
+    const std::size_t pixels = static_cast<std::size_t>(surface_.width()) * surface_.height();
+    return pixels * (4 * 7 * sizeof(double) + 4 * sizeof(double));
 }
 WarpSample ConvWarpField::sample_components(Point position) const {
     WarpSample sample;
     if (!std::isfinite(position.x) || !std::isfinite(position.y) || position.x < -0.5 || position.y < -0.5 ||
-        position.x >= width_ - 0.5 || position.y >= height_ - 0.5 || (!constant_ && controls_.empty())) {
+        position.x >= width_ - 0.5 || position.y >= height_ - 0.5 || (!constant_ && !surface_.ready())) {
         return sample;
     }
     if (constant_) {
         return constant_value_;
     }
-    double x = std::clamp(position.x, 0.0, static_cast<double>(width_ - 1));
-    double y = std::clamp(position.y, 0.0, static_cast<double>(height_ - 1));
-    int cx = std::min(static_cast<int>(x), std::max(0, width_ - 2));
-    int cy = std::min(static_cast<int>(y), std::max(0, height_ - 2));
-    double bx[6] = {}, by[6] = {};
-    bernstein(x - cx, bx);
-    bernstein(y - cy, by);
-    double values[4] = {};
-    for (int j = 0; j < 6; ++j) {
-        double row[4] = {};
-        for (int i = 0; i < 6; ++i) {
-            std::size_t offset = (static_cast<std::size_t>(cy * 5 + j) * lattice_width_ + cx * 5 + i) * 4;
-            for (int c = 0; c < 4; ++c) {
-                row[c] += bx[i] * controls_[offset + c];
-            }
-        }
-        for (int c = 0; c < 4; ++c) {
-            values[c] += by[j] * row[c];
-        }
-    }
-    sample = {values[0], values[1], values[2], values[3]};
+    // On a one-pixel axis every position is that pixel's centre.
+    const Point at{width_ == 1 ? 0.0 : position.x, height_ == 1 ? 0.0 : position.y};
+    sample = surface_.sample_components(at);
     return sample;
+}
+WarpSample ConvWarpField::integrate_cell_polygon(std::span<const Point> polygon) const {
+    WarpSample total;
+    if (polygon.size() < 3) {
+        return total;
+    }
+    if (constant_) {
+        double twice_area = 0.0;
+        for (std::size_t i = 0; i < polygon.size(); ++i) {
+            const Point a = polygon[i], b = polygon[(i + 1) % polygon.size()];
+            twice_area += a.x * b.y - a.y * b.x;
+        }
+        const double area = 0.5 * std::abs(twice_area);
+        total = {constant_value_.r * area, constant_value_.g * area, constant_value_.b * area,
+                 constant_value_.a * area};
+        return total;
+    }
+    // A one-pixel axis was repeated: the surface is constant across it, so
+    // the polygon's place across it does not matter.
+    total = surface_.integrate_cell_polygon(polygon);
+    return total;
 }
 WarpSample ConvWarpField::sample_premultiplied(Point position) const {
     WarpSample value = sample_components(position);
@@ -1103,14 +257,10 @@ static WarpSample integrate_footprint(const ConvWarpField& field, const Footprin
     const int first_y = static_cast<int>(std::floor(std::max(-0.5, top)));
     const int last_x = static_cast<int>(std::floor(std::min(field.width() - 0.5, right)));
     const int last_y = static_cast<int>(std::floor(std::min(field.height() - 0.5, bottom)));
-    // Six-point Gauss-Legendre on each Duffy coordinate integrates a tensor
-    // quintic on a triangle exactly in real arithmetic (including its Jacobian).
-    // Physical RGBA projection within a patch is piecewise polynomial; that
-    // projection retains positive quadrature and is not claimed algebraically exact.
-    constexpr double nodes[6] = {0.033765242898423975, 0.16939530676686774, 0.38069040695840156,
-                                 0.61930959304159844,  0.83060469323313226, 0.96623475710157603};
-    constexpr double weights[6] = {0.08566224618958517, 0.1803807865240693, 0.23395696728634552,
-                                   0.23395696728634552, 0.1803807865240693, 0.08566224618958517};
+    // Each piece of the footprint inside one evaluation cell is integrated by
+    // the surface (CanvasSurface::integrate_cell_polygon): exact before
+    // projection while the admission keeps its branch, with each value
+    // projected to physical RGBA before it is integrated otherwise.
     for (int y = first_y; y <= last_y; ++y) {
         FootprintPolygon row = clip_footprint(footprint, 1, std::max(-0.5, static_cast<double>(y)), true);
         row = clip_footprint(row, 1, std::min(field.height() - 0.5, y + 1.0), false);
@@ -1120,22 +270,13 @@ static WarpSample integrate_footprint(const ConvWarpField& field, const Footprin
         for (int x = first_x; x <= last_x; ++x) {
             FootprintPolygon cell = clip_footprint(row, 0, std::max(-0.5, static_cast<double>(x)), true);
             cell = clip_footprint(cell, 0, std::min(field.width() - 0.5, x + 1.0), false);
-            for (int triangle = 1; triangle + 1 < cell.count; ++triangle) {
-                const Point a = cell.points[0], b = cell.points[triangle], c = cell.points[triangle + 1];
-                const double determinant = std::abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
-                if (determinant < 1e-24) {
-                    continue;
-                }
-                for (int j = 0; j < 6; ++j) {
-                    for (int i = 0; i < 6; ++i) {
-                        const double u = nodes[i], v = (1 - u) * nodes[j];
-                        const Point point{a.x + u * (b.x - a.x) + v * (c.x - a.x),
-                                          a.y + u * (b.y - a.y) + v * (c.y - a.y)};
-                        add_weighted(total, field.sample_premultiplied(point),
-                                     density * determinant * (1 - u) * weights[i] * weights[j]);
-                    }
-                }
+            if (cell.count < 3) {
+                continue;
             }
+            add_weighted(total,
+                         field.integrate_cell_polygon(
+                             std::span<const Point>(cell.points.data(), static_cast<std::size_t>(cell.count))),
+                         density);
         }
     }
     return total;

@@ -176,7 +176,22 @@ def main():
     architecture = run(["uname", "-m"])
     package_name = "plan-paint"
     package = distribution / f"{package_name}-{args.version}-macos-{architecture}.pkg"
-    run(["pkgbuild", "--component", str(app), "--install-location", "/Applications", "--identifier", "com.malkuthsoft.planpaint", "--version", args.version, "--compression", "latest", "--min-os-version", plist["LSMinimumSystemVersion"], str(package)])
+    # The bundle is not relocatable: pkgbuild's default lets Installer replace any
+    # copy with the same identifier wherever it is (a build folder, Downloads)
+    # instead of installing into /Applications, as 1.2.270 did.
+    staging = distribution / "pkg-root"
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir()
+    shutil.copytree(app, staging / app.name, symlinks=True)
+    components = distribution / "pkg-components.plist"
+    run(["pkgbuild", "--analyze", "--root", str(staging), str(components)])
+    records = plistlib.loads(components.read_bytes())
+    for record in records:
+        record["BundleIsRelocatable"] = False
+    components.write_bytes(plistlib.dumps(records))
+    run(["pkgbuild", "--root", str(staging), "--component-plist", str(components), "--install-location", "/Applications", "--identifier", "com.malkuthsoft.planpaint", "--version", args.version, "--compression", "latest", "--min-os-version", plist["LSMinimumSystemVersion"], str(package)])
+    shutil.rmtree(staging)
+    components.unlink()
     (distribution / "macos-bundle-receipt.json").write_text(json.dumps({"package": package.name, "architecture": architecture, "dependencies": bundled, "signature": "ad-hoc; not Developer ID notarized"}, indent=2) + "\n")
     print(package)
 

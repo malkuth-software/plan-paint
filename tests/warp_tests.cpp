@@ -1,4 +1,5 @@
 #include "warp.hpp"
+#include <stx_conv/surface.hpp>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -6,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 namespace {
 void require(bool value, const char* message) {
     if (!value) {
@@ -84,6 +86,19 @@ void test_identity_and_alpha() {
     image.reset(1, 2, {7, 80, 230, 128});
     field.compile(image);
     require(paint::equal(field.sample({0, 1}), image.get(0, 1)), "tiny image extension failed");
+    // A one-pixel-wide material is its column's CONV line, constant across.
+    paint::Image line;
+    line.reset(1, 6);
+    for (int y = 0; y < 6; ++y) {
+        line.set(0, y, {static_cast<std::uint8_t>(y * 40), 20, static_cast<std::uint8_t>(250 - y * y * 7), 255});
+    }
+    field.compile(line);
+    for (int y = 0; y < 6; ++y) {
+        require(paint::equal(field.sample({0.3, static_cast<double>(y)}), line.get(0, y)),
+                "a one-pixel-wide material lost its pixels");
+    }
+    require(paint::equal(field.sample({-0.4, 2.5}), field.sample({0.4, 2.5})),
+            "a one-pixel-wide material varies across");
 }
 void test_mesh() {
     paint::Image image;
@@ -122,10 +137,11 @@ void test_mesh() {
     }
     require(rejected, "crossing lasso accepted");
 }
-void test_canonical_reference() {
-    // Independent Python finite_joint_control_nets/evaluate_joint_atlas receipt,
-    // 7x8 mixed affine/wrapped/curved-edge input. Reference proposal stores FP32;
-    // native keeps doubles, so this comparison admits that storage discrepancy.
+// The field is stx_conv's tensor surface (paper closure, no bubble)
+// through the premultiplied pixels: its raw samples are stx_conv's, bit for
+// bit, on this 7x8 mixed affine/wrapped/curved-edge input; the surface is
+// continuous across cells; projected samples stay in the colour domain.
+void test_surface_reference() {
     paint::Image image;
     image.reset(8, 7);
     for (int y = 0; y < 7; ++y) {
@@ -138,32 +154,44 @@ void test_canonical_reference() {
     }
     paint::ConvWarpField field;
     field.compile(image);
+    std::vector<double> nodes(image.pixels.size() * 4);
+    for (std::size_t i = 0; i < image.pixels.size(); ++i) {
+        const double alpha = image.pixels[i].a / 255.0;
+        nodes[i * 4] = image.pixels[i].r / 255.0 * alpha;
+        nodes[i * 4 + 1] = image.pixels[i].g / 255.0 * alpha;
+        nodes[i * 4 + 2] = image.pixels[i].b / 255.0 * alpha;
+        nodes[i * 4 + 3] = alpha;
+    }
+    stx_conv::surface::SurfaceShape shape;
+    shape.nodes_u = 8;
+    shape.nodes_v = 7;
+    shape.channels = 4;
+    shape.closure = stx_conv::surface::Closure::paper;
+    shape.bubble = stx_conv::surface::Bubble::none;
+    stx_conv::surface::Surface reference(shape);
+    require(reference.compile(nodes, {}, {}) == stx_conv::Status::ok, "stx_conv surface compile failed");
     double positions[6][2] = {{.13, .31}, {1.7, 2.1}, {2.3, 3.7}, {4.14, 1.16}, {5.9, 4.1}, {6.7, 5.6}};
-    double expected[6][3] = {{.036470588235294116, .07003921568627453, 0},
-                             {.3466666666666666, .5096967046420239, 1},
-                             {.5262138414719475, .9393932445801931, 1},
-                             {.580632620635306, .4187344480119232, .9196900484410252},
-                             {.9499470468430964, .08457244260906291, .07392009691925135},
-                             {.10271603622105065, .44901960784313716, 0}};
     for (int i = 0; i < 6; ++i) {
+        double values[4] = {};
+        require(reference.evaluate(positions[i][0], positions[i][1], values) == stx_conv::Status::ok,
+                "stx_conv surface evaluation failed");
         paint::WarpSample sample = field.sample_components({positions[i][0], positions[i][1]});
-        near(sample.r, expected[i][0], 2.0e-5, "canonical red reference mismatch");
-        near(sample.g, expected[i][1], 2.0e-5, "canonical green reference mismatch");
-        near(sample.b, expected[i][2], 2.0e-5, "canonical blue reference mismatch");
+        require(sample.r == values[0] && sample.g == values[1] && sample.b == values[2] && sample.a == values[3],
+                "field differs from stx_conv's surface");
     }
     for (int y = 0; y < 6; ++y) {
         for (int x = 1; x < 7; ++x) {
             paint::WarpSample left = field.sample_components({x - 1.0e-9, y + 0.37});
             paint::WarpSample right = field.sample_components({x + 1.0e-9, y + 0.37});
-            near(left.r, right.r, 1.0e-7, "shared atlas edge discontinuity");
+            near(left.r, right.r, 1.0e-7, "surface discontinuous across a cell edge");
         }
     }
     for (double y = 0; y <= 6; y += .19) {
         for (double x = 0; x <= 7; x += .17) {
-            paint::WarpSample sample = field.sample_components({x, y});
-            require(sample.r >= -1e-12 && sample.r <= 1 + 1e-12 && sample.g >= -1e-12 &&
-                        sample.g <= 1 + 1e-12 && sample.b >= -1e-12 && sample.b <= 1 + 1e-12,
-                    "atlas range violation");
+            paint::WarpSample sample = field.sample_premultiplied({x, y});
+            require(sample.a >= 0 && sample.a <= 1 && sample.r >= 0 && sample.r <= sample.a && sample.g >= 0 &&
+                        sample.g <= sample.a && sample.b >= 0 && sample.b <= sample.a,
+                    "projected sample left the colour domain");
         }
     }
 }
@@ -415,13 +443,13 @@ int main(int argc, char** argv) {
         test_constant_and_affine();
         test_identity_and_alpha();
         test_mesh();
-        test_canonical_reference();
+        test_surface_reference();
         test_admitted_edge_and_mesh_area();
         test_physical_alpha_before_filtering();
         test_sampling_continuity_and_equivalent_maps();
         test_reused_affine_workers();
-        std::cout << "CONV warp constants, affine fields, cardinality, alpha, tiny images, mesh identity, "
-                     "folds and lasso tests passed.\n";
+        std::cout << "CONV warp constants, stx_conv surface reference, affine fields, cardinality, alpha, tiny "
+                     "images, mesh identity, folds and lasso tests passed.\n";
         if (argc > 1) {
             benchmark(std::stoi(argv[1]));
         }

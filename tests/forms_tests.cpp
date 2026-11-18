@@ -2476,6 +2476,22 @@ void icon_palette_contracts() {
     }
     require(bounds_of(window, "atlas-frames").width >= 220,
             "minimum-width Atlas retains room for two representation thumbnails");
+    // The owner: Dismiss reference covered Gallery and Compare, leaving a
+    // sliver of Compare to click. No two Atlas controls overlap.
+    const char* placed[] = {"atlas-grid",     "atlas-icons",     "atlas-cursors",       "atlas-whole",
+                            "atlas-leave",    "atlas-previous",  "atlas-next",          "atlas-hotspot",
+                            "atlas-gallery",  "atlas-compare",   "atlas-export",        "atlas-alpha-tools",
+                            "atlas-palette",  "atlas-states",    "atlas-wrap",          "atlas-alpha",
+                            "atlas-reference-clear", "atlas-frames", "atlas-status"};
+    for (const char* first : placed) {
+        for (const char* second : placed) {
+            if (std::string_view(first) >= std::string_view(second)) {
+                continue;
+            }
+            const gf::Rect overlap = gf::Rect::intersection(bounds_of(window, first), bounds_of(window, second));
+            require(overlap.empty(), "no two Atlas controls overlap");
+        }
+    }
     routed_button(window, "atlas-palette");
     window.perform_layout();
     const gf::Rect close = bounds_of(window, "dialog-cancel");
@@ -3819,8 +3835,13 @@ class PreviewPainter final : public gf::Painter {
     }
     // The tiled images (the canvas surround).
     std::vector<gf::ImageId> patterned_images;
-    void fill_image_pattern(gf::ImageId id, gf::Size, gf::Rect, gf::Size, gf::ImagePatternWrap, double) override {
+    std::vector<gf::Rect> pattern_bounds;
+    std::vector<gf::Size> pattern_tiles;
+    void fill_image_pattern(gf::ImageId id, gf::Size, gf::Rect bounds, gf::Size tile, gf::ImagePatternWrap,
+                            double) override {
         patterned_images.push_back(id);
+        pattern_bounds.push_back(bounds);
+        pattern_tiles.push_back(tile);
     }
 };
 void live_canvas_damage_opacity_and_reuse() {
@@ -5752,6 +5773,44 @@ void drain_canvas_work(Fixture& fixture) {
 // A change of setting renders the tile on a worker; paint never loads or
 // replaces an image and shows the material's plain colour until the worker
 // delivers, which replaces the image outside paint.
+// The owner: turning the view or zooming with the window's zoom controls
+// moved the surround, which lies under the sheet and should stay still. Its
+// tiles keep their place through a turn and a zoom and follow a pan.
+double surround_phase(paint::forms::Editor& editor, double& tile) {
+    PreviewPainter painter;
+    editor.canvas().on_paint(painter, editor.canvas().client_rectangle());
+    require(!painter.pattern_bounds.empty(), "the surround draws its tile");
+    tile = painter.pattern_tiles.back().width;
+    const double x = painter.pattern_bounds.back().x, y = painter.pattern_bounds.back().y;
+    const double phase_x = x - tile * std::floor(x / tile), phase_y = y - tile * std::floor(y / tile);
+    return phase_x * 4096 + phase_y;
+}
+void surround_stays_under_turns_and_zooms() {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::Window& window = *fixture.window;
+    window.perform_layout();
+    editor.settings.rotate_view = true;
+    editor.settings.canvas_backing = paint::CanvasBacking::PaleFelt;
+    editor.canvas().request_backing();
+    const gf::FrameTime deadline = gf::FrameClock::now() + std::chrono::seconds(60);
+    while (!editor.canvas().backing_ready()) {
+        static_cast<void>(window.drain_posted_work());
+        require(gf::FrameClock::now() < deadline, "the surround's worker delivers its tile");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    double tile = 0;
+    const double resting = surround_phase(editor, tile);
+    editor.rotate_view(0.4);
+    require(surround_phase(editor, tile) == resting, "turning the view leaves the surround still");
+    editor.canvas().set_zoom(editor.canvas().zoom.read() * 1.5);
+    require(surround_phase(editor, tile) == resting, "zooming leaves the surround still");
+    editor.rotate_view(0);
+    require(surround_phase(editor, tile) == resting, "turning back leaves the surround still");
+    const gui_drawing::PointF origin = editor.canvas().view_origin.read();
+    editor.canvas().set_view_origin({origin.x + 7 / editor.canvas().zoom.read(), origin.y});
+    require(surround_phase(editor, tile) != resting, "a pan moves the surround with the sheet");
+}
 void backing_change_renders_off_paint() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
@@ -5862,6 +5921,84 @@ void rotated_pan_shifts_the_frame_and_damages_the_handle() {
     }
     (*framebuffer).end();
 }
+// The owner: a turned view showed its CONV resampling only after a pause,
+// and panning a turned canvas by fractions of a unit (points on a scaled
+// display, a trackpad) rendered the whole frame on every step. The first
+// turn prepares the CONV field at once. A fractional pan shifts the frame by
+// the nearest whole units and draws it offset by the rest; at rest an exact
+// render replaces it, equal to a whole render at the view's origin.
+void rotated_view_prepares_at_once_and_pans_by_fractions() {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::Window& window = *fixture.window;
+    const gf::OffscreenAttachment attachment(test_raster(), window);
+    editor.settings.rotate_view = true;
+    editor.document.image.set(35, 35, {20, 70, 110, 255});
+    const std::uint64_t preparations = editor.canvas().work_statistics().view_preparations;
+    editor.rotate_view(0.35);
+    require(editor.canvas().work_statistics().view_preparations == preparations + 1,
+            "the first turn prepares the CONV field at once");
+    editor.canvas().set_view(1, {-40, -30});
+    settle_rotated_frame(fixture);
+    const paint::forms::CanvasWorkStatistics before = editor.canvas().work_statistics();
+    editor.canvas().set_view_origin({-38.5, -31.25});
+    static_cast<void>(window.poll_frame_schedule(gf::FrameClock::now() + std::chrono::milliseconds(20)));
+    const paint::forms::CanvasWorkStatistics moved = editor.canvas().work_statistics();
+    require(moved.view_renders == before.view_renders && moved.view_shifts == before.view_shifts + 1,
+            "a fractional pan of a turned view shifts the frame instead of rendering it again");
+    require(editor.canvas().view_busy(), "a frame left a fraction of a unit from the view awaits its rest render");
+    drain_canvas_work(fixture);
+    require(editor.canvas().work_statistics().view_renders == moved.view_renders + 1 && !editor.canvas().view_busy(),
+            "at rest one exact render replaces the shifted frame");
+    const std::span<const std::byte> kept = editor.canvas().rendered_view_pixels();
+    const std::vector<std::byte> rested(kept.begin(), kept.end());
+    editor.canvas().set_view(2, {-38.5, -31.25});
+    settle_rotated_frame(fixture);
+    editor.canvas().set_view(1, {-38.5, -31.25});
+    settle_rotated_frame(fixture);
+    const std::span<const std::byte> whole = editor.canvas().rendered_view_pixels();
+    require(whole.size() == rested.size() && std::equal(whole.begin(), whole.end(), rested.begin()),
+            "the rest render equals a whole render at the view's origin");
+}
+// The owner: the CONV view came back seconds after a stroke, which
+// recompiled the whole picture. The view's surface recompiles only the cells
+// an edit reads and the next frame resamples only the view over the edit;
+// that frame equals a whole render of the edited picture.
+void rotated_view_edit_resamples_locally() {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    gf::Window& window = *fixture.window;
+    const gf::OffscreenAttachment attachment(test_raster(), window);
+    editor.settings.rotate_view = true;
+    editor.rotate_view(0.35);
+    editor.canvas().set_view(2, {-20, -10});
+    settle_rotated_frame(fixture);
+    const paint::forms::CanvasWorkStatistics before = editor.canvas().work_statistics();
+    fixture.drag(40, 30, 46, 32);
+    settle_rotated_frame(fixture);
+    const paint::forms::CanvasWorkStatistics after = editor.canvas().work_statistics();
+    const gf::Rect viewport = editor.canvas().client_rectangle();
+    const double frame = std::ceil(viewport.width) * std::ceil(viewport.height);
+    int inked = 0;
+    for (const paint::Color color : editor.document.image.pixels) {
+        inked += white(color) ? 0 : 1;
+    }
+    require(inked > 0, "the stroke drew");
+    require(after.view_preparations == before.view_preparations && after.view_renders == before.view_renders,
+            "an edit neither rebuilds the surface nor renders the whole frame");
+    const std::uint64_t resampled = after.view_resampled_pixels - before.view_resampled_pixels;
+    require(resampled > 0 && static_cast<double>(resampled) < frame / 20,
+            "an edit resamples only the view over it");
+    const std::span<const std::byte> kept = editor.canvas().rendered_view_pixels();
+    const std::vector<std::byte> edited(kept.begin(), kept.end());
+    editor.canvas().set_view(4, {-20, -10});
+    settle_rotated_frame(fixture);
+    editor.canvas().set_view(2, {-20, -10});
+    settle_rotated_frame(fixture);
+    const std::span<const std::byte> whole = editor.canvas().rendered_view_pixels();
+    require(whole.size() == edited.size() && std::equal(whole.begin(), whole.end(), edited.begin()),
+            "the edited frame equals a whole render of the edited picture");
+}
 void canvas_work_is_coalesced_and_stamp_is_cached() {
     Fixture fixture;
     paint::forms::Editor& editor = *fixture.editor;
@@ -5890,8 +6027,8 @@ void canvas_work_is_coalesced_and_stamp_is_cached() {
             "moving stroke does not repeatedly prepare obsolete source images");
     fixture.pointer(gf::PointerAction::up, 99, 48.7);
     drain_canvas_work(fixture);
-    require(editor.canvas().work_statistics().view_preparations == preparations + 1,
-            "release prepares the latest completed stroke exactly once");
+    require(editor.canvas().work_statistics().view_preparations == preparations,
+            "a stroke recompiles only its own cells: no whole CONV surface is prepared on release");
     require(!white(editor.document.image.get(99, 48)), "batched rendering preserves the stroke endpoint");
     editor.choose_tool(paint::Tool::Stamp);
     fixture.click(35, 35);
@@ -5922,7 +6059,7 @@ void canvas_work_is_coalesced_and_stamp_is_cached() {
                 editor.canvas().work_statistics().view_renders == idle.view_renders &&
                 editor.canvas().work_statistics().stamp_renders == idle.stamp_renders,
             "settled canvas and stamp leave no recurring work timer");
-    std::cout << "Canvas work: 120 rotations -> 1 render; 80 stroke moves -> 1 preparation; "
+    std::cout << "Canvas work: 120 rotations -> 1 render; 80 stroke moves -> no whole preparation; "
                  "stamp reuse and idle-work checks passed.\n";
 }
 void interface_colors_and_spacing() {
@@ -7284,6 +7421,9 @@ int main(int argc, char** argv) {
         rotated_frames_use_published_images();
         canvas_work_is_coalesced_and_stamp_is_cached();
         rotated_pan_shifts_the_frame_and_damages_the_handle();
+        rotated_view_prepares_at_once_and_pans_by_fractions();
+        rotated_view_edit_resamples_locally();
+        surround_stays_under_turns_and_zooms();
         backing_change_renders_off_paint();
         persistent_selection_painting();
         selection_holes_flood_and_floating_paste();

@@ -1,8 +1,10 @@
 #pragma once
+#include "canvas_surface.hpp"
 #include "image.hpp"
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <span>
 #include <vector>
 
 namespace paint {
@@ -11,13 +13,12 @@ struct AffineMap {
     double xx = 1.0, xy = 0.0, tx = 0.0;
     double yx = 0.0, yy = 1.0, ty = 0.0;
 };
-struct WarpSample {
-    double r = 0.0, g = 0.0, b = 0.0, a = 0.0;
-};
 
-// Owns an immutable double-precision, shared tensor-quintic CONV* atlas.
-// Compilation allocates ~800 bytes/source pixel plus temporary work storage.
-// Inputs are capped at 1,048,576 padded source pixels before allocation.
+// The CONV field of a transform's material: stx_conv's tensor surface
+// through its pixels (CanvasSurface: five admitted currents per pixel cell of
+// every row, each sample read from the 8 by 8 pixels around it). About 256
+// bytes a pixel; up to 4 megapixels. A constant material is held as its one
+// colour; a material one pixel wide or high is its line, constant across.
 // Compile once per selected material; reuse for every rotation/mesh preview.
 // compile() prepares a replacement before publishing; old state survives failure.
 class ConvWarpField {
@@ -29,6 +30,10 @@ class ConvWarpField {
     // Physical premultiplied RGBA: 0 <= RGB <= alpha <= 1, projected before filtering.
     [[nodiscard]] WarpSample sample_premultiplied(Point source_position) const;
     [[nodiscard]] Color sample(Point source_position) const;
+    // The integral of sample_premultiplied over a convex polygon (at most
+    // twelve vertices) inside one evaluation cell; see
+    // CanvasSurface::integrate_cell_polygon.
+    [[nodiscard]] WarpSample integrate_cell_polygon(std::span<const Point> polygon) const;
     [[nodiscard]] int width() const {
         return width_;
     }
@@ -38,8 +43,9 @@ class ConvWarpField {
     [[nodiscard]] std::size_t storage_bytes() const;
 
   private:
-    int width_ = 0, height_ = 0, lattice_width_ = 0;
-    std::vector<double> controls_;
+    int width_ = 0, height_ = 0;
+    // The material's surface; a one-pixel axis is repeated to two pixels.
+    CanvasSurface surface_;
     bool constant_ = false;
     WarpSample constant_value_;
 };

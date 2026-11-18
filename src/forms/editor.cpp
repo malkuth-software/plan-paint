@@ -103,9 +103,6 @@ void PaintCanvas::handle_pointer(gf::PointerEvent& event) {
         return;
     }
     (*editor).pointer(event);
-    if (event.action == gf::PointerAction::up) {
-        settle_view();
-    }
     prepare_display();
     (*editor).prepare_stamp_view();
     event.handled = event.action == gf::PointerAction::down || event.action == gf::PointerAction::up ||

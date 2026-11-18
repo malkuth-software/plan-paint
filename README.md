@@ -91,9 +91,9 @@ See [Spirograph](docs/SPIROGRAPH.md), [custom patterns](docs/CUSTOM_PATTERNS.md)
 - Arrow keys pan; Shift pans farther. Alt+arrows retain selection nudging and atlas navigation. The hand-held color picker sets Primary or Alt on click and pans when dragged.
 - The Eraser icon contains its operation menu; the Eraser tab retains effect controls. Custom size follows 64 px in the size menu, accepts 1–1024 px, and is also available from the status bar.
 - Prepared transform previews use CONV point synthesis; committed affine and mesh transforms integrate destination pixel areas. Resizing integrates each changed axis while preserving unchanged dimensions.
-- Rotated-view images publish before native painting to prevent flashing. View updates are batched, CONV preparation waits for release or a short pause, workers are reused, and stamp preparation survives repeated placement.
+- Rotated-view images publish before native painting to prevent flashing. View updates are batched, workers are reused, and stamp preparation survives repeated placement.
 
-The optional rotated view still uses a large CONV preparation cache. Nonconstant sources above its one-million-pixel limit, and images awaiting preparation, use direct pixel feedback. The original canvas pixels are never replaced by the rotated view.
+The optional rotated view samples stx_conv's CONV surface (without the bubble refinement): five admitted currents per pixel cell of every row, with each sample computed from the 8 by 8 pixels around it. An edit recompiles only the cells that read a changed pixel, and the view updates only near the edit, so the rotated view follows strokes at once. The surface holds about 256 bytes a pixel; pictures above four megapixels, and pictures under 2 by 2 pixels, show direct pixel samples. The original canvas pixels are never replaced by the rotated view.
 
 ## New in 0.3.5
 
@@ -188,7 +188,7 @@ Atlas uses flat canvases with a maximum of 4096 grid cells. Filename tokens such
 
 ### Transform limits
 
-Free rotation, transformed stamps and reshape use a continuous CONV field compiled from the original selection. Rotation and selection resizing follow the pointer immediately using a display-only preview; releasing commits the CONV result from the original pixels. Field preparation runs in the background and may take a few seconds. A source selection is limited to one million pixels because the double-precision field requires substantial memory. Unchanged stamps are ready immediately without preparing a transform. Normal editing supports up to 100 megapixels, subject to available memory; undo history is bounded to approximately 256 MiB.
+Free rotation, transformed stamps and reshape use a continuous CONV field compiled from the original selection. Rotation and selection resizing follow the pointer immediately using a display-only preview; releasing commits the CONV result from the original pixels. The field is the same CONV surface the rotated view samples; it is prepared in the background, in well under a second for a megapixel. A source selection is limited to four megapixels because the double-precision surface holds about 256 bytes a pixel. Unchanged stamps are ready immediately without preparing a transform. Normal editing supports up to 100 megapixels, subject to available memory; undo history is bounded to approximately 256 MiB.
 
 Reshape uses a triangle mesh and rejects folds. Final antialiasing uses bounded numerical sampling; very strong reductions and very thin features can still alias. The implementation follows the [CONV research](https://github.com/falseywinchnet/papers_please/blob/main/conv_paper_composed.tex).
 
