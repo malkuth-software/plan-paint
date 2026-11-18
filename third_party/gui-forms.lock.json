@@ -3,5 +3,22 @@
   "repository": "malkuth-software/gui_forms",
   "commit": "0ebb04d6577f5cfbf1f0cd8e171fca376431ed44",
   "compiler": "22.1.8",
-  "caches": {}
+  "caches": {
+    "linux-arm64": {
+      "asset": "gui-forms-cache-linux-arm64.tar.gz",
+      "sha256": "fed34c9ab6525e8edb0975d0f1023d3dbc88d2faf9bce541c3651a61794553c8"
+    },
+    "linux-x64": {
+      "asset": "gui-forms-cache-linux-x64.tar.gz",
+      "sha256": "293a26fc4e59942f572cfe183fdcec89fef58442032baa6a7650f58f3310eb59"
+    },
+    "macos-arm64": {
+      "asset": "gui-forms-cache-macos-arm64.tar.gz",
+      "sha256": "2bc991a700af71f2d1ca9a2b167f1aa2c7d6f11375514c5b96040fabd034aeac"
+    },
+    "windows-x64": {
+      "asset": "gui-forms-cache-windows-x64.tar.gz",
+      "sha256": "aa78b746f3ddb8a01a8b9046361de87c925c48a92b2a1399eb4f7f61796d9c71"
+    }
+  }
 }

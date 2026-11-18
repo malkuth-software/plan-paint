@@ -200,7 +200,14 @@ jobs:
         with:
           path: .ccache
           key: plan-paint-objects-v1-${{ matrix.platform }}-${{ steps.compiler.outputs.identity }}-${{ github.sha }}
-          restore-keys: plan-paint-objects-v1-${{ matrix.platform }}-${{ steps.compiler.outputs.identity }}-
+          # Then any compiler identity: the identity names the runner image
+          # (ImageVersion), which GitHub rolls between runs, and ccache checks
+          # each object against the compiler's content and the command itself
+          # (CCACHE_COMPILERCHECK=content), so an older image's entry is reused
+          # safely or simply misses.
+          restore-keys: |
+            plan-paint-objects-v1-${{ matrix.platform }}-${{ steps.compiler.outputs.identity }}-
+            plan-paint-objects-v1-${{ matrix.platform }}-
       - name: Import verified toolkit compiler cache and macOS runtime
         env:
           GH_TOKEN: ${{ github.token }}
