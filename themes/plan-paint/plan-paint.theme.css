@@ -119,6 +119,18 @@ ribbon::part(command-plane) {
   box-shadow: inset 0 -1px 0 rgba(245, 251, 255, 0.82);
 }
 
+/* The groups' dividers are a soft fold (owner, 2026-11-17): the engine's
+   etched divider, a blue-grey shade line and a white light line beside it,
+   both fading in over the first sixth of the plane and out over the last.
+   Two units wide (the ribbon reserves the divider's min-width, GUI.Forms
+   after #483), so each line is one unit on whole device pixels. */
+ribbon::part(group-divider) {
+  primitive: etched-divider;
+  min-width: 2px;
+  shade-line: rgba(45, 82, 136, 0.55);
+  light-line: rgba(255, 255, 255, 0.85);
+}
+
 /* The look integration's tab-row metrics and tab capabilities (GUI.Forms
    claude/look-integration): Plan Paint's 27-unit rail, and a plane exactly
    as tall as the ribbon's three command rows and the group captions

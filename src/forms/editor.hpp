@@ -21,6 +21,7 @@
 #include "spirograph.hpp"
 #include "text_session.hpp"
 #include "warp_session.hpp"
+#include "canvas_surface.hpp"
 #include <gui_forms/application.hpp>
 #include <gui_forms/basic_controls.hpp>
 #include <gui_forms/canvas.hpp>
@@ -34,7 +35,12 @@ namespace paint::forms {
 class Editor;
 struct BackingRenderJob;
 struct CanvasWorkStatistics {
+    // view_preparations: whole CONV surfaces built for the rotated view (a
+    // new or resized picture); an edit recompiles only its own cells.
     std::uint64_t view_preparations = 0, view_renders = 0, stamp_preparations = 0, stamp_renders = 0;
+    // Rotated-view frame pixels whose CONV sample was evaluated (whole
+    // frames, pan bands and the view over an edit).
+    std::uint64_t view_resampled_pixels = 0;
     // Viewport conversions run, and the output pixels they wrote (a brush stroke converts its own few).
     std::uint64_t viewport_conversions = 0, viewport_converted_pixels = 0;
     // Rotated-view frames made by moving the kept pixels of the last frame
@@ -58,11 +64,8 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     // same size; an empty damage recomposes everything. The result is valid
     // until the next call.
     const Image& superimposed_source(const Image& source, Rect damage);
-    void poll_view();
     void prepare_display();
     void display_frame(gui_forms::FrameTime now);
-    void preparation_frame(gui_forms::FrameTime now);
-    void settle_view();
     const CanvasWorkStatistics& work_statistics() const noexcept {
         return work_statistics_;
     }
@@ -153,16 +156,27 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     void paint_display(gui_forms::Painter& painter);
     Image superimposed_view_;
     CanvasWorkStatistics work_statistics_;
-    gui_forms::FrameRequestToken display_request_, preparation_request_;
-    gui_forms::FrameTime next_display_{}, preparation_deadline_{};
-    void render_display();
-    // Fills the rotated view's pixels in the area {left, top, columns, rows}
-    // of the frame (inside rendered_size_), from the source at the current
-    // angle, zoom and origin; the rest of rotated_pixels_ is untouched.
-    void render_rotated_area(const Editor& editor, bool prepared, int left, int top, int columns, int rows);
-    // Moves rotated_pixels_ by (shift_x, shift_y) whole units, each smaller
-    // than the frame's side, and renders the bands the move exposed.
-    void shift_rotated_frame(const Editor& editor, bool prepared, int shift_x, int shift_y);
+    gui_forms::FrameRequestToken display_request_;
+    gui_forms::FrameTime next_display_{};
+    // The pending display request is the rest render after a pan by a
+    // fraction of a unit; a change of view replaces it with a frame.
+    bool settling_display_ = false;
+    // Renders the rotated frame for the current view; exact refuses a frame
+    // left a fraction of a unit from the view (the rest render).
+    void render_display(bool exact);
+    // Evaluates the CONV samples (view_samples_) of the frame area {left,
+    // top, columns, rows} (inside rendered_size_) at the current angle and
+    // zoom and the frame's origin (rendered_origin_).
+    void sample_rotated_area(int left, int top, int columns, int rows);
+    // Composites the area's samples over the transparency background (and
+    // the atlas context) into rotated_pixels_.
+    void composite_rotated_area(const Editor& editor, int left, int top, int columns, int rows);
+    // Moves rotated_pixels_ and view_samples_ by (shift_x, shift_y) whole
+    // units, each smaller than the frame's side, and renders the bands the
+    // move exposed; the caller has moved rendered_origin_ by as much.
+    void shift_rotated_frame(const Editor& editor, int shift_x, int shift_y);
+    // Builds view_surface_ through view_source_ (a new or resized picture).
+    void build_view_surface();
     // The bitmap's origin in client units as RasterCanvas places it (its
     // content offset): a pan's scroll copy moves the painted canvas by the
     // change of this point.
@@ -174,22 +188,35 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     std::weak_ptr<Editor> editor_;
     gui_forms::ImageId backing_, repeated_, reference_, rotated_;
     Image view_source_;
-    WarpWorker view_worker_;
-    std::shared_ptr<const ConvWarpField> view_field_;
-    std::uint64_t source_generation_ = 1, prepared_generation_ = 0, rendered_generation_ = 0,
-                  rendered_revision_ = 0;
+    // The CONV surface through view_source_: built whole for a new picture,
+    // its cells recompiled locally for an edit (publish_source).
+    CanvasSurface view_surface_;
+    // Counts whole builds of view_surface_; a frame rendered from another
+    // build is rendered whole.
+    std::uint64_t surface_build_ = 1, rendered_build_ = 0, rendered_revision_ = 0;
+    // Source pixels edited since the last frame (empty: none): the frame is
+    // resampled over them and four pixels around (the surface's reach).
+    Rect view_damage_;
+    // The frame's CONV samples (straight alpha, one per frame pixel), kept
+    // apart from the composited rotated_pixels_ so that a change of the
+    // canvas's other content composites again without resampling.
+    std::vector<Color> view_samples_;
     double rendered_angle_ = 0, rendered_zoom_ = 0;
     gui_drawing::PointF rendered_origin_;
     gui_forms::Size rendered_size_;
     // The rotated frame's pixels (owned here, reused frame to frame; its
     // length is rendered width * height * 4) and view_anchor() when they
-    // were rendered: paint_rotated draws the frame moved by the anchor's
-    // change since, which is what a scroll copy did to the painted canvas.
+    // were rendered, less the frame's residual offset from the view:
+    // paint_rotated draws the frame moved by the anchor's change since,
+    // which is what a scroll copy did to the painted canvas.
     std::vector<std::byte> rotated_pixels_;
     gui_forms::Point rendered_anchor_;
-    bool view_worker_initialized_ = false;
+    // The surround's tile origin in client units: it follows pans only, so
+    // turning or zooming the view leaves the surround still; and the view
+    // angle it was last placed for.
+    gui_forms::Point backing_anchor_;
+    double backing_angle_ = 0;
     void paint_rotated(gui_forms::Painter& painter, const Editor& editor);
-    void prepare_view(gui_forms::FrameTime now = gui_forms::FrameClock::now());
 
     CanvasBacking loaded_backing_ = CanvasBacking::Count;
     // The material the editor's settings choose (the pale felt detached).
