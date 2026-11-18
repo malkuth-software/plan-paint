@@ -256,7 +256,11 @@ endif()
 
 if(Python3_Interpreter_FOUND)
   if(RAINSTAR_TOOLKIT_SOURCE_DIR)
-    set(paint_package_toolkit "${RAINSTAR_TOOLKIT_SOURCE_DIR}")
+    # The packages read GUI.Forms' notices (and on Windows its fonts) from an
+    # installed SDK: since the text stack moved to STXlib the notices exist only
+    # as the install collects them. scripts/native-build.sh package installs the
+    # embedded toolkit here before building paint-package.
+    set(paint_package_toolkit "${CMAKE_BINARY_DIR}/gui-forms-sdk")
   else()
     get_filename_component(paint_package_toolkit "${GUIForms_FONT_DIR}/../../.." ABSOLUTE)
   endif()

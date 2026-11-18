@@ -60,6 +60,12 @@ case "$action" in
 esac
 case "$action" in
   package|all)
+    # GUI.Forms is an EXCLUDE_FROM_ALL subdirectory: build its own targets (its
+    # install set) and install it, for the notices the packages copy
+    # (cmake/GUIFormsFrontend.cmake, paint_package_toolkit).
+    cmake --build "$build" --target toolkit/all --parallel "$jobs"
+    rm -rf "$build/gui-forms-sdk"
+    cmake --install "$build/toolkit" --prefix "$build/gui-forms-sdk"
     cmake --build "$build" --target paint-package
 
     ;;

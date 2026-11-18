@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 project(PlanPaint VERSION 1.2.0 LANGUAGES C CXX)
+# Every shipped program imports only system DLLs (scripts/check_system_libraries.py):
+# link libc++, libunwind, compiler-rt and winpthreads statically, as GUI.Forms does
+# for its own programs (gui_forms/CMakeLists.txt, add_link_options(-static) under
+# MINGW, which reaches only GUI.Forms' own directory).
+if(MINGW)
+  add_link_options(-static)
+endif()
 set(PAINT_RELEASE_VERSION "${PROJECT_VERSION}" CACHE STRING "Tested publication version")
 if(NOT PAINT_RELEASE_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
   message(FATAL_ERROR "PAINT_RELEASE_VERSION must be numeric major.minor.patch")
