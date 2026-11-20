@@ -439,6 +439,8 @@
   "Sprite sheet grid": "精灵表网格",
   "Stabilizer": "笔触稳定器",
   "Stamp": "图章",
+  "Rapid CONV for axis-aligned scaling": "沿坐标轴缩放时使用快速 CONV",
+  "Start point-sampled mesh": "创建点采样网格",
   "Start mesh": "开始网格变形",
   "Status bar": "状态栏",
   "Stop ": "色标 ",

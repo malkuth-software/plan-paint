@@ -241,7 +241,7 @@ class Editor final : public gui_forms::Control {
     void poll_transform_preview();
     void prepare_stamp_view();
     void render_stamp_view();
-    void start_reshape();
+    void start_reshape(bool point_sampled = false);
     void request_rotation(double degrees);
     void request_skew(int width, int height, bool scale, double horizontal, double vertical);
     void finish_warp(bool place);
@@ -671,7 +671,13 @@ class Editor final : public gui_forms::Control {
     int resize_handle_ = -1;
     bool resize_selection_ = false;
     Point resize_start_;
+    bool point_mesh_ = false;
+    std::optional<std::uint64_t> point_preview_generation_;
+    void complete_warp();
     Rect resize_original_, resize_preview_;
+    Image resize_preview_pixels_;
+    Rect resize_sample_region_;
+    int resize_sample_width_ = 0, resize_sample_height_ = 0;
     AffineMap shear_map_;
     std::vector<std::uint8_t> warp_coverage_;
     gui_forms::ImageId transform_image_;

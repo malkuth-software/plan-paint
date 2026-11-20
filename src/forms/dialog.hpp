@@ -426,7 +426,7 @@ class EditorDialog final : public gui_forms::Control {
         skew_horizontal_, skew_vertical_;
     std::shared_ptr<gui_forms::TextBox> hex_, alpha_background_color_;
     std::shared_ptr<gui_forms::ComboBox> printer_;
-    std::shared_ptr<gui_forms::CheckBox> lock_, scale_, rotate_view_;
+    std::shared_ptr<gui_forms::CheckBox> lock_, scale_, rapid_resize_, rotate_view_;
     std::shared_ptr<gui_forms::Label> error_;
     std::shared_ptr<gui_forms::Button> primary_tab_, secondary_tab_, pixel_tab_, percent_tab_, rgb_tab_,
         okhsl_tab_;

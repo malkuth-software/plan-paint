@@ -439,6 +439,8 @@
   "Sprite sheet grid": "スプライトシートのグリッド",
   "Stabilizer": "手ぶれ補正",
   "Stamp": "スタンプ",
+  "Rapid CONV for axis-aligned scaling": "軸方向の拡大・縮小に高速 CONV を使う",
+  "Start point-sampled mesh": "点サンプリングでメッシュを開始",
   "Start mesh": "メッシュ変形を開始",
   "Status bar": "ステータスバー",
   "Stop ": "分岐点 ",

@@ -41,10 +41,10 @@ bool same(const paint::WarpSample& a, const paint::WarpSample& b) {
 // The canvas surface evaluates stx_conv's tensor surface: its samples are
 // stx_conv::surface::Surface's, bit for bit, at nodes, inside cells, on the
 // clamped half-pixel border and at the far edges.
-void surface_equals_stx_conv() {
+void surface_equals_stx_conv(paint::CanvasSurface::Storage storage) {
     const paint::Image image = document(41, 29);
     paint::CanvasSurface canvas;
-    canvas.build(image);
+    canvas.build(image, storage);
     std::vector<double> nodes(image.pixels.size() * 4);
     for (std::size_t i = 0; i < image.pixels.size(); ++i) {
         const double alpha = image.pixels[i].a / 255.0;
@@ -92,7 +92,7 @@ void surface_equals_stx_conv() {
 // An edit recompiles only the cells that read a changed pixel; the result is
 // a fresh build of the edited picture, bit for bit, and samples more than
 // four pixels from the edit are unchanged.
-void local_update_is_exact() {
+void local_update_is_exact(paint::CanvasSurface::Storage storage) {
     const paint::Image before = document(53, 37);
     paint::Image after = before;
     for (int i = 0; i < 14; ++i) {
@@ -102,14 +102,14 @@ void local_update_is_exact() {
     after.set(0, 0, {1, 2, 3, 4});
     after.set(52, 36, {9, 9, 9, 255});
     paint::CanvasSurface edited;
-    edited.build(before);
+    edited.build(before, storage);
     paint::CanvasSurface original;
-    original.build(before);
+    original.build(before, storage);
     edited.update(after, {20, 15, 14, 7});
     edited.update(after, {0, 0, 1, 1});
     edited.update(after, {52, 36, 5, 5});
     paint::CanvasSurface fresh;
-    fresh.build(after);
+    fresh.build(after, storage);
     for (int j = -3; j < after.height * 5 - 3; ++j) {
         for (int i = -3; i < after.width * 5 - 3; ++i) {
             const paint::Point position{i / 5.0 + 0.03, j / 5.0 + 0.03};
@@ -126,10 +126,10 @@ void local_update_is_exact() {
     }
 }
 // Any area of a frame renders the bytes the whole frame has there.
-void areas_render_like_the_whole_frame() {
+void areas_render_like_the_whole_frame(paint::CanvasSurface::Storage storage) {
     const paint::Image image = document(64, 48);
     paint::CanvasSurface surface;
-    surface.build(image);
+    surface.build(image, storage);
     const double c = std::cos(0.35) / 1.7, s = std::sin(0.35) / 1.7;
     const paint::CanvasSurface::TargetMap map{c, s, -6.25, -s, c, 9.5};
     const int columns = 300, rows = 240;
@@ -147,10 +147,10 @@ void areas_render_like_the_whole_frame() {
 // midpoint integration of the projected surface: on smooth colour (closed
 // form), at a hard translucent edge (projected fallback) and in the half
 // pixels beyond the first and last centres (constant extension).
-void cell_integral_matches_dense_integration() {
+void cell_integral_matches_dense_integration(paint::CanvasSurface::Storage storage) {
     const paint::Image image = document(23, 19);
     paint::CanvasSurface surface;
-    surface.build(image);
+    surface.build(image, storage);
     struct Case {
         paint::Point points[4];
         int count;
@@ -232,10 +232,14 @@ void sizes_are_checked() {
 } // namespace
 int main() {
     try {
-        surface_equals_stx_conv();
-        local_update_is_exact();
-        areas_render_like_the_whole_frame();
-        cell_integral_matches_dense_integration();
+        surface_equals_stx_conv(paint::CanvasSurface::Storage::admitted_rows);
+        surface_equals_stx_conv(paint::CanvasSurface::Storage::point_tiles);
+        local_update_is_exact(paint::CanvasSurface::Storage::admitted_rows);
+        local_update_is_exact(paint::CanvasSurface::Storage::point_tiles);
+        areas_render_like_the_whole_frame(paint::CanvasSurface::Storage::admitted_rows);
+        areas_render_like_the_whole_frame(paint::CanvasSurface::Storage::point_tiles);
+        cell_integral_matches_dense_integration(paint::CanvasSurface::Storage::admitted_rows);
+        cell_integral_matches_dense_integration(paint::CanvasSurface::Storage::point_tiles);
         sizes_are_checked();
         std::cout << "Canvas surface: stx_conv's surface bit for bit, exact local updates, area renders, cell "
                      "integrals and size limits passed.\n";

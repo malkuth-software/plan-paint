@@ -1,11 +1,12 @@
 #include "conv.hpp"
-#include <stx_conv/conv.hpp>
+#include "conv_stream_resize.hpp"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <functional>
 #include <span>
 #include <stdexcept>
+#include <stx_conv/conv.hpp>
 #include <thread>
 #include <vector>
 
@@ -159,6 +160,31 @@ void resize_image(const Image& source, int width, int height, Image& destination
     destination = std::move(result);
 }
 } // namespace
+void conv_resize_rapid_region(const Image& source, int width, int height, Rect region, Image& destination) {
+    if (source.width < 1 || source.height < 1 ||
+        source.pixels.size() != static_cast<std::size_t>(source.width) * source.height) {
+        throw std::invalid_argument("Invalid CONV source image.");
+    }
+    if (width < 1 || width > 32768 || height < 1 || height > 32768 || region.x < 0 || region.y < 0 ||
+        region.w < 1 || region.h < 1 || region.w > width - region.x || region.h > height - region.y) {
+        throw std::invalid_argument("Invalid CONV target region.");
+    }
+    if (source.width == width && source.height == height) {
+        if (region.w == width && region.h == height) {
+            destination = source;
+        } else {
+            destination = cropped(source, region);
+        }
+        return;
+    }
+    Image result;
+    result.reset(region.w, region.h, {0, 0, 0, 0});
+    stream_resize::resize(source, result, true, true, width, height, region);
+    destination = std::move(result);
+}
+void conv_resize_rapid_area(const Image& source, int width, int height, Image& destination) {
+    conv_resize_rapid_region(source, width, height, {0, 0, width, height}, destination);
+}
 void conv_resize(const Image& source, int width, int height, Image& destination) {
     resize_image(source, width, height, destination, false);
 }

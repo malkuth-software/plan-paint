@@ -693,7 +693,9 @@ void EditorDialog::initialize_control_tree() {
         scale_ = gf::make_control<gf::CheckBox>(gf::StableId("resize-scale"), tr("Scale artwork (CONV*)"));
         (*scale_).checked = true;
         put(scale_, {24, 242, 360, 25});
-        label("resize-hint", tr("Turn scaling off to change the canvas boundary."), {24, 269, 394, 22});
+        rapid_resize_ = gf::make_control<gf::CheckBox>(gf::StableId("resize-rapid"),
+                                                       tr("Rapid CONV for axis-aligned scaling"));
+        put(rapid_resize_, {24, 269, 394, 25});
         label("skew-label", tr("Skew (degrees)"), {24, 308, 390, 24}, true);
         label("skew-horizontal-label", tr("Horizontal"), {24, 341, 112, 28});
         label("skew-vertical-label", tr("Vertical"), {24, 377, 112, 28});
@@ -1322,7 +1324,8 @@ void EditorDialog::accept() {
                                        (*skew_horizontal_).value.read(), (*skew_vertical_).value.read());
             } else {
                 (*editor).document.resize(static_cast<int>(std::round(width)),
-                                          static_cast<int>(std::round(height)), (*scale_).checked.read());
+                                          static_cast<int>(std::round(height)), (*scale_).checked.read(),
+                                          (*rapid_resize_).checked.read());
             }
         }
         if (!(*editor).pending_save_path.empty()) {

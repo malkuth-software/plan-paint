@@ -439,6 +439,8 @@
   "Sprite sheet grid": "Sprite sheet grid",
   "Stabilizer": "Stabilizer",
   "Stamp": "Stamp",
+  "Rapid CONV for axis-aligned scaling": "Use fast CONV to resize along di axes",
+  "Start point-sampled mesh": "Start mesh wey dey sample one point at a time",
   "Start mesh": "Start mesh",
   "Status bar": "Status bar",
   "Stop ": "Stop ",

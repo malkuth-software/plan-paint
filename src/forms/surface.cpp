@@ -626,7 +626,7 @@ void PaintCanvas::build_view_surface() {
     ++surface_build_;
     ++work_statistics_.view_preparations;
     try {
-        view_surface_.build(view_source_);
+        view_surface_.build(view_source_, CanvasSurface::Storage::point_tiles);
     } catch (const std::length_error& error) {
         view_error = error.what();
     } catch (const std::invalid_argument&) {

@@ -30,16 +30,25 @@ struct WarpSample {
 // and the transform tools (ConvWarpField) sample it.
 class CanvasSurface {
   public:
-    // 256 bytes a pixel are held (the cells and the premultiplied pixels).
+    // Shared size limit for dense rows and the RGBA8 snapshot backend.
     static constexpr std::size_t maximum_pixels = 4194304;
     static constexpr stx_conv::surface::Closure closure = stx_conv::surface::Closure::paper;
     // No bubble: it changes few pixels and costs about a tenth more per sample.
     static constexpr stx_conv::surface::Bubble bubble = stx_conv::surface::Bubble::none;
 
-    // Compiles every cell of `source`. Throws invalid_argument below 2 x 2
-    // pixels and length_error above maximum_pixels; the surface is then
-    // cleared. Rows are compiled on up to eight workers.
-    void build(const Image& source);
+    // Dense rows precompile horizontal cells. Point tiles retain source RGBA8
+    // and admit horizontal cells on demand in bounded per-worker caches.
+    enum class Storage { admitted_rows, point_tiles };
+#if defined(__clang__) && defined(__aarch64__) && defined(__APPLE__)
+    static constexpr bool fast_point_tiles = true;
+#else
+    static constexpr bool fast_point_tiles = false;
+#endif
+    void build(const Image& source, Storage storage = Storage::admitted_rows);
+    [[nodiscard]] bool point_tiles() const noexcept {
+        return version_ != 0;
+    }
+    [[nodiscard]] std::size_t storage_bytes() const noexcept;
     // Recompiles the cells that read a pixel of `damage` (clipped to the
     // image) from `source`, which has the built size and its new pixels.
     void update(const Image& source, Rect damage);
@@ -97,6 +106,8 @@ class CanvasSurface {
     bool ready_ = false;
     // Premultiplied normalized pixels, [y][x][channel].
     std::vector<double> nodes_;
+    std::vector<Color> packed_;
+    std::uint64_t version_ = 0;
     // [(y * (width - 1) + cell) * 4 + channel].
     std::vector<stx_conv::surface::LineCell> cells_;
     std::vector<stx_conv::surface::CellShape> shapes_u_, shapes_v_;

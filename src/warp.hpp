@@ -23,7 +23,11 @@ struct AffineMap {
 // compile() prepares a replacement before publishing; old state survives failure.
 class ConvWarpField {
   public:
-    void compile(const Image& source, const std::atomic<bool>* cancelled = nullptr);
+    void compile(const Image& source, const std::atomic<bool>* cancelled = nullptr,
+                 CanvasSurface::Storage storage = CanvasSurface::Storage::admitted_rows);
+    [[nodiscard]] bool point_tiles() const noexcept {
+        return point_tiles_;
+    }
     // Independently admitted CONV channels, before physical color projection.
     // Raw RGB can exceed alpha; use only for numerical inspection/reference work.
     [[nodiscard]] WarpSample sample_components(Point source_position) const;
@@ -46,6 +50,7 @@ class ConvWarpField {
     int width_ = 0, height_ = 0;
     // The material's surface; a one-pixel axis is repeated to two pixels.
     CanvasSurface surface_;
+    bool point_tiles_ = false;
     bool constant_ = false;
     WarpSample constant_value_;
 };

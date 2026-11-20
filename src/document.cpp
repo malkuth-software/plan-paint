@@ -400,7 +400,7 @@ void Document::crop() {
     selection = {};
     image = std::move(replacement);
 }
-void Document::resize(int width, int height, bool scale) {
+void Document::resize(int width, int height, bool scale, bool rapid) {
     require_rgba_transform();
     commit_path();
     commit_curve();
@@ -416,7 +416,9 @@ void Document::resize(int width, int height, bool scale) {
     lift_selection();
     const Image& input = selection.active ? selection.image : image;
     Image replacement;
-    if (scale) {
+    if (scale && rapid) {
+        conv_resize_rapid_area(input, width, height, replacement);
+    } else if (scale) {
         conv_resize_area(input, width, height, replacement);
     } else {
         replacement.reset(width, height, ink.secondary);

@@ -3953,7 +3953,7 @@ void transforms_preview_before_release() {
             "selection contraction updates visible pixels while dragging");
     fixture.pointer(gf::PointerAction::up, 45, 40);
     paint::Image expected;
-    paint::conv_resize_area(original, 25, 20, expected);
+    paint::conv_resize_rapid_area(original, 25, 20, expected);
     require(editor.document.selection.image.pixels.size() == expected.pixels.size() &&
                 std::memcmp(expected.pixels.data(), editor.document.selection.image.pixels.data(),
                             expected.pixels.size() * sizeof(paint::Color)) == 0,
@@ -4170,6 +4170,14 @@ void restored_help_and_selection_workflows() {
     require(selected(window, "tool-0"), "lasso retains Select tool highlight");
     require(shown(window, "context-reshape") && shown(window, "rotation-degrees"),
             "completed lasso reveals selection mesh and rotation controls");
+    if (paint::CanvasSurface::fast_point_tiles) {
+        require(shown(window, "context-reshape-point"), "selection exposes point-sampled mesh");
+        routed_button(window, "context-reshape-point");
+        await_background(fixture);
+        require(editor.warp_active(), "point-sampled mesh enters editing through the ribbon");
+        editor.cancel_warp();
+        await_background(fixture);
+    }
     std::shared_ptr<gf::NumericUpDown> angle =
         std::dynamic_pointer_cast<gf::NumericUpDown>(find_control(window, "rotation-degrees"));
     (*angle).value = 30;
@@ -7392,6 +7400,58 @@ void superimpose_paste_tab_drawing_and_removal() {
     // The session borrows the fixture's window: it ends first (declared
     // after the fixture), and the window goes with the fixture after it.
 }
+#if defined(__APPLE__) && defined(__aarch64__)
+#include <sys/resource.h>
+void measure_editor_edit(bool mesh) {
+    Fixture fixture;
+    paint::forms::Editor& editor = *fixture.editor;
+    editor.document.new_image(mesh ? 2000 : 2500, mesh ? 2000 : 1600);
+    std::uint32_t state = 1;
+    for (paint::Color& color : editor.document.image.pixels) {
+        state = state * 1664525u + 1013904223u;
+        color = {std::uint8_t(state >> 24), std::uint8_t(state >> 16), std::uint8_t(state >> 8),
+                 std::uint8_t(state)};
+    }
+    editor.refresh();
+    using Clock = std::chrono::steady_clock;
+    if (!mesh) {
+        const Clock::time_point begin = Clock::now();
+        editor.document.resize(2000, 2000, true, true);
+        editor.refresh();
+        struct rusage usage{};
+        getrusage(RUSAGE_SELF, &usage);
+        std::cout << "editor-resize ms "
+                  << std::chrono::duration<double, std::milli>(Clock::now() - begin).count() << " peak_bytes "
+                  << usage.ru_maxrss << '\n';
+        return;
+    }
+    editor.execute("select-all");
+    struct rusage phases[3] = {};
+    getrusage(RUSAGE_SELF, &phases[0]);
+    const Clock::time_point start = Clock::now();
+    editor.execute("reshape-point");
+    await_background(fixture);
+    require(editor.warp_active(), "mesh gate enters point mode");
+    const Clock::time_point ready = Clock::now();
+    getrusage(RUSAGE_SELF, &phases[1]);
+    fixture.drag(27.7, 29.5, 32.7, 29.5);
+    await_background(fixture);
+    require(editor.document.selection.image.width > 2000, "deformed preview reached the editor");
+    const Clock::time_point preview = Clock::now();
+    getrusage(RUSAGE_SELF, &phases[2]);
+    editor.finish_warp(true);
+    const Clock::time_point end = Clock::now();
+    require(!editor.warp_active() && !editor.document.selection.active, "mesh gate places result");
+    struct rusage usage{};
+    getrusage(RUSAGE_SELF, &usage);
+    std::cout << "editor-mesh prepare_ms " << std::chrono::duration<double, std::milli>(ready - start).count()
+              << " drag_ms " << std::chrono::duration<double, std::milli>(preview - ready).count()
+              << " place_ms " << std::chrono::duration<double, std::milli>(end - preview).count()
+              << " total_ms " << std::chrono::duration<double, std::milli>(end - start).count()
+              << " selected_bytes " << phases[0].ru_maxrss << " prepared_bytes " << phases[1].ru_maxrss
+              << " preview_bytes " << phases[2].ru_maxrss << " peak_bytes " << usage.ru_maxrss << '\n';
+}
+#endif
 int main(int argc, char** argv) {
     // The framebuffer tests' raster (test_raster): owned here, made before
     // any window and released after every test, never by static destruction.
@@ -7399,6 +7459,14 @@ int main(int argc, char** argv) {
     try {
         raster = make_test_raster();
         test_raster_owner = raster.get();
+#if defined(__APPLE__) && defined(__aarch64__)
+        if (argc == 2 && (std::string(argv[1]) == "--measure-point-mesh" ||
+                          std::string(argv[1]) == "--measure-rapid-resize")) {
+            measure_editor_edit(std::string(argv[1]) == "--measure-point-mesh");
+            test_raster_owner = nullptr;
+            return 0;
+        }
+#endif
         if (argc == 2 && std::string(argv[1]) == "--icon-production") {
             icon_production_contracts();
             std::cout << "Icon production forms contracts passed\n";

@@ -12,3 +12,17 @@ and the same public Application/Threading targets as PlaySuite. Use the
 `check` target for CTest plus style and `paint-package` for packaging. Cache
 imports never replace consumer tests. Keep toolkit checkouts and build outputs
 in ignored `gui_forms/`, `.build/` and `.ccache/`; do not modify the shared toolkit.
+
+On the configured M4 build host, run commands from the authoritative local
+checkout through `~/.local/bin/m4build --`. For a configured Release tree with
+`RAINSTAR_BENCHMARKS=ON`, substitute the build directory for `build/pinned`.
+
+```sh
+~/.local/bin/m4build -- cmake --build build/pinned --target paint-rapid-edit paint-forms-tests
+~/.local/bin/m4build -- ctest --test-dir build/pinned --output-on-failure
+~/.local/bin/m4build -- build/pinned/paint-rapid-edit numeric 2000 2000
+~/.local/bin/m4build -- build/pinned/paint-forms-tests --measure-point-mesh
+~/.local/bin/m4build -- build/pinned/paint-forms-tests --measure-rapid-resize
+```
+
+Run each timing candidate in a fresh process with other builds and tests idle.

@@ -145,17 +145,26 @@ void PaintCanvas::publish_pixels(const Image& source, Rect damage) {
         damage = {changed_left, changed_top, changed_right - changed_left, changed_bottom - changed_top};
     }
     const bool opaque = translucent == 0;
-    if (replacement || previous.opaque() != opaque) {
-        display_surface_ = gui_forms::LiveSurface::create({static_cast<unsigned>(source.width),
-            static_cast<unsigned>(source.height), format, gui_forms::default_live_surface_buffer_count, opaque});
+    const bool change_pool = replacement || previous.opaque() != opaque;
+    previous = {};
+    // Large canvases use one published buffer and one writable buffer.
+    // The fallback below still handles a compositor retaining both leases.
+    const std::size_t buffers = source.pixels.size() >= 4000000
+                                    ? gui_forms::minimum_live_surface_buffer_count
+                                    : gui_forms::default_live_surface_buffer_count;
+    if (change_pool) {
+        display_surface_ =
+            gui_forms::LiveSurface::create({static_cast<unsigned>(source.width),
+                                            static_cast<unsigned>(source.height), format, buffers, opaque});
         replacement = true;
         damage = {0, 0, source.width, source.height};
     }
     gui_forms::LiveSurfaceWriteLease write = (*display_surface_).try_acquire_write(!replacement);
     // A held native read lease must never make an editing update disappear.
     if (!write) {
-        display_surface_ = gui_forms::LiveSurface::create({static_cast<unsigned>(source.width),
-            static_cast<unsigned>(source.height), format, gui_forms::default_live_surface_buffer_count, opaque});
+        display_surface_ =
+            gui_forms::LiveSurface::create({static_cast<unsigned>(source.width),
+                                            static_cast<unsigned>(source.height), format, buffers, opaque});
         write = (*display_surface_).try_acquire_write();
         damage = {0, 0, source.width, source.height};
     }

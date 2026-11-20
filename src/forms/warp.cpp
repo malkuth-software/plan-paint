@@ -118,7 +118,7 @@ void Editor::cancel_warp() {
     ++warp_generation_;
     release_gesture();
 }
-void Editor::start_reshape() {
+void Editor::start_reshape(bool point_sampled) {
     finish_text(true);
     finish_warp(false);
     document.commit_path();
@@ -147,11 +147,15 @@ void Editor::start_reshape() {
         reshape_mesh_ = make_reshape_mesh(document.selection.image, mesh_spacing);
     }
     warp_original_ = document.selection;
+    point_mesh_ = point_sampled;
+    point_preview_generation_.reset();
     warp_mode_ = WarpMode::mesh;
     warp_field_.reset();
     warp_pending_ = warp_commit_ = false;
     ++warp_generation_;
-    warp_worker_.compile(WarpTask::CompileSelection, warp_original_.image, warp_generation_);
+    warp_worker_.compile(WarpTask::CompileSelection, warp_original_.image, warp_generation_,
+                         point_mesh_ ? CanvasSurface::Storage::point_tiles
+                                     : CanvasSurface::Storage::admitted_rows);
     (*ribbon_).show_transforms();
 }
 AffineMap Editor::rotation_map() const {
@@ -268,8 +272,25 @@ void Editor::request_skew(int width, int height, bool scale, double horizontal_d
         throw;
     }
 }
+void Editor::complete_warp() {
+    clear_transform_preview();
+    if (warp_mode_ == WarpMode::mesh) {
+        document.commit_selection();
+    }
+    warp_mode_ = WarpMode::none;
+    warp_original_ = {};
+    warp_field_.reset();
+    reshape_mesh_ = {};
+    warp_pending_ = warp_commit_ = warp_whole_image_ = false;
+}
 void Editor::commit_warp() {
     if (warp_active()) {
+        if (warp_mode_ == WarpMode::mesh && point_mesh_ && point_preview_generation_ == warp_generation_) {
+            // The finished preview has the same geometry, sampling rule and pixels as Place.
+            complete_warp();
+            refresh();
+            return;
+        }
         if (warp_mode_ == WarpMode::rotation) {
             update_transform_preview();
         }
@@ -348,18 +369,16 @@ void Editor::poll_warp() {
                         document.selection.source.reset();
                     }
                     if (committed) {
-                        clear_transform_preview();
-                        if (warp_mode_ == WarpMode::mesh) {
-                            document.commit_selection();
-                        }
-                        warp_mode_ = WarpMode::none;
-                        warp_original_ = {};
-                        warp_field_.reset();
-                        reshape_mesh_ = {};
-                        warp_pending_ = warp_commit_ = warp_whole_image_ = false;
+                        complete_warp();
+                    } else if (point_mesh_ && result.task == WarpTask::PreviewMesh) {
+                        point_preview_generation_ = result.generation;
                     }
                 }
-                refresh();
+                // Mesh preparation changes no displayed pixels. Publishing again
+                // would composite and upload the same selection for a second time.
+                if (!(compile && warp_mode_ == WarpMode::mesh)) {
+                    refresh();
+                }
             }
         }
         if (warp_worker_.busy()) {
@@ -368,7 +387,8 @@ void Editor::poll_warp() {
         if (warp_active() && warp_field_ && warp_pending_) {
             if (warp_mode_ == WarpMode::mesh) {
                 warp_worker_.mesh(warp_commit_ ? WarpTask::CommitMesh : WarpTask::PreviewMesh, warp_field_,
-                                  reshape_mesh_, mesh_bounds(reshape_mesh_), warp_generation_);
+                                  reshape_mesh_, mesh_bounds(reshape_mesh_), warp_generation_,
+                                  point_mesh_ ? WarpSampling::Point : WarpSampling::Area);
             } else {
                 AffineMap map = rotation_map();
                 warp_worker_.affine(warp_commit_ ? WarpTask::CommitRotation : WarpTask::PreviewRotation,
@@ -658,8 +678,11 @@ bool Editor::warp_pointer(const gf::PointerEvent& event, Point point) {
             }
         } else if ((event.action == gf::PointerAction::move || event.action == gf::PointerAction::up) &&
                    mesh_node_ >= 0) {
-            if (move_reshape_node(reshape_mesh_, static_cast<std::size_t>(mesh_node_),
-                                  {point.x - warp_original_.x, point.y - warp_original_.y})) {
+            const std::size_t node = static_cast<std::size_t>(mesh_node_);
+            const Point target{point.x - warp_original_.x, point.y - warp_original_.y};
+            const Point previous = reshape_mesh_.nodes[node].target;
+            if ((target.x != previous.x || target.y != previous.y) &&
+                move_reshape_node(reshape_mesh_, node, target)) {
                 ++warp_generation_;
                 warp_pending_ = true;
                 poll_warp();

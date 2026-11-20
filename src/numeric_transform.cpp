@@ -101,7 +101,9 @@ NumericTransformResult render_numeric_transform(const NumericTransformSource& so
         }
     } else {
         ConvWarpField field;
-        field.compile(source.artwork, cancel);
+        field.compile(source.artwork, cancel,
+                      settings.sampling == WarpSampling::Point ? CanvasSurface::Storage::point_tiles
+                                                               : CanvasSurface::Storage::admitted_rows);
         if (source.selection.active) {
             bounds = affine_bounds(field, map);
         }

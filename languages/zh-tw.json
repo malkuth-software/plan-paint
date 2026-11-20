@@ -439,6 +439,8 @@
   "Sprite sheet grid": "精靈圖集網格",
   "Stabilizer": "筆觸穩定器",
   "Stamp": "圖章",
+  "Rapid CONV for axis-aligned scaling": "沿座標軸縮放時使用快速 CONV",
+  "Start point-sampled mesh": "建立點取樣網格",
   "Start mesh": "開始網格變形",
   "Status bar": "狀態列",
   "Stop ": "色標 ",

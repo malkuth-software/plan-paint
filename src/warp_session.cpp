@@ -36,20 +36,23 @@ void WarpWorker::launch(WarpTask task) {
         throw;
     }
 }
-void WarpWorker::compile(WarpTask task, const Image& source, std::uint64_t generation) {
+void WarpWorker::compile(WarpTask task, const Image& source, std::uint64_t generation,
+                         CanvasSurface::Storage storage) {
     if (busy_) {
         throw std::logic_error("A warp operation is already running.");
     }
     source_ = source;
+    storage_ = storage;
     generation_ = generation;
     bounds_ = {};
     launch(task);
 }
 void WarpWorker::mesh(WarpTask task, std::shared_ptr<const ConvWarpField> field, const ReshapeMesh& mesh,
-                      Rect bounds, std::uint64_t generation) {
+                      Rect bounds, std::uint64_t generation, WarpSampling sampling) {
     if (busy_) {
         throw std::logic_error("A warp operation is already running.");
     }
+    mesh_sampling_ = task == WarpTask::PreviewMesh ? WarpSampling::Point : sampling;
     mesh_ = mesh;
     field_ = std::move(field);
     bounds_ = bounds;
@@ -94,7 +97,9 @@ void WarpWorker::run(WarpWorker& worker) {
         if (worker.task_ == WarpTask::CompileSelection || worker.task_ == WarpTask::CompileStamp ||
             worker.task_ == WarpTask::CompileRotation || worker.task_ == WarpTask::Transform) {
             std::shared_ptr<ConvWarpField> field = std::make_shared<ConvWarpField>();
-            (*field).compile(worker.source_, &worker.cancelled_);
+            (*field).compile(worker.source_, &worker.cancelled_,
+                             worker.task_ == WarpTask::Transform ? CanvasSurface::Storage::admitted_rows
+                                                                 : worker.storage_);
             result.field = std::move(field);
             if (worker.task_ == WarpTask::Transform) {
                 render_affine(*result.field, worker.map_, worker.bounds_.w, worker.bounds_.h, result.image,
@@ -103,7 +108,7 @@ void WarpWorker::run(WarpWorker& worker) {
             }
         } else if (worker.task_ == WarpTask::PreviewMesh || worker.task_ == WarpTask::CommitMesh) {
             render_mesh(*worker.field_, worker.mesh_, worker.bounds_.w, worker.bounds_.h, result.image,
-                        worker.task_ == WarpTask::PreviewMesh ? WarpSampling::Point : WarpSampling::Area);
+                        worker.mesh_sampling_);
         } else if (worker.task_ == WarpTask::Stamp || worker.task_ == WarpTask::PreviewRotation ||
                    worker.task_ == WarpTask::CommitRotation) {
             render_affine(*worker.field_, worker.map_, worker.bounds_.w, worker.bounds_.h, result.image,

@@ -648,6 +648,7 @@ void Ribbon::synchronize_commands() {
     set_enabled("warp-cancel", warp);
     set_enabled("rotate-custom", !warp);
     set_enabled("context-reshape", !warp);
+    set_enabled("context-reshape-point", !warp);
     for (int guide : {0, 16}) {
         const std::string id = "spiro-guide-" + std::to_string(guide);
         set_checked(id, spiro.guide == guide);

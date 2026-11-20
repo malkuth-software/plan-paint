@@ -11,10 +11,12 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 
 namespace paint {
-void ConvWarpField::compile(const Image& source, const std::atomic<bool>* cancelled) {
+void ConvWarpField::compile(const Image& source, const std::atomic<bool>* cancelled,
+                            CanvasSurface::Storage storage) {
     if (source.width < 1 || source.height < 1 || source.width > 32768 || source.height > 32768 ||
         source.pixels.size() != static_cast<std::size_t>(source.width) * source.height) {
         throw std::invalid_argument("Invalid CONV source image.");
@@ -33,6 +35,7 @@ void ConvWarpField::compile(const Image& source, const std::atomic<bool>* cancel
     if (constant) {
         const double alpha = first.a / 255.0;
         constant_value_ = {first.r / 255.0 * alpha, first.g / 255.0 * alpha, first.b / 255.0 * alpha, alpha};
+        point_tiles_ = storage == CanvasSurface::Storage::point_tiles && CanvasSurface::fast_point_tiles;
         constant_ = true;
         surface_.clear();
         width_ = source.width;
@@ -50,14 +53,15 @@ void ConvWarpField::compile(const Image& source, const std::atomic<bool>* cancel
                 padded.set(x, y, source.get(std::min(x, source.width - 1), std::min(y, source.height - 1)));
             }
         }
-        surface.build(padded);
+        surface.build(padded, storage);
     } else {
-        surface.build(source);
+        surface.build(source, storage);
     }
     if (cancelled && (*cancelled).load(std::memory_order_relaxed)) {
         throw std::runtime_error("CONV preparation superseded.");
     }
     surface_ = std::move(surface);
+    point_tiles_ = surface_.point_tiles();
     constant_ = false;
     width_ = source.width;
     height_ = source.height;
@@ -66,9 +70,7 @@ std::size_t ConvWarpField::storage_bytes() const {
     if (constant_ || !surface_.ready()) {
         return 0;
     }
-    // The surface's cells (seven doubles a channel) and premultiplied pixels.
-    const std::size_t pixels = static_cast<std::size_t>(surface_.width()) * surface_.height();
-    return pixels * (4 * 7 * sizeof(double) + 4 * sizeof(double));
+    return surface_.storage_bytes();
 }
 WarpSample ConvWarpField::sample_components(Point position) const {
     WarpSample sample;
@@ -327,26 +329,36 @@ static void affine_worker(AffineJob& job) {
     std::vector<Color>& pixels = job.output.pixels;
     for (;;) {
         if (job.cancelled && (*job.cancelled).load(std::memory_order_relaxed)) { return; }
-        int y = job.next_row.fetch_add(1, std::memory_order_relaxed);
-        if (y >= height) {
+        const bool tiled = field.point_tiles();
+        const int columns = tiled ? (width + 63) / 64 : 1;
+        const int tile = job.next_row.fetch_add(1, std::memory_order_relaxed);
+        const int first_y = tiled ? (tile / columns) * 32 : tile;
+        if (first_y >= height) {
             return;
         }
-        double row_x = inverse.xy * y + inverse.tx;
-        double row_y = inverse.yy * y + inverse.ty;
-        std::size_t offset = static_cast<std::size_t>(y) * width;
-        for (int x = 0; x < width; ++x) {
-            if (x % 64 == 0 && job.cancelled && (*job.cancelled).load(std::memory_order_relaxed)) { return; }
-            Point centre{row_x + inverse.xx * x, row_y + inverse.yx * x};
-            WarpSample total;
-            if (job.area) {
-                total = integrate_affine_pixel(field, inverse, centre);
+        const int first_x = tiled ? (tile % columns) * 64 : 0,
+                  last_x = tiled ? std::min(width, first_x + 64) : width;
+        const int last_y = tiled ? std::min(height, first_y + 32) : first_y + 1;
+        for (int y = first_y; y < last_y; ++y) {
+            double row_x = inverse.xy * y + inverse.tx;
+            double row_y = inverse.yy * y + inverse.ty;
+            std::size_t offset = static_cast<std::size_t>(y) * width;
+            for (int x = first_x; x < last_x; ++x) {
+                if (x % 64 == 0 && job.cancelled && (*job.cancelled).load(std::memory_order_relaxed)) {
+                    return;
+                }
+                Point centre{row_x + inverse.xx * x, row_y + inverse.yx * x};
+                WarpSample total;
+                if (job.area) {
+                    total = integrate_affine_pixel(field, inverse, centre);
+                }
+                for (int i = 0; i < (job.area ? 0 : stencil.count); ++i) {
+                    Point position{centre.x + stencil.offsets[i].x, centre.y + stencil.offsets[i].y};
+                    WarpSample value = field.sample_premultiplied(position);
+                    add_weighted(total, value, stencil.weights[i]);
+                }
+                pixels[offset + x] = encoded_sample(total);
             }
-            for (int i = 0; i < (job.area ? 0 : stencil.count); ++i) {
-                Point position{centre.x + stencil.offsets[i].x, centre.y + stencil.offsets[i].y};
-                WarpSample value = field.sample_premultiplied(position);
-                add_weighted(total, value, stencil.weights[i]);
-            }
-            pixels[offset + x] = encoded_sample(total);
         }
     }
 }
@@ -606,13 +618,49 @@ static double incircle(Point a, Point b, Point c, Point d) {
                     (cx * cx + cy * cy) * (ax * by - ay * bx);
     return result;
 }
+// The XOR of the two incident (face+1) values leaves the other face
+// after removing this face. Boundary edges have a zero neighbour.
+struct EdgeOwners {
+    std::unordered_map<std::uint64_t, std::size_t> owners;
+    static std::uint64_t key(const MeshTriangle& triangle, int edge) {
+        const std::size_t a = triangle.nodes[edge], b = triangle.nodes[(edge + 1) % 3];
+        return (std::uint64_t(std::min(a, b)) << 32) | std::max(a, b);
+    }
+    void toggle(const MeshTriangle& triangle, std::size_t face) {
+        for (int edge = 0; edge < 3; ++edge) {
+            const std::uint64_t k = key(triangle, edge);
+            std::size_t& entry = owners[k];
+            entry ^= face + 1;
+            if (entry == 0) {
+                owners.erase(k);
+            }
+        }
+    }
+    std::size_t next(const MeshTriangle& triangle, std::size_t face, std::size_t previous,
+                     std::size_t end) const {
+        std::size_t next = end;
+        for (int edge = 0; edge < 3; ++edge) {
+            const std::size_t other = owners.at(key(triangle, edge)) ^ (face + 1);
+            if (other != 0 && other - 1 > previous) {
+                next = std::min(next, other - 1);
+            }
+        }
+        return next;
+    }
+};
 static void improve_mesh_angles(ReshapeMesh& mesh) {
     // Lawson flips improve the ear triangulation without moving the outline.
     // A bounded sweep count affects only triangle quality, never validity.
+    EdgeOwners edges;
+    edges.owners.reserve(mesh.triangles.size() * 2);
+    for (std::size_t face = 0; face < mesh.triangles.size(); ++face) {
+        edges.toggle(mesh.triangles[face], face);
+    }
     for (int pass = 0; pass < 32; ++pass) {
         bool changed = false;
         for (std::size_t i = 0; i < mesh.triangles.size(); ++i) {
-            for (std::size_t j = i + 1; j < mesh.triangles.size(); ++j) {
+            for (std::size_t j = edges.next(mesh.triangles[i], i, i, mesh.triangles.size());
+                 j < mesh.triangles.size(); j = edges.next(mesh.triangles[i], i, j, mesh.triangles.size())) {
                 MeshTriangle first = mesh.triangles[i], second = mesh.triangles[j];
                 std::size_t shared[2] = {}, count = 0, c = 0, d = 0;
                 for (std::size_t vertex : first.nodes) {
@@ -657,6 +705,10 @@ static void improve_mesh_angles(ReshapeMesh& mesh) {
                     left = {{d, c, a}};
                     right = {{c, d, b}};
                 }
+                edges.toggle(first, i);
+                edges.toggle(second, j);
+                edges.toggle(left, i);
+                edges.toggle(right, j);
                 mesh.triangles[i] = left;
                 mesh.triangles[j] = right;
                 changed = true;
@@ -849,6 +901,109 @@ static AffineMap triangle_inverse(const MeshNode& a, const MeshNode& b, const Me
     return map;
 }
 } // namespace
+struct PointFace {
+    AffineMap inverse;
+    Point a, b, c;
+    double area;
+    int left, right, top, bottom;
+};
+struct PointMeshTiles {
+    static constexpr int tile_width = 64, tile_height = 32;
+    const ConvWarpField& field;
+    Image& output;
+    int columns, rows;
+    std::vector<PointFace> faces;
+    std::vector<std::vector<std::size_t>> bins;
+    std::atomic<int> next{0};
+    std::exception_ptr failure;
+    std::mutex mutex;
+
+    void prepare(const ReshapeMesh& mesh) {
+        bins.resize(static_cast<std::size_t>(columns) * rows);
+        for (const MeshTriangle& triangle : mesh.triangles) {
+            const MeshNode& a = mesh.nodes[triangle.nodes[0]];
+            const MeshNode& b = mesh.nodes[triangle.nodes[1]];
+            const MeshNode& c = mesh.nodes[triangle.nodes[2]];
+            const PointFace face{
+                triangle_inverse(a, b, c),
+                a.target,
+                b.target,
+                c.target,
+                orient(a.target, b.target, c.target),
+                static_cast<int>(std::floor(std::clamp(std::min({a.target.x, b.target.x, c.target.x}) - 0.5,
+                                                       0.0, double(output.width)))),
+                static_cast<int>(std::ceil(std::clamp(std::max({a.target.x, b.target.x, c.target.x}) + 0.5,
+                                                      -1.0, double(output.width - 1)))),
+                static_cast<int>(std::floor(std::clamp(std::min({a.target.y, b.target.y, c.target.y}) - 0.5,
+                                                       0.0, double(output.height)))),
+                static_cast<int>(std::ceil(std::clamp(std::max({a.target.y, b.target.y, c.target.y}) + 0.5,
+                                                      -1.0, double(output.height - 1))))};
+            if (face.left > face.right || face.top > face.bottom) {
+                continue;
+            }
+            const std::size_t id = faces.size();
+            faces.push_back(face);
+            for (int y = face.top / tile_height; y <= face.bottom / tile_height; ++y) {
+                for (int x = face.left / tile_width; x <= face.right / tile_width; ++x) {
+                    bins[static_cast<std::size_t>(y) * columns + x].push_back(id);
+                }
+            }
+        }
+    }
+    void draw(int tile) {
+        const int x0 = (tile % columns) * tile_width, y0 = (tile / columns) * tile_height;
+        std::array<std::uint64_t, tile_height> occupied{};
+        for (std::size_t index : bins[tile]) {
+            const PointFace& f = faces[index];
+            for (int y = std::max(y0, f.top); y <= std::min(y0 + tile_height - 1, f.bottom); ++y) {
+                for (int x = std::max(x0, f.left); x <= std::min(x0 + tile_width - 1, f.right); ++x) {
+                    const std::uint64_t bit = std::uint64_t{1} << (x - x0);
+                    if ((occupied[y - y0] & bit) != 0) {
+                        continue;
+                    }
+                    const Point p{double(x), double(y)};
+                    const double wb = orient(f.a, p, f.c) / f.area, wc = orient(f.a, f.b, p) / f.area;
+                    if (1.0 - wb - wc < -1e-10 || wb < -1e-10 || wc < -1e-10) {
+                        continue;
+                    }
+                    output.pixels[static_cast<std::size_t>(y) * output.width + x] =
+                        encoded_sample(field.sample_premultiplied(transformed(p, f.inverse)));
+                    occupied[y - y0] |= bit;
+                }
+            }
+        }
+    }
+    static void run(PointMeshTiles& tiles) {
+        try {
+            const int count = tiles.columns * tiles.rows;
+            for (int tile = tiles.next.fetch_add(1); tile < count; tile = tiles.next.fetch_add(1)) {
+                tiles.draw(tile);
+            }
+        } catch (...) {
+            tiles.next.store(tiles.columns * tiles.rows);
+            std::lock_guard<std::mutex> lock(tiles.mutex);
+            tiles.failure = std::current_exception();
+        }
+    }
+};
+static void render_mesh_points(const ConvWarpField& field, const ReshapeMesh& mesh, Image& output) {
+    PointMeshTiles tiles{field, output, (output.width + 63) / 64, (output.height + 31) / 32, {}, {}, 0,
+                         {},    {}};
+    tiles.prepare(mesh);
+    const unsigned count =
+        output.pixels.size() < 65536 ? 1u : std::min(8u, std::max(1u, std::thread::hardware_concurrency()));
+    std::vector<std::jthread> workers;
+    for (unsigned i = 1; i < count; ++i) {
+        workers.emplace_back(PointMeshTiles::run, std::ref(tiles));
+    }
+    PointMeshTiles::run(tiles);
+    for (std::jthread& thread : workers) {
+        thread.join();
+    }
+    if (tiles.failure) {
+        std::rethrow_exception(tiles.failure);
+    }
+}
 void render_mesh(const ConvWarpField& field, const ReshapeMesh& mesh, int width, int height,
                  Image& destination, WarpSampling sampling) {
     if (field.width() < 1) {
@@ -859,6 +1014,11 @@ void render_mesh(const ConvWarpField& field, const ReshapeMesh& mesh, int width,
     }
     Image output;
     output.reset(width, height, {0, 0, 0, 0});
+    if (sampling == WarpSampling::Point && field.point_tiles()) {
+        render_mesh_points(field, mesh, output);
+        destination = std::move(output);
+        return;
+    }
     double footprint = 1.0;
     for (const MeshTriangle& triangle : mesh.triangles) {
         AffineMap inverse = triangle_inverse(mesh.nodes[triangle.nodes[0]], mesh.nodes[triangle.nodes[1]],

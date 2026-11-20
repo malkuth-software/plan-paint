@@ -171,7 +171,7 @@ struct Document {
     void select_all();
     void invert_selection();
     void crop();
-    void resize(int width, int height, bool scale);
+    void resize(int width, int height, bool scale, bool rapid = false);
     void rotate(int turns);
     void flip(bool horizontal);
     void invert_colors();

@@ -59,7 +59,7 @@ if(NOT TARGET stx_conv::stx_conv)
   endif()
   find_package(stx_conv CONFIG REQUIRED NO_DEFAULT_PATH PATHS "${paint_stx_prefix}")
 endif()
-target_link_libraries(paint_core PUBLIC stx_conv::stx_conv)
+target_link_libraries(paint_core PUBLIC stx_conv::stx_conv stx_conv::stream)
 # The curve tools flatten through GUI.Drawing's GraphicsPath (src/curve.cpp),
 # which the static Application archive carries; the frontend-free build keeps
 # its own flattening.

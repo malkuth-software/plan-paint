@@ -644,6 +644,10 @@ gf::RibbonTabSpec Ribbon::tool_tab() {
         gf::RibbonGroupSpec mesh = group("mesh", tr("Mesh"));
         mesh.layouts = {paired_rows()};
         number(mesh, "mesh-spacing", tr("Spacing (px)"));
+        if (CanvasSurface::fast_point_tiles) {
+            mesh.commands.push_back(
+                button("context-reshape-point", tr("Start point-sampled mesh"), -1, Size::compact));
+        }
         mesh.commands.push_back(button("context-reshape", tr("Start mesh"), 21, Size::large));
         tab.groups.push_back(std::move(mesh));
         gf::RibbonGroupSpec finish = group("finish", tr("Finish"));

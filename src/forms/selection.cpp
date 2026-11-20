@@ -30,6 +30,7 @@ void Editor::begin_transform_preview(bool stamp) {
 void Editor::end_transform_preview() {
     ++transform_preview_generation_;
     stamp_view_generation_ = 0;
+    resize_preview_pixels_ = {};
     transform_preview_stamp_ = false;
     transform_preview_pending_ = false;
     transform_preview_worker_.cancel();
@@ -102,6 +103,45 @@ void Editor::update_transform_preview() {
     const int rows = std::max(1, static_cast<int>(std::ceil((bottom - top) / step)));
     std::vector<std::byte> pixels(static_cast<std::size_t>(columns) * rows * 4);
 
+    const bool scaling = !rotating && !shearing && resize_handle_ >= 0 && resize_selection_;
+    int grid_width = 0, grid_height = 0;
+    Rect region;
+    if (scaling) {
+        // Keep document-pixel detail when zoomed in. At overview zoom, render
+        // only the resolution of the displayed pixels. In either case crop
+        // the plan at global target phases, including for a rotated viewport.
+        const double resolution = std::min(1.0, canvas().zoom.read() / step);
+        grid_width = std::max(1, static_cast<int>(std::ceil(width * resolution)));
+        grid_height = std::max(1, static_cast<int>(std::ceil(height * resolution)));
+        double x0 = grid_width, y0 = grid_height, x1 = 0.0, y1 = 0.0;
+        const gf::Point corners[4] = {{left, top}, {right, top}, {left, bottom}, {right, bottom}};
+        for (gf::Point corner : corners) {
+            const gui_drawing::PointF mapped = canvas().client_to_bitmap(corner);
+            const double gx = (mapped.x - resize_preview_.x) * grid_width / width;
+            const double gy = (mapped.y - resize_preview_.y) * grid_height / height;
+            x0 = std::min(x0, gx);
+            x1 = std::max(x1, gx);
+            y0 = std::min(y0, gy);
+            y1 = std::max(y1, gy);
+        }
+        region.x = static_cast<int>(std::clamp(std::floor(x0), 0.0, static_cast<double>(grid_width - 1)));
+        region.y = static_cast<int>(std::clamp(std::floor(y0), 0.0, static_cast<double>(grid_height - 1)));
+        region.w = static_cast<int>(std::clamp(std::ceil(x1), static_cast<double>(region.x + 1),
+                                               static_cast<double>(grid_width))) -
+                   region.x;
+        region.h = static_cast<int>(std::clamp(std::ceil(y1), static_cast<double>(region.y + 1),
+                                               static_cast<double>(grid_height))) -
+                   region.y;
+        if (resize_preview_pixels_.pixels.empty() || grid_width != resize_sample_width_ ||
+            grid_height != resize_sample_height_ || region.x != resize_sample_region_.x ||
+            region.y != resize_sample_region_.y || region.w != resize_sample_region_.w ||
+            region.h != resize_sample_region_.h) {
+            conv_resize_rapid_region(source, grid_width, grid_height, region, resize_preview_pixels_);
+            resize_sample_width_ = grid_width;
+            resize_sample_height_ = grid_height;
+            resize_sample_region_ = region;
+        }
+    }
     const double pixel_width = (right - left) / columns;
     const double pixel_height = (bottom - top) / rows;
     for (int y = 0; y < rows; ++y) {
@@ -117,6 +157,20 @@ void Editor::update_transform_preview() {
                 const double py = mapped.y - resize_original_.y - 0.5 - shear_map_.ty;
                 sx = px - shear_map_.xy * py;
                 sy = py - shear_map_.yx * px;
+            }
+            if (scaling) {
+                const int px =
+                    static_cast<int>(std::floor((mapped.x - resize_preview_.x) * grid_width / width));
+                const int py =
+                    static_cast<int>(std::floor((mapped.y - resize_preview_.y) * grid_height / height));
+                const Color color = resize_preview_pixels_.get(px - region.x, py - region.y);
+                const std::size_t offset = (static_cast<std::size_t>(y) * columns + x) * 4;
+                const unsigned alpha = color.a;
+                pixels[offset] = static_cast<std::byte>((color.b * alpha + 127) / 255);
+                pixels[offset + 1] = static_cast<std::byte>((color.g * alpha + 127) / 255);
+                pixels[offset + 2] = static_cast<std::byte>((color.r * alpha + 127) / 255);
+                pixels[offset + 3] = static_cast<std::byte>(alpha);
+                continue;
             }
             int ix = static_cast<int>(std::floor(sx)), iy = static_cast<int>(std::floor(sy));
             double fx = sx - ix, fy = sy - iy;
@@ -207,12 +261,13 @@ bool Editor::resize_pointer(const gf::PointerEvent& event, Point point) {
         if (document.selection.active) {
             document.lift_selection();
         }
+        resize_preview_pixels_ = {};
         resize_handle_ = hovered;
         resize_selection_ = document.selection.active;
         resize_original_ = resize_preview_ = bounds;
         resize_start_ = point;
         shear_map_ = {};
-        if (resize_selection_) {
+        if (resize_selection_ && resize_handle_ >= 8) {
             begin_transform_preview();
         }
         refresh();
@@ -288,7 +343,7 @@ bool Editor::resize_pointer(const gf::PointerEvent& event, Point point) {
                 throw;
             }
         } else if (resize_selection_ && resize_handle_ < 8) {
-            document.resize(resize_preview_.w, resize_preview_.h, true);
+            document.resize(resize_preview_.w, resize_preview_.h, true, true);
             document.selection.x = resize_preview_.x;
             document.selection.y = resize_preview_.y;
         } else if (!resize_selection_) {
@@ -370,7 +425,8 @@ void Editor::paint_resize_overlay(gf::Painter& painter) {
 namespace paint::forms {
 void Editor::update_selection_contours() {
     const FloatingSelection& selection = document.selection;
-    if (!selection.active) {
+    // Marching ants are hidden while the mesh or rotation controls own the selection.
+    if (!selection.active || warp_active()) {
         selection_contours_.clear();
         selection_contour_mask_.clear();
         selection_frame_.disconnect();

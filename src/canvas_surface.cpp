@@ -1,9 +1,14 @@
 #include "canvas_surface.hpp"
+#if defined(__clang__) && defined(__aarch64__) && defined(__APPLE__)
+#include "conv_point_lanes.hpp"
+#endif
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <exception>
 #include <functional>
+#include <mutex>
 #include <span>
 #include <stdexcept>
 #include <thread>
@@ -109,6 +114,84 @@ CellBasis cell_basis(double t) {
     basis.psi = t3 * s3 * (2.0 * t - 1.0);
     return basis;
 }
+#if defined(__clang__) && defined(__aarch64__) && defined(__APPLE__)
+CellBasis point_basis(double t) {
+    CellBasis basis;
+    const double s = 1.0 - t;
+    const double t2 = t * t, t3 = t2 * t, t4 = t2 * t2;
+    const double s2 = s * s, s3 = s2 * s, s4 = s2 * s2;
+    basis.tau[4] = t4 * t;
+    basis.tau[3] = basis.tau[4] + 5.0 * (t4 * s);
+    basis.tau[2] = basis.tau[3] + 10.0 * (t3 * s2);
+    basis.tau[1] = basis.tau[2] + 10.0 * (t2 * s3);
+    basis.tau[0] = basis.tau[1] + 5.0 * (t * s4);
+    basis.psi = t3 * s3 * (2.0 * t - 1.0);
+    return basis;
+}
+const lane_kernel::RowCell& cached_row_cell(int row, std::size_t x, int width_,
+                                            const std::vector<Color>& pixels_,
+                                            const std::vector<stx_conv::surface::CellShape>& shapes_u_,
+                                            std::uint64_t version_) {
+    constexpr std::size_t block = 8, slots = 512;
+    struct Entry {
+        std::uint64_t version;
+        std::size_t key;
+        lane_kernel::RowCell cells[block];
+    };
+    static thread_local std::vector<Entry> cache(slots);
+    const std::size_t start = x / block * block;
+    const std::size_t key = std::size_t(row) * ((width_ + block - 1) / block) + x / block;
+    // Stagger rows independently of the image stride, including power-of-two widths.
+    Entry& entry = cache[(x / block + std::size_t(row) * 53) % slots];
+    if (entry.version != version_ || entry.key != key) {
+        std::array<lane_kernel::T, block + 7> samples{};
+        for (int k = 0; k < int(block + 7); ++k) {
+            const int column = int(start) + k - 3;
+            if (column < 0 || column >= width_) {
+                continue;
+            }
+            const Color pixel = pixels_[std::size_t(row) * width_ + column];
+            const double a = pixel.a / 255.0;
+            samples[k][0] = pixel.r / 255.0 * a;
+            samples[k][1] = pixel.g / 255.0 * a;
+            samples[k][2] = pixel.b / 255.0 * a;
+            samples[k][3] = a;
+        }
+        const std::size_t count = std::min(block, std::size_t(width_ - 1) - start);
+        for (std::size_t k = 0; k < count; ++k) {
+            entry.cells[k] = lane_kernel::compile(std::span<const lane_kernel::T, 8>(samples.data() + k, 8),
+                                                  shapes_u_[start + k]);
+        }
+        entry.version = version_;
+        entry.key = key;
+    }
+    return entry.cells[x - start];
+}
+static lane_kernel::RowCell compact_column(int width, int height, const std::vector<Color>& pixels,
+                                           const std::vector<stx_conv::surface::CellShape>& shapes_u,
+                                           const std::vector<stx_conv::surface::CellShape>& shapes_v,
+                                           std::uint64_t version, std::size_t cell_u, std::size_t cell_v,
+                                           const CellBasis& horizontal) {
+    std::array<lane_kernel::T, 8> windows{};
+    const stx_conv::surface::CellShape& shape = shapes_v[cell_v];
+    const int halo =
+        shape.left == stx_conv::surface::Jet::interior && shape.right == stx_conv::surface::Jet::interior ? 1
+                                                                                                          : 0;
+    for (int k = halo; k < 8 - halo; ++k) {
+        const int row = int(cell_v) - 3 + k;
+        if (row < 0 || row >= height) {
+            continue;
+        }
+        const lane_kernel::RowCell& cell = cached_row_cell(row, cell_u, width, pixels, shapes_u, version);
+        lane_kernel::T value = cell.anchor;
+        for (int h = 0; h < 5; ++h) {
+            value += cell.currents[h] * horizontal.tau[h];
+        }
+        windows[k] = value;
+    }
+    return lane_kernel::compile(windows, shapes_v[cell_v]);
+}
+#endif
 double cell_value(const stx_conv::surface::LineCell& cell, const CellBasis& basis) {
     double value = cell.anchor;
     for (int j = 0; j < 5; ++j) {
@@ -166,35 +249,52 @@ struct RenderJob {
     Color* target = nullptr;
     std::size_t stride = 0;
     std::atomic<int> next{0};
+    std::mutex mutex;
+    std::exception_ptr failure;
 };
 void render_worker(RenderJob& job) {
-    for (;;) {
-        const int y = job.next.fetch_add(1, std::memory_order_relaxed);
-        if (y >= job.rows) {
-            return;
+    try {
+        const int tiles_x = (job.columns + 63) / 64, tiles_y = (job.rows + 31) / 32;
+        for (int tile = job.next.fetch_add(1); tile < tiles_x * tiles_y; tile = job.next.fetch_add(1)) {
+            const int x0 = (tile % tiles_x) * 64, y0 = (tile / tiles_x) * 32;
+            for (int y = y0; y < std::min(y0 + 32, job.rows); ++y) {
+                Color* const row = job.target + static_cast<std::size_t>(y) * job.stride;
+                const double cy = job.top + y + 0.5;
+                for (int x = x0; x < std::min(x0 + 64, job.columns); ++x) {
+                    const double cx = job.left + x + 0.5;
+                    row[x] = job.surface.sample({job.map.ux * cx + job.map.uy * cy + job.map.u0,
+                                                 job.map.vx * cx + job.map.vy * cy + job.map.v0});
+                }
+            }
         }
-        Color* const row = job.target + static_cast<std::size_t>(y) * job.stride;
-        const double cy = job.top + y + 0.5;
-        for (int x = 0; x < job.columns; ++x) {
-            const double cx = job.left + x + 0.5;
-            const Point position{job.map.ux * cx + job.map.uy * cy + job.map.u0,
-                                 job.map.vx * cx + job.map.vy * cy + job.map.v0};
-            row[x] = job.surface.sample(position);
-        }
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(job.mutex);
+        job.failure = std::current_exception();
     }
 }
 } // namespace
 
+static std::uint64_t next_surface_version() {
+    static std::atomic<std::uint64_t> version{1};
+    return version.fetch_add(1, std::memory_order_relaxed);
+}
+std::size_t CanvasSurface::storage_bytes() const noexcept {
+    return packed_.capacity() * sizeof(Color) + nodes_.capacity() * sizeof(double) +
+           cells_.capacity() * sizeof(stx_conv::surface::LineCell) +
+           (shapes_u_.capacity() + shapes_v_.capacity()) * sizeof(stx_conv::surface::CellShape);
+}
 void CanvasSurface::clear() noexcept {
+    version_ = 0;
+    std::vector<Color>().swap(packed_);
     ready_ = false;
     width_ = 0;
     height_ = 0;
-    nodes_ = {};
-    cells_ = {};
+    std::vector<double>().swap(nodes_);
+    std::vector<stx_conv::surface::LineCell>().swap(cells_);
     shapes_u_ = {};
     shapes_v_ = {};
 }
-void CanvasSurface::build(const Image& source) {
+void CanvasSurface::build(const Image& source, Storage storage) {
     clear();
     if (source.width < 2 || source.height < 2 ||
         source.pixels.size() != static_cast<std::size_t>(source.width) * source.height) {
@@ -206,15 +306,6 @@ void CanvasSurface::build(const Image& source) {
     try {
         width_ = source.width;
         height_ = source.height;
-        nodes_.resize(source.pixels.size() * channels);
-        for (std::size_t i = 0; i < source.pixels.size(); ++i) {
-            const Color color = source.pixels[i];
-            const double alpha = color.a / 255.0;
-            nodes_[i * 4] = color.r / 255.0 * alpha;
-            nodes_[i * 4 + 1] = color.g / 255.0 * alpha;
-            nodes_[i * 4 + 2] = color.b / 255.0 * alpha;
-            nodes_[i * 4 + 3] = alpha;
-        }
         const stx_conv::surface::LineLayout across{static_cast<std::size_t>(width_), false, closure, {}};
         const stx_conv::surface::LineLayout down{static_cast<std::size_t>(height_), false, closure, {}};
         shapes_u_.resize(static_cast<std::size_t>(width_) - 1);
@@ -224,6 +315,21 @@ void CanvasSurface::build(const Image& source) {
         }
         for (std::size_t cell = 0; cell < shapes_v_.size(); ++cell) {
             shapes_v_[cell] = stx_conv::surface::cell_shape(down, cell);
+        }
+        if (storage == Storage::point_tiles && fast_point_tiles) {
+            packed_ = source.pixels;
+            version_ = next_surface_version();
+            ready_ = true;
+            return;
+        }
+        nodes_.resize(source.pixels.size() * channels);
+        for (std::size_t i = 0; i < source.pixels.size(); ++i) {
+            const Color color = source.pixels[i];
+            const double alpha = color.a / 255.0;
+            nodes_[i * 4] = color.r / 255.0 * alpha;
+            nodes_[i * 4 + 1] = color.g / 255.0 * alpha;
+            nodes_[i * 4 + 2] = color.b / 255.0 * alpha;
+            nodes_[i * 4 + 3] = alpha;
         }
         cells_.resize(static_cast<std::size_t>(height_) * shapes_u_.size() * channels);
         CanvasSurfaceBuildJob job{*this};
@@ -270,6 +376,14 @@ void CanvasSurface::update(const Image& source, Rect damage) {
     if (right <= left || bottom <= top) {
         return;
     }
+    if (point_tiles()) {
+        for (int y = top; y < bottom; ++y) {
+            const std::size_t offset = std::size_t(y) * width_ + left;
+            std::copy_n(source.pixels.begin() + offset, right - left, packed_.begin() + offset);
+        }
+        version_ = next_surface_version();
+        return;
+    }
     for (int y = top; y < bottom; ++y) {
         for (int x = left; x < right; ++x) {
             const std::size_t i = static_cast<std::size_t>(y) * width_ + x;
@@ -299,6 +413,18 @@ WarpSample CanvasSurface::sample_components(Point position) const {
     double t_u = 0.0, t_v = 0.0;
     locate(position.x, cells_u, cell_u, t_u);
     locate(position.y, static_cast<std::size_t>(height_) - 1, cell_v, t_v);
+#if defined(__clang__) && defined(__aarch64__) && defined(__APPLE__)
+    if (point_tiles()) {
+        const lane_kernel::RowCell across = compact_column(width_, height_, packed_, shapes_u_, shapes_v_,
+                                                           version_, cell_u, cell_v, point_basis(t_u));
+        const CellBasis vertical = point_basis(t_v);
+        lane_kernel::T value = across.anchor;
+        for (int h = 0; h < 5; ++h) {
+            value += across.currents[h] * vertical.tau[h];
+        }
+        return {value[0], value[1], value[2], value[3]};
+    }
+#endif
     // The u-line values at u of the eight rows around the v-cell.
     std::array<std::array<double, 8>, channels> windows{};
     for (int k = 0; k < 8; ++k) {
@@ -327,6 +453,20 @@ void CanvasSurface::column_cells(double u, std::size_t cell_v, stx_conv::surface
     locate(u, cells_u, cell_u, t_u);
     // One basis for the column's 32 row-cell values.
     const CellBasis basis = cell_basis(t_u);
+#if defined(__clang__) && defined(__aarch64__) && defined(__APPLE__)
+    if (point_tiles()) {
+        const lane_kernel::RowCell across =
+            compact_column(width_, height_, packed_, shapes_u_, shapes_v_, version_, cell_u, cell_v, basis);
+        for (int c = 0; c < 4; ++c) {
+            cells[c].anchor = across.anchor[c];
+            for (int h = 0; h < 5; ++h) {
+                cells[c].currents[h] = across.currents[h][c];
+            }
+            cells[c].bubble = 0.0;
+        }
+        return;
+    }
+#endif
     std::array<std::array<double, 8>, channels> windows{};
     for (int k = 0; k < 8; ++k) {
         const int row = static_cast<int>(cell_v) - 3 + k;
@@ -454,16 +594,25 @@ void CanvasSurface::render(const TargetMap& map, int left, int top, int columns,
     if (columns <= 0 || rows <= 0) {
         return;
     }
-    RenderJob job{*this, map, left, top, columns, rows, target, stride};
+    RenderJob job{*this, map, left, top, columns, rows, target, stride, 0, {}, {}};
     const unsigned count = worker_count(static_cast<std::size_t>(columns) * rows);
     if (count == 1) {
         render_worker(job);
+        if (job.failure) {
+            std::rethrow_exception(job.failure);
+        }
         return;
     }
     std::vector<std::jthread> workers;
     workers.reserve(count);
     for (unsigned index = 0; index < count; ++index) {
         workers.emplace_back(render_worker, std::ref(job));
+    }
+    for (std::jthread& worker : workers) {
+        worker.join();
+    }
+    if (job.failure) {
+        std::rethrow_exception(job.failure);
     }
 }
 } // namespace paint

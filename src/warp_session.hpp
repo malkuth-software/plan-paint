@@ -38,9 +38,10 @@ class WarpWorker {
     void set_completion(std::function<void()> completion);
     void wait();
     void cancel();
-    void compile(WarpTask task, const Image& source, std::uint64_t generation = 0);
+    void compile(WarpTask task, const Image& source, std::uint64_t generation = 0,
+                 CanvasSurface::Storage storage = CanvasSurface::Storage::admitted_rows);
     void mesh(WarpTask task, std::shared_ptr<const ConvWarpField> field, const ReshapeMesh& mesh, Rect bounds,
-              std::uint64_t generation);
+              std::uint64_t generation, WarpSampling sampling = WarpSampling::Area);
     void affine(WarpTask task, std::shared_ptr<const ConvWarpField> field, const AffineMap& map, Rect bounds,
                 std::uint64_t generation);
     void transform(const Image& source, const AffineMap& map, Rect bounds, std::uint64_t generation = 0);
@@ -56,6 +57,8 @@ class WarpWorker {
     AffineMap map_;
     Rect bounds_;
     std::uint64_t generation_ = 0;
+    WarpSampling mesh_sampling_ = WarpSampling::Area;
+    CanvasSurface::Storage storage_ = CanvasSurface::Storage::admitted_rows;
     WarpTask task_ = WarpTask::None;
     WarpResult result_;
     bool busy_ = false;

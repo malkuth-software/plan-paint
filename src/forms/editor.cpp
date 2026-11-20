@@ -2522,7 +2522,7 @@ void Editor::execute(const std::string& command) {
         }
         if (command == "crop" || command == "cut" || command == "paste" || command == "resize" ||
             command == "text" || command == "select-all" || command == "new" || command == "open" ||
-            command == "reshape") {
+            command == "reshape" || command == "reshape-point") {
             unset_guide();
         }
         if (command == "numeric-transform") {
@@ -2586,8 +2586,8 @@ void Editor::execute(const std::string& command) {
             refresh();
             return;
         }
-        if (command == "reshape") {
-            start_reshape();
+        if (command == "reshape" || command == "reshape-point") {
+            start_reshape(command == "reshape-point");
             refresh();
             return;
         }
