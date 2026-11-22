@@ -7469,7 +7469,8 @@ void grain_group_compacts_by_rows() {
     gf::Window& window = *fixture.window;
     open_tab(window, "patterns-tab");
     const std::shared_ptr<gf::Ribbon> bar = ribbon_bar(window);
-    const std::size_t tab = *(*bar).selected_tab.read().value();
+    const stxlib::Optional<std::size_t> selected = (*bar).selected_tab.read();
+    const std::size_t tab = *selected.value();
     const std::span<const gf::RibbonGroupSpec> groups = (*bar).tabs()[tab].groups;
     std::size_t grain = groups.size();
     for (std::size_t index = 0; index < groups.size(); ++index) {
