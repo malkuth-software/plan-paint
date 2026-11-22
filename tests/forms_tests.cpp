@@ -7496,9 +7496,21 @@ void grain_group_compacts_by_rows() {
             three_rows = true;
             const std::optional<gf::Ribbon::CommandItem> label = shown_command(window, "grain-scale-label");
             const std::optional<gf::Ribbon::CommandItem> field = shown_command(window, "grain-scale");
+            // The field is a hosted control: its part, not a face, holds its bounds.
+            gf::Rect field_bounds{};
+            if (field) {
+                const gf::Ribbon::CommandParts& parts = (*field).parts;
+                for (const gf::PartGeometry* part : {&parts.command_numeric_up_down, &parts.command_combo_box,
+                                         &parts.command_text_box, &parts.command_face}) {
+                    if ((*part).present) {
+                        field_bounds = (*part).bounds;
+                        break;
+                    }
+                }
+            }
             require(label && field &&
-                        (*label).parts.command_face.bounds.bottom() <= (*field).parts.command_face.bounds.y + 1.0 &&
-                        std::abs((*label).parts.command_face.bounds.x - (*field).parts.command_face.bounds.x) < 1.0,
+                        (*label).parts.command_face.bounds.bottom() <= field_bounds.y + 1.0 &&
+                        std::abs((*label).parts.command_face.bounds.x - field_bounds.x) < 1.0,
                     "at three rows each grain label still stands above its field");
         }
     }
