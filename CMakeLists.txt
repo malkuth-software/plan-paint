@@ -21,23 +21,22 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # The harness bootstrap's smoke build (projects/plan-paint.toml): only the
 # codec-free warp kernel and its test, so a fresh workspace proves its
 # toolchain and compiler cache without the image codecs or GUI.Forms. The
-# warp kernel reads stxlib::conv (STXlib) and the canvas surface stx_conv's
-# surface: when either is not on CMAKE_PREFIX_PATH (a workspace without the
-# toolkit), only the image code is compiled and there is no test.
+# warp kernel and the canvas surface read stxlib::conv (STXlib): when it is
+# not on CMAKE_PREFIX_PATH (a workspace without the toolkit), only the image
+# code is compiled and there is no test.
 option(PLAN_PAINT_SMOKE "Build only the codec-free warp kernel and its test" OFF)
 if(PLAN_PAINT_SMOKE)
   enable_testing()
-  find_package(stx_conv CONFIG QUIET)
   find_package(stxlib CONFIG QUIET)
-  if(TARGET stx_conv::stx_conv AND TARGET stxlib::algorithms)
+  if(TARGET stxlib::algorithms)
     add_library(paint_smoke_core STATIC src/image.cpp src/warp.cpp src/canvas_surface.cpp)
     target_include_directories(paint_smoke_core PUBLIC src)
-    target_link_libraries(paint_smoke_core PUBLIC stx_conv::stx_conv stxlib::algorithms)
+    target_link_libraries(paint_smoke_core PUBLIC stxlib::algorithms)
     add_executable(paint-warp-tests tests/warp_tests.cpp)
     target_link_libraries(paint-warp-tests PRIVATE paint_smoke_core)
     add_test(NAME paint-warp COMMAND paint-warp-tests)
   else()
-    message(STATUS "stx_conv or stxlib not found: the smoke build compiles the image code only")
+    message(STATUS "stxlib not found: the smoke build compiles the image code only")
     add_library(paint_smoke_core STATIC src/image.cpp)
     target_include_directories(paint_smoke_core PUBLIC src)
   endif()
@@ -66,7 +65,7 @@ endif()
 # not shippable, and scripts/check_system_libraries.py refuses its package.
 option(RAINSTAR_SYSTEM_CODECS "Link installed libtiff, libwebp and dav1d (development only; not shippable)" OFF)
 include(cmake/ImportFormats.cmake)
-add_library(paint_core src/sticky_note.cpp vendor/playsuite-paper/paper.cpp src/localization.cpp src/localization_platform.cpp src/gradient.cpp src/recovery.cpp src/dither.cpp src/spirograph.cpp src/carpet.cpp src/canvas_backing.cpp src/desktop.cpp src/safe_file.cpp src/warp_session.cpp src/text.cpp src/embedded_font.cpp src/text_session.cpp src/font_inventory.cpp src/image.cpp src/color_palette.cpp src/color_tools.cpp src/paint_tools.cpp src/guide.cpp src/conv.cpp src/raster.cpp src/material.cpp src/atlas.cpp src/icon_validation.cpp src/icon_sheet.cpp src/toolbar_strip.cpp src/icon_export.cpp src/asset_browser.cpp src/file_change.cpp src/file_reveal.cpp src/alpha_tools.cpp src/icon_effects.cpp src/numeric_transform.cpp src/icon_palette.cpp src/icon_palette_file.cpp src/icon_generation.cpp src/icon_states.cpp src/icon_batch.cpp src/icon_stamp.cpp src/document.cpp src/document_atlas.cpp src/curve.cpp src/document_curve.cpp src/document_path.cpp src/superimpose.cpp src/file_type.cpp src/command_line.cpp src/codecs.cpp src/icon_codec.cpp src/import_codecs.cpp src/warp.cpp src/canvas_surface.cpp)
+add_library(paint_core src/sticky_note.cpp vendor/playsuite-paper/paper.cpp src/localization.cpp src/localization_platform.cpp src/gradient.cpp src/recovery.cpp src/dither.cpp src/spirograph.cpp src/carpet.cpp src/canvas_backing.cpp src/desktop.cpp src/safe_file.cpp src/warp_session.cpp src/text.cpp src/embedded_font.cpp src/text_session.cpp src/font_inventory.cpp src/image.cpp src/color_palette.cpp src/color_tools.cpp src/paint_tools.cpp src/guide.cpp src/conv.cpp src/raster.cpp src/material.cpp src/atlas.cpp src/icon_validation.cpp src/icon_sheet.cpp src/toolbar_strip.cpp src/icon_export.cpp src/asset_browser.cpp src/file_change.cpp src/file_reveal.cpp src/alpha_tools.cpp src/icon_effects.cpp src/numeric_transform.cpp src/icon_palette.cpp src/icon_palette_file.cpp src/icon_generation.cpp src/icon_states.cpp src/icon_batch.cpp src/icon_stamp.cpp src/document.cpp src/document_atlas.cpp src/curve.cpp src/document_curve.cpp src/document_path.cpp src/superimpose.cpp src/file_type.cpp src/command_line.cpp src/codecs.cpp src/icon_codec.cpp src/import_codecs.cpp src/warp.cpp src/canvas_surface.cpp src/cell_integral_surface.cpp)
 target_sources(paint_core PRIVATE src/geometry_style.cpp src/geometry_organic.cpp src/geometry_markers.cpp)
 target_include_directories(paint_core PUBLIC src PRIVATE vendor/playsuite-paper vendor/stb ${WEBP_INCLUDE_DIR})
 if(MSVC)
@@ -75,10 +74,12 @@ else()
   set_source_files_properties(vendor/playsuite-paper/paper.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off;-fno-fast-math")
 endif()
 target_link_libraries(paint_core PUBLIC ${RAINSTAR_TIFF_TARGET} ${RAINSTAR_WEBP_TARGET} avif lunasvg::lunasvg tinyxml2::tinyxml2)
-# CONV resampling and the transform tools (src/conv.cpp, src/warp.cpp) use
-# stxlib::conv (in stxlib::algorithms); the rotated canvas view
-# (src/canvas_surface.cpp) still reads stx_conv's surface, whose local updates
-# stxlib::conv does not offer. Both ship beside GUI.Forms:
+# CONV resampling, the transform tools and the rotated canvas view
+# (src/conv.cpp, src/warp.cpp, src/canvas_surface.cpp) use stxlib::conv (in
+# stxlib::algorithms). Only the cell integral over a polygon
+# (src/cell_integral_surface.cpp, which tests/canvas_surface_tests.cpp checks)
+# still reads stx_conv's surface, since stxlib::conv has no such integral.
+# Both ship beside GUI.Forms:
 # cmake/GUIFormsFrontend.cmake links them once the toolkit or SDK has found
 # them. Without the GUI.Forms frontend they must be found on CMAKE_PREFIX_PATH.
 if(NOT RAINSTAR_GUI_FORMS)

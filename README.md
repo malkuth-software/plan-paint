@@ -93,7 +93,7 @@ See [Spirograph](docs/SPIROGRAPH.md), [custom patterns](docs/CUSTOM_PATTERNS.md)
 - Resizing and transforms read STXlib's canonical CONV field (stxlib::conv). Prepared transform previews take its preview (the field at each pixel's pulled-back centre); committed affine and mesh transforms and area resizing take its canon (the field's average over each pixel's pulled-back footprint). A mesh is carried as a regular grid of source positions.
 - Rotated-view images publish before native painting to prevent flashing. View updates are batched, workers are reused, and stamp preparation survives repeated placement.
 
-The optional rotated view samples stx_conv's CONV surface (without the bubble refinement): five admitted currents per pixel cell of every row, with each sample computed from the 8 by 8 pixels around it. An edit recompiles only the cells that read a changed pixel, and the view updates only near the edit, so the rotated view follows strokes at once. The surface holds about 256 bytes a pixel; pictures above four megapixels, and pictures under 2 by 2 pixels, show direct pixel samples. The original canvas pixels are never replaced by the rotated view.
+The optional rotated view samples the CONV field of STXlib's stxlib::conv (without the bubble refinement), with each sample computed from the 8 by 8 pixels around it. An edit recompiles only the rows that hold a changed pixel, and the view updates only near the edit, so the rotated view follows strokes at once. Pictures above four megapixels, and pictures under 2 by 2 pixels, show direct pixel samples. The original canvas pixels are never replaced by the rotated view.
 
 ## New in 0.3.5
 

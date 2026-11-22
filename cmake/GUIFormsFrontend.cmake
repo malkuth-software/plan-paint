@@ -47,8 +47,8 @@ if(NOT PLAN_PAINT_GUI_FORMS_STANDARD)
 endif()
 endif()
 
-# paint_core's CONV uses stxlib::conv (stxlib::algorithms) and its rotated
-# canvas view stx_conv's surface. An SDK's GUIFormsConfig finds both in this
+# paint_core's CONV uses stxlib::conv (stxlib::algorithms), and its cell
+# integral over a polygon (src/cell_integral_surface.cpp) stx_conv's surface. An SDK's GUIFormsConfig finds both in this
 # scope; a pinned in-tree toolkit defines them as global targets; a toolkit
 # that installs stx at configure time leaves them in <build>/stx-prefix (or
 # the GUI_FORMS_STX_PREFIX it was given), where they are found here.
