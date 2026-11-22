@@ -1,5 +1,6 @@
 #include "warp.hpp"
 #include <stx_conv/surface.hpp>
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -16,6 +17,42 @@ void require(bool value, const char* message) {
 }
 void near(double a, double b, double tolerance, const char* message) {
     require(std::abs(a - b) <= tolerance, message);
+}
+// The canon's pixel over the source square [left, left + 1) x [top, top + 1):
+// the dense midpoint average of the ground's raw field (the material on its
+// transparent margin of two pixels), clamped once as a transfer clamps it
+// (colour to [0, alpha]) and made straight. Only the bounded midpoint
+// integration error separates it from the exact canon.
+paint::Color canon_reference(const paint::ConvWarpField& field, double left, double top) {
+    constexpr int divisions = 256;
+    double sums[4] = {};
+    for (int y = 0; y < divisions; ++y) {
+        for (int x = 0; x < divisions; ++x) {
+            double values[4] = {};
+            const double u = left + (x + 0.5) / divisions + 2.0;
+            const double v = top + (y + 0.5) / divisions + 2.0;
+            require(field.ground().evaluate(u, v, stxlib::MutableView<double>(values)).succeeded(),
+                    "the ground evaluates");
+            for (int channel = 0; channel < 4; ++channel) {
+                sums[channel] += values[channel];
+            }
+        }
+    }
+    const double count = static_cast<double>(divisions) * divisions;
+    const double alpha = std::clamp(sums[3] / count, 0.0, 1.0);
+    paint::Color result{0, 0, 0, static_cast<std::uint8_t>(std::round(255.0 * alpha))};
+    if (alpha > 0.0) {
+        result.r = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(sums[0] / count, 0.0, alpha) / alpha));
+        result.g = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(sums[1] / count, 0.0, alpha) / alpha));
+        result.b = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(sums[2] / count, 0.0, alpha) / alpha));
+    }
+    return result;
+}
+void near_color(paint::Color actual, paint::Color expected, const char* message) {
+    near(actual.r, expected.r, 1.0, message);
+    near(actual.g, expected.g, 1.0, message);
+    near(actual.b, expected.b, 1.0, message);
+    near(actual.a, expected.a, 1.0, message);
 }
 void test_constant_and_affine() {
     paint::Image image;
@@ -137,9 +174,9 @@ void test_mesh() {
     }
     require(rejected, "crossing lasso accepted");
 }
-// The field is stx_conv's tensor surface (paper closure, no bubble)
-// through the premultiplied pixels: its raw samples are stx_conv's, bit for
-// bit, on this 7x8 mixed affine/wrapped/curved-edge input; the surface is
+// The field is stxlib::conv's (the paper's Surface, paper closure, no
+// bubble) through the premultiplied pixels: its raw samples are stx_conv's
+// tensor surface's, bit for bit (stxlib::conv::Field::evaluate's promise), on this 7x8 mixed affine/wrapped/curved-edge input; the surface is
 // continuous across cells; projected samples stay in the colour domain.
 void test_surface_reference() {
     paint::Image image;
@@ -276,11 +313,12 @@ void test_physical_alpha_before_filtering() {
     paint::WarpSample physical = field.sample_premultiplied({1.685, 2.0});
     near(physical.a, raw.a, 0.0, "physical projection changed admitted alpha");
     near(physical.r, physical.a, 0.0, "physical sample contains excess premultiplied red");
-    // On this mixed-opacity edge, late clipping would return red 252. Projecting
-    // before integration agrees with the independent dense integral, red 248.
+    // Area is the canon: the raw field's average over the pixel, clamped once
+    // after it is formed (the former quadrature projected each sample first,
+    // red 248 here, where late clipping gave 252).
     paint::Image edge;
     paint::render_affine(field, {1, 0, 0.2, 0, 1, 0}, 5, 5, edge, paint::WarpSampling::Area);
-    require(edge.get(2, 2).r == 248, "excess color leaked between quadrature samples before clipping");
+    near_color(edge.get(2, 2), canon_reference(field, 1.3, 1.5), "area render is not the ground's canon");
     // All channels, including mixed colors and hidden RGB in transparent source pixels.
     std::uint32_t state = 19;
     for (paint::Color& pixel : image.pixels) {
@@ -307,31 +345,11 @@ void test_physical_alpha_before_filtering() {
                     "physical projection changed a visible source node");
         }
     }
-    // Independent dense midpoint integration of the physical field. Unlike a
-    // mirrored Gauss-rule test, this catches projection after, rather than before,
-    // averaging and allows only the bounded filter's numerical integration error.
-    constexpr int divisions = 256;
-    double sums[4] = {};
-    for (int y = 0; y < divisions; ++y) {
-        for (int x = 0; x < divisions; ++x) {
-            paint::Point position{1.2 + (x + 0.5) / divisions, 1.1 + (y + 0.5) / divisions};
-            physical = field.sample_premultiplied(position);
-            sums[0] += physical.r;
-            sums[1] += physical.g;
-            sums[2] += physical.b;
-            sums[3] += physical.a;
-        }
-    }
+    // The canon against an independent dense integration of the ground's raw
+    // field over the pixel's footprint, clamped once.
     paint::Image output;
     paint::render_affine(field, {1, 0, 0.3, 0, 1, 0.4}, 5, 5, output, paint::WarpSampling::Area);
-    paint::Color actual = output.get(2, 2);
-    near(actual.r, std::round(255.0 * sums[0] / sums[3]), 1.0, "filtered physical red differs from integral");
-    near(actual.g, std::round(255.0 * sums[1] / sums[3]), 1.0,
-         "filtered physical green differs from integral");
-    near(actual.b, std::round(255.0 * sums[2] / sums[3]), 1.0,
-         "filtered physical blue differs from integral");
-    near(actual.a, std::round(255.0 * sums[3] / (divisions * divisions)), 1.0,
-         "filtered alpha differs from integral");
+    near_color(output.get(2, 2), canon_reference(field, 1.2, 1.1), "filtered pixel differs from the canon integral");
 }
 void test_sampling_continuity_and_equivalent_maps() {
     paint::Image image;
@@ -349,7 +367,8 @@ void test_sampling_continuity_and_equivalent_maps() {
     require(identity.get(2, 2).r == 40 && moved.get(2, 2).r == 40,
             "infinitesimal translation changed the default sampling functional");
     paint::render_affine(field, {}, 5, 5, area, paint::WarpSampling::Area);
-    require(area.get(2, 2).r == 41, "explicit area mode silently became a point sample at identity");
+    near_color(area.get(2, 2), canon_reference(field, 1.5, 1.5),
+               "explicit area mode is not the canon at identity");
     paint::render_affine(field, {1, 0, 0.000001, 0, 1, 0}, 5, 5, moved, paint::WarpSampling::Area);
     require(moved.get(2, 2).r == area.get(2, 2).r, "explicit area functional jumps near identity");
     constexpr paint::AffineMap maps[4] = {
@@ -365,14 +384,18 @@ void test_sampling_continuity_and_equivalent_maps() {
             paint::Image affine_output, mesh_output;
             paint::render_affine(field, map, 7, 7, affine_output, sampling);
             paint::render_mesh(field, mesh, 7, 7, mesh_output, sampling);
+            // The mesh's grid carries source positions rounded once more
+            // than the affine map's, so a byte may round the other way.
             for (std::size_t i = 0; i < affine_output.pixels.size(); ++i) {
-                require(paint::equal(affine_output.pixels[i], mesh_output.pixels[i]),
-                        "equivalent affine and mesh maps produced different pixels");
+                near_color(affine_output.pixels[i], mesh_output.pixels[i],
+                           "equivalent affine and mesh maps produced different pixels");
             }
         }
     }
-    // Former 2/4/8-rule thresholds no longer introduce finite switches.
-    for (double stretch : {1.0, 1.25, 3.0}) {
+    // Minification switches from the preview to the canon where the map
+    // starts to minify (a footprint of one pixel); past it the canon is
+    // continuous in the scale.
+    for (double stretch : {1.25, 3.0}) {
         double before = 1.0 / (stretch - 0.0000001);
         double after = 1.0 / (stretch + 0.0000001);
         paint::render_affine(field, {before, 0, 2 - 2 * before, 0, before, 2 - 2 * before}, 5, 5, identity);
@@ -392,8 +415,10 @@ struct ConcurrentAffineProbe {
 };
 void test_reused_affine_workers() {
     paint::Image first, second;
-    first.reset(5, 5, {200, 30, 40, 255});
-    second.reset(5, 5, {20, 90, 220, 255});
+    // Nine pixels a side: the canon's footprint at the centre reads only
+    // the material, not the transparent ground around it.
+    first.reset(9, 9, {200, 30, 40, 255});
+    second.reset(9, 9, {20, 90, 220, 255});
     paint::ConvWarpField a, b;
     a.compile(first);
     b.compile(second);
@@ -407,9 +432,9 @@ void test_reused_affine_workers() {
     for (std::jthread& caller : callers) {
         caller.join();
     }
-    require(paint::equal(probes[0].result.get(2, 2), first.get(2, 2)) &&
-                paint::equal(probes[1].result.get(2, 2), second.get(2, 2)) &&
-                paint::equal(probes[2].result.get(2, 2), first.get(2, 2)),
+    require(paint::equal(probes[0].result.get(4, 4), first.get(4, 4)) &&
+                paint::equal(probes[1].result.get(4, 4), second.get(4, 4)) &&
+                paint::equal(probes[2].result.get(4, 4), first.get(4, 4)),
             "reused point and area workers retain distinct concurrent jobs");
     require(probes[0].result.get(20, 20).a == 0 && probes[1].result.get(20, 20).a == 0,
             "reused workers clear pixels outside each source");
@@ -448,7 +473,7 @@ int main(int argc, char** argv) {
         test_physical_alpha_before_filtering();
         test_sampling_continuity_and_equivalent_maps();
         test_reused_affine_workers();
-        std::cout << "CONV warp constants, stx_conv surface reference, affine fields, cardinality, alpha, tiny "
+        std::cout << "CONV warp constants, stx_conv surface reference, stxlib::conv canon, affine fields, alpha, tiny "
                      "images, mesh identity, folds and lasso tests passed.\n";
         if (argc > 1) {
             benchmark(std::stoi(argv[1]));

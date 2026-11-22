@@ -616,10 +616,10 @@ void test_conv() {
     for (paint::Color pixel : output.pixels) {
         require(paint::equal(pixel, {20, 40, 60, 255}), "short line failed");
     }
-    // Images of 65536 pixels or more fan their lines out over worker threads.
-    // With identical rows (columns), every threaded row (column) must equal the
-    // single-line resize, which runs on one thread: this pins each worker's
-    // line offsets and strides, for nodal and area sampling.
+    // Images of 65536 pixels or more split their rows into bands over worker
+    // threads. With identical rows (columns), every threaded row (column) must
+    // equal the single-line resize, which runs on one thread and whose field
+    // repeats the line: this pins each band's region, for preview and canon.
     const int wide = 300, tall = 240;
     paint::Image row, rows, column, columns, expected, actual;
     row.reset(wide, 1);
@@ -715,7 +715,15 @@ void test_conv_area() {
     require(paint::equal(output.get(0, 0), {255, 0, 0, 128}),
             "area resize averages premultiplied opacity without hidden-color bleed");
 }
+// The fixtures are the website's JavaScript CONV* (the older 1D profile
+// method). stxlib::conv is the paper's Surface canon: the two agree on smooth
+// content and differ next to sign changes, by at most 6 codes on noise
+// (stxlib work/conv HANDOVER.md), and stxlib::conv writes a pixel whose
+// alpha rounds to zero as 0, 0, 0, 0, where the reference keeps rounding
+// noise in its colour. The comparison holds the port to those bounds.
 void test_conv_reference() {
+    int differing = 0;
+    int largest = 0;
     for (const fixtures::Case& fixture : fixtures::cases) {
         paint::Image input, output;
         input.reset(fixture.width, fixture.height);
@@ -723,13 +731,21 @@ void test_conv_reference() {
         paint::conv_resize(input, fixture.out_width, fixture.out_height, output);
         const std::uint8_t* actual = reinterpret_cast<const std::uint8_t*>(output.pixels.data());
         for (std::size_t i = 0; i < output.pixels.size() * 4; ++i) {
-            if (actual[i] != fixture.expected[i]) {
+            const bool invisible_colour = i % 4 != 3 && actual[i - i % 4 + 3] == 0;
+            const int difference = std::abs(static_cast<int>(actual[i]) - static_cast<int>(fixture.expected[i]));
+            if (invisible_colour || difference == 0) {
+                continue;
+            }
+            ++differing;
+            largest = std::max(largest, difference);
+            if (difference > 6) {
                 std::cerr << "reference difference at byte " << i << ": " << static_cast<int>(actual[i])
                           << " vs " << static_cast<int>(fixture.expected[i]) << '\n';
-                throw std::runtime_error("Native CONV differs from website JavaScript reference");
+                throw std::runtime_error("stxlib::conv differs from the CONV* reference by more than 6 codes");
             }
         }
     }
+    std::cout << "CONV reference: " << differing << " bytes differ from CONV*, by at most " << largest << '\n';
 }
 void test_editing() {
     paint::Document doc;

@@ -1,168 +1,158 @@
 #include "conv.hpp"
-#include <stx_conv/conv.hpp>
+#include <stxlib/conv.hpp>
 #include <algorithm>
-#include <atomic>
-#include <cmath>
+#include <cstddef>
 #include <functional>
-#include <span>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
-// CONV* is computed by stx_conv, the optimized library port of this file's
-// former native resampler (same operator: six-source/five-current quintic
-// construction, short-line closure, nodal basins and pixel-area footprints,
-// binary64, axis order kept). Plan Paint keeps two things here: the
-// premultiplied sRGB conversion around the numeric library, and the fan-out of
-// independent lines over worker threads, which stx_conv leaves to its caller.
+// CONV is computed by stxlib::conv (STXlib), the one canonical CONV of every
+// program (owner, 2026-11-22). Plan Paint keeps two things here: the view of
+// its straight RGBA pixels as the field's bytes, and the split of the
+// destination into row bands over worker threads, which stxlib::conv leaves
+// to its caller (one workspace per thread, the compiled field shared).
 namespace paint {
 namespace {
-// Premultiplied RGBA: four independent lanes per node.
-const std::size_t channels = 4;
+// Image pixels are four bytes, r g b a, rows contiguous: the field's RGBA8
+// layout. A Color is read and written through unsigned char, which may alias
+// any object.
+static_assert(sizeof(Color) == stxlib::conv::channels && alignof(Color) == 1);
+static_assert(std::is_standard_layout_v<Color> && std::is_trivially_copyable_v<Color>);
 
-// Per-worker stx_conv storage, allocated in the calling thread before any
-// worker starts so an allocation failure throws there and not in a thread.
-// stx_conv admits one compile workspace per concurrent compile.
-struct WorkerStorage {
-    stx_conv::Profile profile;
-    stx_conv::LineWorkspace workspace;
-};
+const stxlib::u8* pixel_bytes(const Image& image) {
+    const stxlib::u8* bytes = reinterpret_cast<const stxlib::u8*>(image.pixels.data());
+    return bytes;
+}
+stxlib::u8* pixel_bytes(Image& image) {
+    stxlib::u8* bytes = reinterpret_cast<stxlib::u8*>(image.pixels.data());
+    return bytes;
+}
 
-// One axis pass over a width x height interleaved image: every row (across)
-// or column (vertical) is resampled to `target` nodes by one shared,
-// immutable plan. Workers claim lines from `next`; lines write disjoint nodes.
-struct AxisJob {
-    std::span<const double> input;
-    std::span<double> output;
-    const stx_conv::LinePlan& plan;
-    std::size_t width = 0, height = 0, target = 0;
-    bool vertical = false;
-    std::atomic<std::size_t> next{0};
-    std::atomic<int> failure{static_cast<int>(stx_conv::Status::ok)};
+// The source as the field reads it: a one-pixel side repeated to two, so the
+// field across it is constant and along the other axis it is that line's
+// curve. Other images are used as they are (`repeated` stays empty).
+const Image& field_source(const Image& source, Image& repeated) {
+    if (source.width >= 2 && source.height >= 2) {
+        return source;
+    }
+    repeated.reset(std::max(2, source.width), std::max(2, source.height), {0, 0, 0, 0});
+    for (int y = 0; y < repeated.height; ++y) {
+        for (int x = 0; x < repeated.width; ++x) {
+            repeated.set(x, y, source.get(std::min(x, source.width - 1), std::min(y, source.height - 1)));
+        }
+    }
+    return repeated;
+}
+
+// One band of destination rows, transferred on one thread with its own
+// workspace; `succeeded` is written by that thread only.
+struct BandWork {
+    const stxlib::conv::Field* field = nullptr;
+    stxlib::conv::AxisMap map;
+    stxlib::conv::Mode mode = stxlib::conv::Mode::preview;
+    stxlib::conv::MutableRgba8Image destination;
+    stxlib::conv::Region region;
+    stxlib::conv::Workspace* workspace = nullptr;
+    bool succeeded = false;
 };
-void axis_worker(AxisJob& job, WorkerStorage& storage) {
-    const std::size_t lines = job.vertical ? job.width : job.height;
-    const int ok = static_cast<int>(stx_conv::Status::ok);
-    for (;;) {
-        const std::size_t line = job.next.fetch_add(1, std::memory_order_relaxed);
-        if (line >= lines || job.failure.load(std::memory_order_relaxed) != ok) {
-            return;
-        }
-        // Columns step by whole rows; rows are contiguous nodes.
-        const std::size_t source_offset = job.vertical ? line * channels : line * job.width * channels;
-        const std::size_t source_stride = job.vertical ? job.width * channels : channels;
-        const std::size_t target_offset = job.vertical ? line * channels : line * job.target * channels;
-        const std::size_t target_stride = job.vertical ? job.width * channels : channels;
-        const stx_conv::LineInput input{job.input.subspan(source_offset), source_stride};
-        const stx_conv::LineOutput output{job.output.subspan(target_offset), target_stride};
-        stx_conv::Status status = stx_conv::compile(input, storage.profile, storage.workspace);
-        if (status == stx_conv::Status::ok) {
-            status = stx_conv::evaluate(storage.profile, job.plan, output);
-        }
-        if (status != stx_conv::Status::ok) {
-            job.failure.store(static_cast<int>(status), std::memory_order_relaxed);
-            return;
-        }
-    }
+void transfer_band(BandWork& work) {
+    const stxlib::OperationStatus status =
+        stxlib::conv::transfer(*work.field, work.map, work.mode, work.destination, work.region, *work.workspace);
+    work.succeeded = status.succeeded();
 }
-const char* status_message(stx_conv::Status status) {
-    if (status == stx_conv::Status::numerical_failure) {
-        return "CONV signed-current projection did not admit this image.";
-    }
-    return "CONV rejected the resize request (invalid image storage).";
-}
-void resize_axis(const std::vector<double>& input, std::size_t width, std::size_t height, std::size_t target,
-                 bool vertical, std::vector<double>& output, bool area) {
-    const std::size_t length = vertical ? height : width;
-    const std::size_t lines = vertical ? width : height;
-    output.resize(lines * target * channels);
-    const stx_conv::Sampling sampling = area ? stx_conv::Sampling::pixel_area : stx_conv::Sampling::nodal;
-    const stx_conv::LinePlan plan(length, target, sampling);
-    unsigned count = std::min(8u, std::max(1u, std::thread::hardware_concurrency()));
-    if (width * height < 65536) {
-        count = 1;
-    }
-    std::vector<WorkerStorage> storage;
-    storage.reserve(count);
-    for (unsigned index = 0; index < count; ++index) {
-        storage.push_back(
-            WorkerStorage{stx_conv::Profile(length, channels), stx_conv::LineWorkspace(length, channels)});
-    }
-    AxisJob job{input, output, plan, width, height, target, vertical};
-    if (count == 1) {
-        axis_worker(job, storage[0]);
-    } else {
-        std::vector<std::jthread> workers;
-        workers.reserve(count);
-        for (unsigned index = 0; index < count; ++index) {
-            workers.emplace_back(axis_worker, std::ref(job), std::ref(storage[index]));
-        }
-        for (std::jthread& worker : workers) {
-            worker.join();
-        }
-    }
-    const int failure = job.failure.load(std::memory_order_relaxed);
-    if (failure != static_cast<int>(stx_conv::Status::ok)) {
-        throw std::runtime_error(status_message(static_cast<stx_conv::Status>(failure)));
-    }
-}
-void resize_image(const Image& source, int width, int height, Image& destination, bool area) {
-    if (source.width < 1 || source.height < 1) {
+
+void resize_image(const Image& source, int width, int height, Image& destination, stxlib::conv::Mode mode) {
+    if (source.width < 1 || source.height < 1 ||
+        source.pixels.size() != static_cast<std::size_t>(source.width) * static_cast<std::size_t>(source.height)) {
         throw std::invalid_argument("Cannot resize an empty image.");
     }
     if (width < 1 || height < 1) {
         throw std::invalid_argument("Cannot resize to an empty image.");
     }
+    const std::size_t largest = stxlib::conv::max_side;
+    if (static_cast<std::size_t>(source.width) > largest || static_cast<std::size_t>(source.height) > largest ||
+        static_cast<std::size_t>(width) > largest || static_cast<std::size_t>(height) > largest) {
+        throw std::invalid_argument("CONV resizes images up to 32768 pixels a side.");
+    }
     if (width == source.width && height == source.height) {
         destination = source;
         return;
     }
-    const std::size_t source_width = static_cast<std::size_t>(source.width);
-    const std::size_t source_height = static_cast<std::size_t>(source.height);
+    Image repeated;
+    const Image& from = field_source(source, repeated);
+    const std::size_t from_width = static_cast<std::size_t>(from.width);
+    const std::size_t from_height = static_cast<std::size_t>(from.height);
+    stxlib::OperationResult<stxlib::conv::Field> made =
+        stxlib::conv::Field::make(from_width, from_height, stxlib::conv::FieldOptions{});
+    if (made.failed()) {
+        throw std::runtime_error("CONV could not allocate the image's field.");
+    }
+    stxlib::conv::Field field = std::move(made).take_value();
+    const stxlib::conv::Rgba8Image image{stxlib::View<stxlib::u8>(pixel_bytes(from), from.pixels.size() * 4),
+                                         from_width, from_height, from_width * 4};
+    if (field.compile(image).failed()) {
+        throw std::runtime_error("CONV rejected the source image.");
+    }
     const std::size_t target_width = static_cast<std::size_t>(width);
     const std::size_t target_height = static_cast<std::size_t>(height);
     Image result;
     result.reset(width, height, {0, 0, 0, 0});
-    std::vector<double> input(source.pixels.size() * channels);
-    for (std::size_t i = 0; i < source.pixels.size(); ++i) {
-        const Color color = source.pixels[i];
-        const double alpha = color.a / 255.0;
-        input[i * 4] = color.r / 255.0 * alpha;
-        input[i * 4 + 1] = color.g / 255.0 * alpha;
-        input[i * 4 + 2] = color.b / 255.0 * alpha;
-        input[i * 4 + 3] = alpha;
+    const stxlib::conv::MutableRgba8Image output{
+        stxlib::MutableView<stxlib::u8>(pixel_bytes(result), result.pixels.size() * 4), target_width, target_height,
+        target_width * 4};
+    // Bands of whole rows; small images take one.
+    std::size_t count = std::min<std::size_t>(8, std::max(1u, std::thread::hardware_concurrency()));
+    if (target_width * target_height < 65536) {
+        count = 1;
     }
-    // Axis order is part of the operator: vertical first when height shrinks.
-    std::vector<double> middle, output;
-    if (target_width == source_width) {
-        resize_axis(input, source_width, source_height, target_height, true, output, area);
-    } else if (target_height == source_height) {
-        resize_axis(input, source_width, source_height, target_width, false, output, area);
-    } else if (target_height < source_height) {
-        resize_axis(input, source_width, source_height, target_height, true, middle, area);
-        resize_axis(middle, source_width, target_height, target_width, false, output, area);
+    count = std::min(count, target_height);
+    std::vector<stxlib::conv::Workspace> workspaces;
+    workspaces.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        stxlib::OperationResult<stxlib::conv::Workspace> workspace = stxlib::conv::Workspace::make();
+        if (workspace.failed()) {
+            throw std::runtime_error("CONV could not allocate a workspace.");
+        }
+        workspaces.push_back(std::move(workspace).take_value());
+    }
+    std::vector<BandWork> bands(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        BandWork& band = bands[index];
+        band.field = &field;
+        band.map = stxlib::conv::AxisMap{target_width, target_height};
+        band.mode = mode;
+        band.destination = output;
+        band.region = stxlib::conv::Region{0, index * target_height / count, target_width,
+                                           (index + 1) * target_height / count};
+        band.workspace = &workspaces[index];
+    }
+    if (count == 1) {
+        transfer_band(bands[0]);
     } else {
-        resize_axis(input, source_width, source_height, target_width, false, middle, area);
-        resize_axis(middle, target_width, source_height, target_height, true, output, area);
+        std::vector<std::jthread> workers;
+        workers.reserve(count);
+        for (std::size_t index = 0; index < count; ++index) {
+            workers.emplace_back(transfer_band, std::ref(bands[index]));
+        }
+        for (std::jthread& worker : workers) {
+            worker.join();
+        }
     }
-    // stx_conv may overshoot near sign transitions; the 8-bit format clamps here.
-    for (std::size_t i = 0; i < result.pixels.size(); ++i) {
-        const double alpha = std::clamp(output[i * 4 + 3], 0.0, 1.0);
-        const double inverse = alpha > 1.0 / 65535.0 ? 1.0 / alpha : 0.0;
-        const Color color{
-            static_cast<std::uint8_t>(std::round(255.0 * std::clamp(output[i * 4] * inverse, 0.0, 1.0))),
-            static_cast<std::uint8_t>(std::round(255.0 * std::clamp(output[i * 4 + 1] * inverse, 0.0, 1.0))),
-            static_cast<std::uint8_t>(std::round(255.0 * std::clamp(output[i * 4 + 2] * inverse, 0.0, 1.0))),
-            static_cast<std::uint8_t>(std::round(255.0 * alpha))};
-        result.pixels[i] = color;
+    for (const BandWork& band : bands) {
+        if (!band.succeeded) {
+            throw std::runtime_error("CONV rejected the resize request.");
+        }
     }
     destination = std::move(result);
 }
 } // namespace
 void conv_resize(const Image& source, int width, int height, Image& destination) {
-    resize_image(source, width, height, destination, false);
+    resize_image(source, width, height, destination, stxlib::conv::Mode::preview);
 }
 void conv_resize_area(const Image& source, int width, int height, Image& destination) {
-    resize_image(source, width, height, destination, true);
+    resize_image(source, width, height, destination, stxlib::conv::Mode::canon);
 }
 } // namespace paint

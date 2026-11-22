@@ -21,22 +21,23 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # The harness bootstrap's smoke build (projects/plan-paint.toml): only the
 # codec-free warp kernel and its test, so a fresh workspace proves its
 # toolchain and compiler cache without the image codecs or GUI.Forms. The
-# warp kernel samples stx_conv's surface: when stx_conv is not on
-# CMAKE_PREFIX_PATH (a workspace without the toolkit), only the image code is
-# compiled and there is no test.
+# warp kernel reads stxlib::conv (STXlib) and the canvas surface stx_conv's
+# surface: when either is not on CMAKE_PREFIX_PATH (a workspace without the
+# toolkit), only the image code is compiled and there is no test.
 option(PLAN_PAINT_SMOKE "Build only the codec-free warp kernel and its test" OFF)
 if(PLAN_PAINT_SMOKE)
   enable_testing()
   find_package(stx_conv CONFIG QUIET)
-  if(TARGET stx_conv::stx_conv)
+  find_package(stxlib CONFIG QUIET)
+  if(TARGET stx_conv::stx_conv AND TARGET stxlib::algorithms)
     add_library(paint_smoke_core STATIC src/image.cpp src/warp.cpp src/canvas_surface.cpp)
     target_include_directories(paint_smoke_core PUBLIC src)
-    target_link_libraries(paint_smoke_core PUBLIC stx_conv::stx_conv)
+    target_link_libraries(paint_smoke_core PUBLIC stx_conv::stx_conv stxlib::algorithms)
     add_executable(paint-warp-tests tests/warp_tests.cpp)
     target_link_libraries(paint-warp-tests PRIVATE paint_smoke_core)
     add_test(NAME paint-warp COMMAND paint-warp-tests)
   else()
-    message(STATUS "stx_conv not found: the smoke build compiles the image code only")
+    message(STATUS "stx_conv or stxlib not found: the smoke build compiles the image code only")
     add_library(paint_smoke_core STATIC src/image.cpp)
     target_include_directories(paint_smoke_core PUBLIC src)
   endif()
@@ -74,12 +75,16 @@ else()
   set_source_files_properties(vendor/playsuite-paper/paper.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off;-fno-fast-math")
 endif()
 target_link_libraries(paint_core PUBLIC ${RAINSTAR_TIFF_TARGET} ${RAINSTAR_WEBP_TARGET} avif lunasvg::lunasvg tinyxml2::tinyxml2)
-# CONV* resampling (src/conv.cpp) uses stx_conv, which ships beside GUI.Forms:
-# cmake/GUIFormsFrontend.cmake links it once the toolkit or SDK has found it.
-# Without the GUI.Forms frontend it must be found on CMAKE_PREFIX_PATH.
+# CONV resampling and the transform tools (src/conv.cpp, src/warp.cpp) use
+# stxlib::conv (in stxlib::algorithms); the rotated canvas view
+# (src/canvas_surface.cpp) still reads stx_conv's surface, whose local updates
+# stxlib::conv does not offer. Both ship beside GUI.Forms:
+# cmake/GUIFormsFrontend.cmake links them once the toolkit or SDK has found
+# them. Without the GUI.Forms frontend they must be found on CMAKE_PREFIX_PATH.
 if(NOT RAINSTAR_GUI_FORMS)
   find_package(stx_conv CONFIG REQUIRED)
-  target_link_libraries(paint_core PUBLIC stx_conv::stx_conv)
+  find_package(stxlib CONFIG REQUIRED)
+  target_link_libraries(paint_core PUBLIC stx_conv::stx_conv stxlib::algorithms)
 endif()
 if(WIN32)
   # command_line.cpp reads the UTF-16 command line with CommandLineToArgvW.

@@ -47,19 +47,23 @@ if(NOT PLAN_PAINT_GUI_FORMS_STANDARD)
 endif()
 endif()
 
-# paint_core's CONV* uses stx_conv. An SDK's GUIFormsConfig finds it in this
-# scope; a pinned in-tree toolkit defines it as a global target; a toolkit
-# that installs stx at configure time leaves it in <build>/stx-prefix (or the
-# GUI_FORMS_STX_PREFIX it was given), where it is found here.
+# paint_core's CONV uses stxlib::conv (stxlib::algorithms) and its rotated
+# canvas view stx_conv's surface. An SDK's GUIFormsConfig finds both in this
+# scope; a pinned in-tree toolkit defines them as global targets; a toolkit
+# that installs stx at configure time leaves them in <build>/stx-prefix (or
+# the GUI_FORMS_STX_PREFIX it was given), where they are found here.
+if(GUI_FORMS_STX_PREFIX)
+  set(paint_stx_prefix "${GUI_FORMS_STX_PREFIX}")
+else()
+  set(paint_stx_prefix "${CMAKE_BINARY_DIR}/stx-prefix")
+endif()
 if(NOT TARGET stx_conv::stx_conv)
-  if(GUI_FORMS_STX_PREFIX)
-    set(paint_stx_prefix "${GUI_FORMS_STX_PREFIX}")
-  else()
-    set(paint_stx_prefix "${CMAKE_BINARY_DIR}/stx-prefix")
-  endif()
   find_package(stx_conv CONFIG REQUIRED NO_DEFAULT_PATH PATHS "${paint_stx_prefix}")
 endif()
-target_link_libraries(paint_core PUBLIC stx_conv::stx_conv)
+if(NOT TARGET stxlib::algorithms)
+  find_package(stxlib CONFIG REQUIRED NO_DEFAULT_PATH PATHS "${paint_stx_prefix}")
+endif()
+target_link_libraries(paint_core PUBLIC stx_conv::stx_conv stxlib::algorithms)
 # The curve tools flatten through GUI.Drawing's GraphicsPath (src/curve.cpp),
 # which the static Application archive carries; the frontend-free build keeps
 # its own flattening.

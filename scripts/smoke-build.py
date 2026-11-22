@@ -7,9 +7,10 @@ Run from the workspace root (Plan Paint's checkout). Configures
 .build/native-<platform>/plan-paint-smoke with PLAN_PAINT_SMOKE=ON (no image
 codecs, no GUI.Forms), builds it with clang and ccache when present, and runs
 paint-warp. It needs only CMake, Ninja and the LLVM 22.1.8 toolchain the
-bootstrap restores. The warp kernel samples stx_conv's surface: put stx_conv
-on CMAKE_PREFIX_PATH (a GUI.Forms SDK prefix) to build and run paint-warp;
-without it only the image code is compiled and there is no test. The harness toolchain file is used when the harness is
+bootstrap restores. The warp kernel reads stxlib::conv and the canvas surface
+stx_conv's surface: put both on CMAKE_PREFIX_PATH (a GUI.Forms SDK prefix) to
+build and run paint-warp; without them only the image code is compiled and
+there is no test. The harness toolchain file is used when the harness is
 checked out at template_harness/; on macOS only when the LLVM runtime prefix
 it needs is named (HARNESS_LLVM_RUNTIME or GUI_FORMS_LLVM_RUNTIME).
 

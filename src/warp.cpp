@@ -2,26 +2,84 @@
 // Native adaptation by Astra, sponsored by Joshuah. Thanks to Hashem.
 #include "warp.hpp"
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
-#include <condition_variable>
-#include <exception>
+#include <cstddef>
 #include <functional>
 #include <limits>
-#include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <utility>
+#include <vector>
 
+// The transform tools read the material through stxlib::conv (STXlib), the
+// one canonical CONV (owner, 2026-11-22): point samples are the field's
+// value (stxlib::conv::Field::evaluate, stx_conv's Surface bit for bit), and
+// renders are its transfers, preview (the field at each destination pixel's
+// pulled-back centre) or canon (its average over the pulled-back footprint),
+// through an affine map or a mesh map. The material is transferred from a
+// copy on a transparent margin, since a transfer clamps positions to its
+// field: outside the material the ground is transparent, and the material's
+// edge falls to it across one pixel.
 namespace paint {
+namespace {
+// Image pixels are four bytes, r g b a, rows contiguous: the field's RGBA8
+// layout, read and written through unsigned char.
+static_assert(sizeof(Color) == stxlib::conv::channels && alignof(Color) == 1);
+static_assert(std::is_standard_layout_v<Color> && std::is_trivially_copyable_v<Color>);
+// The transparent margin around the material in the transfers' field: two
+// pixels, so the ground's outer nodes, where a clamped position lands, are
+// transparent and every cell past the first margin pixel reads it.
+constexpr int ground_margin = 2;
+
+const stxlib::u8* pixel_bytes(const Image& image) {
+    const stxlib::u8* bytes = reinterpret_cast<const stxlib::u8*>(image.pixels.data());
+    return bytes;
+}
+stxlib::u8* pixel_bytes(Image& image) {
+    stxlib::u8* bytes = reinterpret_cast<stxlib::u8*>(image.pixels.data());
+    return bytes;
+}
+// A field compiled from `image` (at least 2 x 2); throws on refusal.
+stxlib::conv::Field compiled_field(const Image& image) {
+    const std::size_t width = static_cast<std::size_t>(image.width);
+    const std::size_t height = static_cast<std::size_t>(image.height);
+    stxlib::OperationResult<stxlib::conv::Field> made =
+        stxlib::conv::Field::make(width, height, stxlib::conv::FieldOptions{});
+    if (made.failed()) {
+        throw std::runtime_error("CONV could not allocate the material's field.");
+    }
+    stxlib::conv::Field field = std::move(made).take_value();
+    const stxlib::conv::Rgba8Image source{stxlib::View<stxlib::u8>(pixel_bytes(image), image.pixels.size() * 4),
+                                          width, height, width * 4};
+    if (field.compile(source).failed()) {
+        throw std::runtime_error("CONV rejected the material.");
+    }
+    return field;
+}
+// `source` copied into `ground` with its top left at (left, top).
+void copy_into(Image& ground, const Image& source, int left, int top) {
+    for (int y = 0; y < source.height; ++y) {
+        for (int x = 0; x < source.width; ++x) {
+            ground.set(left + x, top + y, source.get(x, y));
+        }
+    }
+}
+void check_cancelled(const std::atomic<bool>* cancelled, const char* message) {
+    if (cancelled && (*cancelled).load(std::memory_order_relaxed)) {
+        throw std::runtime_error(message);
+    }
+}
+} // namespace
 void ConvWarpField::compile(const Image& source, const std::atomic<bool>* cancelled) {
-    if (source.width < 1 || source.height < 1 || source.width > 32768 || source.height > 32768 ||
+    if (source.width < 1 || source.height < 1 || source.width > 32768 - 2 * ground_margin ||
+        source.height > 32768 - 2 * ground_margin ||
         source.pixels.size() != static_cast<std::size_t>(source.width) * source.height) {
         throw std::invalid_argument("Invalid CONV source image.");
     }
-    if (cancelled && (*cancelled).load(std::memory_order_relaxed)) {
-        throw std::runtime_error("CONV preparation superseded.");
-    }
+    check_cancelled(cancelled, "CONV preparation superseded.");
     const Color first = source.pixels.front();
     bool constant = true;
     for (const Color color : source.pixels) {
@@ -30,50 +88,43 @@ void ConvWarpField::compile(const Image& source, const std::atomic<bool>* cancel
             break;
         }
     }
-    if (constant) {
-        const double alpha = first.a / 255.0;
-        constant_value_ = {first.r / 255.0 * alpha, first.g / 255.0 * alpha, first.b / 255.0 * alpha, alpha};
-        constant_ = true;
-        surface_.clear();
-        width_ = source.width;
-        height_ = source.height;
-        return;
-    }
-    // A one-pixel axis is repeated: the surface across it is then constant
-    // and along the other axis it is that line's CONV curve.
-    CanvasSurface surface;
-    if (source.width == 1 || source.height == 1) {
-        Image padded;
-        padded.reset(std::max(2, source.width), std::max(2, source.height));
-        for (int y = 0; y < padded.height; ++y) {
-            for (int x = 0; x < padded.width; ++x) {
-                padded.set(x, y, source.get(std::min(x, source.width - 1), std::min(y, source.height - 1)));
+    // The ground: the material on a transparent margin.
+    Image ground;
+    ground.reset(source.width + 2 * ground_margin, source.height + 2 * ground_margin, {0, 0, 0, 0});
+    copy_into(ground, source, ground_margin, ground_margin);
+    stxlib::conv::Field ground_field = compiled_field(ground);
+    check_cancelled(cancelled, "CONV preparation superseded.");
+    // The material's own field, for point samples. A one-pixel axis is
+    // repeated: the field across it is then constant and along the other
+    // axis it is that line's CONV curve. A constant material needs none.
+    stxlib::conv::Field material_field;
+    if (!constant) {
+        Image repeated;
+        repeated.reset(std::max(2, source.width), std::max(2, source.height), {0, 0, 0, 0});
+        for (int y = 0; y < repeated.height; ++y) {
+            for (int x = 0; x < repeated.width; ++x) {
+                repeated.set(x, y, source.get(std::min(x, source.width - 1), std::min(y, source.height - 1)));
             }
         }
-        surface.build(padded);
-    } else {
-        surface.build(source);
+        material_field = compiled_field(repeated);
     }
-    if (cancelled && (*cancelled).load(std::memory_order_relaxed)) {
-        throw std::runtime_error("CONV preparation superseded.");
-    }
-    surface_ = std::move(surface);
-    constant_ = false;
+    check_cancelled(cancelled, "CONV preparation superseded.");
+    const double alpha = first.a / 255.0;
+    constant_value_ = {first.r / 255.0 * alpha, first.g / 255.0 * alpha, first.b / 255.0 * alpha, alpha};
+    constant_ = constant;
+    material_ = std::move(material_field);
+    ground_ = std::move(ground_field);
     width_ = source.width;
     height_ = source.height;
 }
 std::size_t ConvWarpField::storage_bytes() const {
-    if (constant_ || !surface_.ready()) {
-        return 0;
-    }
-    // The surface's cells (seven doubles a channel) and premultiplied pixels.
-    const std::size_t pixels = static_cast<std::size_t>(surface_.width()) * surface_.height();
-    return pixels * (4 * 7 * sizeof(double) + 4 * sizeof(double));
+    const std::size_t bytes = material_.storage_bytes() + ground_.storage_bytes();
+    return bytes;
 }
 WarpSample ConvWarpField::sample_components(Point position) const {
     WarpSample sample;
     if (!std::isfinite(position.x) || !std::isfinite(position.y) || position.x < -0.5 || position.y < -0.5 ||
-        position.x >= width_ - 0.5 || position.y >= height_ - 0.5 || (!constant_ && !surface_.ready())) {
+        position.x >= width_ - 0.5 || position.y >= height_ - 0.5 || !ground_.ready()) {
         return sample;
     }
     if (constant_) {
@@ -81,34 +132,15 @@ WarpSample ConvWarpField::sample_components(Point position) const {
     }
     // On a one-pixel axis every position is that pixel's centre.
     const Point at{width_ == 1 ? 0.0 : position.x, height_ == 1 ? 0.0 : position.y};
-    sample = surface_.sample_components(at);
+    double values[4] = {};
+    if (material_.evaluate(at.x, at.y, stxlib::MutableView<double>(values)).failed()) {
+        return sample;
+    }
+    sample = {values[0], values[1], values[2], values[3]};
     return sample;
-}
-WarpSample ConvWarpField::integrate_cell_polygon(std::span<const Point> polygon) const {
-    WarpSample total;
-    if (polygon.size() < 3) {
-        return total;
-    }
-    if (constant_) {
-        double twice_area = 0.0;
-        for (std::size_t i = 0; i < polygon.size(); ++i) {
-            const Point a = polygon[i], b = polygon[(i + 1) % polygon.size()];
-            twice_area += a.x * b.y - a.y * b.x;
-        }
-        const double area = 0.5 * std::abs(twice_area);
-        total = {constant_value_.r * area, constant_value_.g * area, constant_value_.b * area,
-                 constant_value_.a * area};
-        return total;
-    }
-    // A one-pixel axis was repeated: the surface is constant across it, so
-    // the polygon's place across it does not matter.
-    total = surface_.integrate_cell_polygon(polygon);
-    return total;
 }
 WarpSample ConvWarpField::sample_premultiplied(Point position) const {
     WarpSample value = sample_components(position);
-    // Keep the admitted opacity. Project color at each query, before any positive
-    // filter weights are accumulated; clipping only the final average is too late.
     value.a = std::clamp(value.a, 0.0, 1.0);
     value.r = std::clamp(value.r, 0.0, value.a);
     value.g = std::clamp(value.g, 0.0, value.a);
@@ -152,39 +184,6 @@ static AffineMap inverse_map(const AffineMap& map) {
     inverse.ty = -inverse.yx * map.tx - inverse.yy * map.ty;
     return inverse;
 }
-struct SampleRule {
-    int count = 1;
-    double offsets[8] = {};
-    double weights[8] = {1.0};
-};
-static SampleRule sample_rule(double footprint, WarpSampling sampling) {
-    SampleRule rule;
-    double side = 1.0;
-    if (sampling == WarpSampling::Point) {
-        return rule;
-    }
-    if (sampling == WarpSampling::Minification) {
-        if (footprint <= 1.0) {
-            return rule;
-        }
-        double reciprocal = 1.0 / footprint;
-        side = std::sqrt((1.0 - reciprocal) * (1.0 + reciprocal));
-    }
-    // Fixed nodes avoid finite rule changes as a transform crosses a threshold.
-    // The residual square shrinks continuously to the cardinal point sampler.
-    rule.count = 8;
-    constexpr double offsets[8] = {-0.48014492824876812, -0.39833323870681337, -0.26276620495816449,
-                                   -0.09171732124782490, 0.09171732124782490,  0.26276620495816449,
-                                   0.39833323870681337,  0.48014492824876812};
-    constexpr double weights[8] = {0.05061426814518813, 0.11119051722668724, 0.15685332293894364,
-                                   0.18134189168918099, 0.18134189168918099, 0.15685332293894364,
-                                   0.11119051722668724, 0.05061426814518813};
-    for (int i = 0; i < 8; ++i) {
-        rule.offsets[i] = side * offsets[i];
-        rule.weights[i] = weights[i];
-    }
-    return rule;
-}
 static double map_footprint(const AffineMap& inverse) {
     // Largest singular value, including compression along a sheared direction.
     // Normalize before squaring to avoid overflow for otherwise valid maps.
@@ -199,248 +198,106 @@ static double map_footprint(const AffineMap& inverse) {
     double footprint = scale * std::sqrt(eigenvalue);
     return footprint;
 }
-static void add_weighted(WarpSample& sum, WarpSample value, double weight) {
-    sum.r += value.r * weight;
-    sum.g += value.g * weight;
-    sum.b += value.b * weight;
-    sum.a += value.a * weight;
+// The transfer mode of a sampling: Point is the preview, Area the canon, and
+// Minification the canon where the map minifies (a source footprint wider
+// than a pixel) and the preview elsewhere, so identity, translations and
+// quarter turns keep their samples.
+static stxlib::conv::Mode transfer_mode(WarpSampling sampling, double footprint) {
+    if (sampling == WarpSampling::Area) {
+        return stxlib::conv::Mode::canon;
+    }
+    if (sampling == WarpSampling::Minification && footprint > 1.0) {
+        return stxlib::conv::Mode::canon;
+    }
+    return stxlib::conv::Mode::preview;
 }
-// A committed destination pixel is a parallelogram in source coordinates.
-// Clip it at every source-cell boundary before quadrature: a single fixed
-// target stencil can miss arbitrarily many thin cells under strong reduction.
-struct FootprintPolygon {
-    std::array<Point, 12> points = {};
-    int count = 0;
-};
-static FootprintPolygon clip_footprint(const FootprintPolygon& input, int axis, double boundary,
-                                       bool greater) {
-    FootprintPolygon output;
-    if (!input.count) {
-        return output;
-    }
-    Point previous = input.points[input.count - 1];
-    double pv = axis == 0 ? previous.x : previous.y;
-    bool previous_inside = greater ? pv >= boundary : pv <= boundary;
-    for (int i = 0; i < input.count; ++i) {
-        const Point current = input.points[i];
-        const double cv = axis == 0 ? current.x : current.y;
-        const bool inside = greater ? cv >= boundary : cv <= boundary;
-        if (inside != previous_inside) {
-            const double t = (boundary - pv) / (cv - pv);
-            output.points[output.count++] = {previous.x + t * (current.x - previous.x),
-                                             previous.y + t * (current.y - previous.y)};
-        }
-        if (inside) {
-            output.points[output.count++] = current;
-        }
-        previous = current;
-        pv = cv;
-        previous_inside = inside;
-    }
-    return output;
-}
-static WarpSample integrate_footprint(const ConvWarpField& field, const FootprintPolygon& footprint,
-                                      double density) {
-    double left = 1e30, top = 1e30, right = -1e30, bottom = -1e30;
-    for (int i = 0; i < footprint.count; ++i) {
-        const Point point = footprint.points[i];
-        left = std::min(left, point.x);
-        right = std::max(right, point.x);
-        top = std::min(top, point.y);
-        bottom = std::max(bottom, point.y);
-    }
-    WarpSample total;
-    if (right <= -0.5 || bottom <= -0.5 || left >= field.width() - 0.5 || top >= field.height() - 0.5) {
-        return total;
-    }
-    const int first_x = static_cast<int>(std::floor(std::max(-0.5, left)));
-    const int first_y = static_cast<int>(std::floor(std::max(-0.5, top)));
-    const int last_x = static_cast<int>(std::floor(std::min(field.width() - 0.5, right)));
-    const int last_y = static_cast<int>(std::floor(std::min(field.height() - 0.5, bottom)));
-    // Each piece of the footprint inside one evaluation cell is integrated by
-    // the surface (CanvasSurface::integrate_cell_polygon): exact before
-    // projection while the admission keeps its branch, with each value
-    // projected to physical RGBA before it is integrated otherwise.
-    for (int y = first_y; y <= last_y; ++y) {
-        FootprintPolygon row = clip_footprint(footprint, 1, std::max(-0.5, static_cast<double>(y)), true);
-        row = clip_footprint(row, 1, std::min(field.height() - 0.5, y + 1.0), false);
-        if (row.count < 3) {
-            continue;
-        }
-        for (int x = first_x; x <= last_x; ++x) {
-            FootprintPolygon cell = clip_footprint(row, 0, std::max(-0.5, static_cast<double>(x)), true);
-            cell = clip_footprint(cell, 0, std::min(field.width() - 0.5, x + 1.0), false);
-            if (cell.count < 3) {
-                continue;
-            }
-            add_weighted(total,
-                         field.integrate_cell_polygon(
-                             std::span<const Point>(cell.points.data(), static_cast<std::size_t>(cell.count))),
-                         density);
-        }
-    }
-    return total;
-}
-static WarpSample integrate_affine_pixel(const ConvWarpField& field, const AffineMap& inverse, Point center) {
-    FootprintPolygon footprint;
-    footprint.count = 4;
-    constexpr double dx[4] = {-0.5, 0.5, 0.5, -0.5}, dy[4] = {-0.5, -0.5, 0.5, 0.5};
-    for (int i = 0; i < 4; ++i) {
-        footprint.points[i] = {center.x + inverse.xx * dx[i] + inverse.xy * dy[i],
-                               center.y + inverse.yx * dx[i] + inverse.yy * dy[i]};
-    }
-    return integrate_footprint(field, footprint,
-                               1.0 / std::abs(inverse.xx * inverse.yy - inverse.xy * inverse.yx));
-}
-struct AffineStencil {
-    int count = 1;
-    Point offsets[64] = {};
-    double weights[64] = {1.0};
-};
-static AffineStencil prepare_affine_stencil(const AffineMap& inverse, const SampleRule& rule) {
-    AffineStencil stencil;
-    stencil.count = rule.count * rule.count;
-    for (int j = 0; j < rule.count; ++j) {
-        for (int i = 0; i < rule.count; ++i) {
-            int index = j * rule.count + i;
-            stencil.offsets[index] = {inverse.xx * rule.offsets[i] + inverse.xy * rule.offsets[j],
-                                      inverse.yx * rule.offsets[i] + inverse.yy * rule.offsets[j]};
-            stencil.weights[index] = rule.weights[i] * rule.weights[j];
-        }
-    }
-    return stencil;
-}
-struct AffineJob {
-    const ConvWarpField& field;
-    const AffineMap& inverse;
-    const AffineStencil& stencil;
-    Image& output;
-    bool area = false;
+// Destination rows go out in chunks of this many, claimed by up to eight
+// workers, each with its own workspace; cancellation is checked between
+// chunks.
+constexpr std::size_t rows_per_chunk = 32;
+template <typename Map>
+struct TransferJob {
+    const stxlib::conv::Field& field;
+    const Map& map;
+    stxlib::conv::Mode mode = stxlib::conv::Mode::preview;
+    stxlib::conv::MutableRgba8Image destination;
     const std::atomic<bool>* cancelled = nullptr;
-    std::atomic<int> next_row{0};
+    std::atomic<std::size_t> next_chunk{0};
+    std::atomic<bool> failed{false};
 };
-static void affine_worker(AffineJob& job) {
-    const int width = job.output.width, height = job.output.height;
-    const AffineMap inverse = job.inverse;
-    const AffineStencil stencil = job.stencil;
-    const ConvWarpField& field = job.field;
-    std::vector<Color>& pixels = job.output.pixels;
-    for (;;) {
-        if (job.cancelled && (*job.cancelled).load(std::memory_order_relaxed)) { return; }
-        int y = job.next_row.fetch_add(1, std::memory_order_relaxed);
-        if (y >= height) {
-            return;
-        }
-        double row_x = inverse.xy * y + inverse.tx;
-        double row_y = inverse.yy * y + inverse.ty;
-        std::size_t offset = static_cast<std::size_t>(y) * width;
-        for (int x = 0; x < width; ++x) {
-            if (x % 64 == 0 && job.cancelled && (*job.cancelled).load(std::memory_order_relaxed)) { return; }
-            Point centre{row_x + inverse.xx * x, row_y + inverse.yx * x};
-            WarpSample total;
-            if (job.area) {
-                total = integrate_affine_pixel(field, inverse, centre);
-            }
-            for (int i = 0; i < (job.area ? 0 : stencil.count); ++i) {
-                Point position{centre.x + stencil.offsets[i].x, centre.y + stencil.offsets[i].y};
-                WarpSample value = field.sample_premultiplied(position);
-                add_weighted(total, value, stencil.weights[i]);
-            }
-            pixels[offset + x] = encoded_sample(total);
-        }
-    }
-}
-// Bounded executors serve concurrent viewport and commit callers. Threads
-// sleep between jobs; each caller retains its stack-owned job until completion.
-class AffineExecutor {
-  public:
-    AffineExecutor() {
-        const unsigned count = std::min(8u, std::max(1u, std::thread::hardware_concurrency()));
-        try {
-            for (unsigned i = 0; i < count; ++i) {
-                workers_.emplace_back(run, std::ref(*this));
-            }
-        } catch (...) {
-            stop();
-            throw;
-        }
-    }
-    ~AffineExecutor() {
-        stop();
-    }
-    void execute(AffineJob& job) {
-        std::lock_guard<std::mutex> caller(caller_mutex_);
-        std::unique_lock<std::mutex> lock(mutex_);
-        job_ = &job;
-        remaining_ = workers_.size();
-        error_ = {};
-        ++generation_;
-        ready_.notify_all();
-        while (remaining_) {
-            finished_.wait(lock);
-        }
-        job_ = nullptr;
-        if (error_) {
-            std::rethrow_exception(error_);
-        }
-    }
-
-  private:
-    std::mutex caller_mutex_, mutex_;
-    std::condition_variable ready_, finished_;
-    std::vector<std::thread> workers_;
-    AffineJob* job_ = nullptr;
-    std::uint64_t generation_ = 0;
-    std::size_t remaining_ = 0;
-    bool stopping_ = false;
-    std::exception_ptr error_;
-    void stop() {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            stopping_ = true;
-        }
-        ready_.notify_all();
-        for (std::thread& worker : workers_) {
-            worker.join();
-        }
-    }
-    static void run(AffineExecutor& executor) {
-        std::uint64_t seen = 0;
-        std::unique_lock<std::mutex> lock(executor.mutex_);
+template <typename Map>
+struct TransferWorker {
+    TransferJob<Map>* job = nullptr;
+    stxlib::conv::Workspace workspace;
+    static void run(TransferWorker& worker) {
+        TransferJob<Map>& job = *worker.job;
+        const std::size_t height = job.destination.height;
         for (;;) {
-            while (!executor.stopping_ && seen == executor.generation_) {
-                executor.ready_.wait(lock);
-            }
-            if (executor.stopping_) {
+            if (job.failed.load(std::memory_order_relaxed)) {
                 return;
             }
-            seen = executor.generation_;
-            AffineJob& job = *executor.job_;
-            lock.unlock();
-            std::exception_ptr error;
-            try {
-                affine_worker(job);
-            } catch (...) {
-                error = std::current_exception();
+            if (job.cancelled && (*job.cancelled).load(std::memory_order_relaxed)) {
+                return;
             }
-            lock.lock();
-            if (error && !executor.error_) {
-                executor.error_ = error;
+            const std::size_t chunk = job.next_chunk.fetch_add(1, std::memory_order_relaxed);
+            const std::size_t first = chunk * rows_per_chunk;
+            if (first >= height) {
+                return;
             }
-            if (--executor.remaining_ == 0) {
-                executor.finished_.notify_one();
+            const stxlib::conv::Region region{0, first, job.destination.width,
+                                              std::min(height, first + rows_per_chunk)};
+            const stxlib::OperationStatus status =
+                stxlib::conv::transfer(job.field, job.map, job.mode, job.destination, region, worker.workspace);
+            if (status.failed()) {
+                job.failed.store(true, std::memory_order_relaxed);
+                return;
             }
         }
     }
 };
-static AffineExecutor& affine_executor(WarpSampling sampling) {
-    // A long final area integration must not hold up interactive point views.
-    if (sampling == WarpSampling::Point) {
-        static AffineExecutor interactive;
-        return interactive;
+// `field` through `map` by `mode` into `output` (its size already set).
+// Throws on a refusal or on cancellation; `output` is then unspecified.
+template <typename Map>
+void transfer_into(const stxlib::conv::Field& field, const Map& map, stxlib::conv::Mode mode, Image& output,
+                   const std::atomic<bool>* cancelled) {
+    const std::size_t width = static_cast<std::size_t>(output.width);
+    const std::size_t height = static_cast<std::size_t>(output.height);
+    TransferJob<Map> job{field, map, mode,
+                         stxlib::conv::MutableRgba8Image{
+                             stxlib::MutableView<stxlib::u8>(pixel_bytes(output), output.pixels.size() * 4), width,
+                             height, width * 4}};
+    job.cancelled = cancelled;
+    const std::size_t chunks = (height + rows_per_chunk - 1) / rows_per_chunk;
+    std::size_t count = std::min<std::size_t>(8, std::max(1u, std::thread::hardware_concurrency()));
+    if (width * height < 65536) {
+        count = 1;
     }
-    static AffineExecutor final;
-    return final;
+    count = std::max<std::size_t>(1, std::min(count, chunks));
+    std::vector<TransferWorker<Map>> workers(count);
+    for (TransferWorker<Map>& worker : workers) {
+        stxlib::OperationResult<stxlib::conv::Workspace> workspace = stxlib::conv::Workspace::make();
+        if (workspace.failed()) {
+            throw std::runtime_error("CONV could not allocate a workspace.");
+        }
+        worker.job = &job;
+        worker.workspace = std::move(workspace).take_value();
+    }
+    if (count == 1) {
+        TransferWorker<Map>::run(workers[0]);
+    } else {
+        std::vector<std::jthread> threads;
+        threads.reserve(count);
+        for (TransferWorker<Map>& worker : workers) {
+            threads.emplace_back(TransferWorker<Map>::run, std::ref(worker));
+        }
+        for (std::jthread& thread : threads) {
+            thread.join();
+        }
+    }
+    check_cancelled(cancelled, "CONV rendering cancelled.");
+    if (job.failed.load(std::memory_order_relaxed)) {
+        throw std::runtime_error("CONV rejected the transfer.");
+    }
 }
 static double orient(Point a, Point b, Point c) {
     double result = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
@@ -509,26 +366,20 @@ Rect affine_bounds(const ConvWarpField& field, const AffineMap& map) {
 }
 void render_affine(const ConvWarpField& field, const AffineMap& map, int width, int height,
                    Image& destination, WarpSampling sampling, const std::atomic<bool>* cancelled) {
-    if (cancelled && (*cancelled).load(std::memory_order_relaxed)) { throw std::runtime_error("CONV rendering cancelled."); }
+    check_cancelled(cancelled, "CONV rendering cancelled.");
     if (field.width() < 1) {
         throw std::invalid_argument("Compile the CONV material first.");
     }
     AffineMap inverse = inverse_map(map);
     Image output;
     output.reset(width, height, {0, 0, 0, 0});
-    SampleRule rule = sample_rule(map_footprint(inverse), sampling);
-    AffineStencil stencil = prepare_affine_stencil(inverse, rule);
-    AffineJob job{field, inverse, stencil, output, sampling == WarpSampling::Area};
-    job.cancelled = cancelled;
-    if (output.pixels.size() < 65536) {
-        affine_worker(job);
-    } else {
-        affine_executor(sampling).execute(job);
-    }
-    if (cancelled && (*cancelled).load(std::memory_order_relaxed)) { throw std::runtime_error("CONV rendering cancelled."); }
+    // Destination pixel centre (x, y) reads the ground's node coordinates:
+    // the source position plus the margin.
+    stxlib::conv::AffineMap pull{inverse.xx, inverse.xy, inverse.yx, inverse.yy, inverse.tx + ground_margin,
+                                 inverse.ty + ground_margin};
+    transfer_into(field.ground(), pull, transfer_mode(sampling, map_footprint(inverse)), output, cancelled);
     destination = std::move(output);
 }
-
 bool reshape_mesh_valid(const ReshapeMesh& mesh) {
     if (mesh.nodes.size() < 3 || mesh.triangles.empty()) {
         return false;
@@ -848,6 +699,111 @@ static AffineMap triangle_inverse(const MeshNode& a, const MeshNode& b, const Me
                   a.source.y + by * inverse.tx + cy * inverse.ty};
     return map;
 }
+// The largest number of grid nodes a mesh map is sampled on; a larger
+// destination doubles its spacing until it fits.
+constexpr std::size_t maximum_grid_nodes = std::size_t{1} << 22;
+// The destination grid a reshape mesh is carried on: nodes `spacing` pixels
+// apart from (0, 0) to past the last pixel centre, each with the triangle
+// whose map gives its source position (none yet: `unassigned`).
+struct MeshGrid {
+    std::size_t nodes_x = 0, nodes_y = 0;
+    double spacing = 1.0;
+    std::vector<std::size_t> triangle;
+    std::vector<double> source_uv;
+};
+constexpr std::size_t unassigned = std::numeric_limits<std::size_t>::max();
+static MeshGrid make_mesh_grid(int width, int height) {
+    MeshGrid grid;
+    std::size_t step = 1;
+    for (;;) {
+        grid.nodes_x = static_cast<std::size_t>(width - 1) / step + 2;
+        grid.nodes_y = static_cast<std::size_t>(height - 1) / step + 2;
+        if (grid.nodes_x * grid.nodes_y <= maximum_grid_nodes) {
+            break;
+        }
+        step = step * 2;
+    }
+    grid.spacing = static_cast<double>(step);
+    grid.triangle.assign(grid.nodes_x * grid.nodes_y, unassigned);
+    grid.source_uv.assign(grid.nodes_x * grid.nodes_y * 2, 0.0);
+    return grid;
+}
+// Each grid node inside a target triangle takes that triangle (the first
+// that holds it, shared edges once).
+static void assign_inside(MeshGrid& grid, const ReshapeMesh& mesh) {
+    for (std::size_t index = 0; index < mesh.triangles.size(); ++index) {
+        const MeshTriangle& triangle = mesh.triangles[index];
+        const Point a = mesh.nodes[triangle.nodes[0]].target;
+        const Point b = mesh.nodes[triangle.nodes[1]].target;
+        const Point c = mesh.nodes[triangle.nodes[2]].target;
+        const double low_x = std::max(0.0, std::ceil(std::min({a.x, b.x, c.x}) / grid.spacing));
+        const double high_x =
+            std::min(static_cast<double>(grid.nodes_x - 1), std::floor(std::max({a.x, b.x, c.x}) / grid.spacing));
+        const double low_y = std::max(0.0, std::ceil(std::min({a.y, b.y, c.y}) / grid.spacing));
+        const double high_y =
+            std::min(static_cast<double>(grid.nodes_y - 1), std::floor(std::max({a.y, b.y, c.y}) / grid.spacing));
+        if (high_x < low_x || high_y < low_y) {
+            continue;
+        }
+        const double tolerance = 1.0e-10 * std::max(1.0, orient(a, b, c));
+        for (std::size_t row = static_cast<std::size_t>(low_y); row <= static_cast<std::size_t>(high_y); ++row) {
+            for (std::size_t column = static_cast<std::size_t>(low_x); column <= static_cast<std::size_t>(high_x);
+                 ++column) {
+                const std::size_t node = row * grid.nodes_x + column;
+                const Point point{static_cast<double>(column) * grid.spacing,
+                                  static_cast<double>(row) * grid.spacing};
+                if (grid.triangle[node] == unassigned && within_triangle(point, a, b, c, tolerance)) {
+                    grid.triangle[node] = index;
+                }
+            }
+        }
+    }
+}
+// A grid node outside every triangle takes the triangle of its nearest
+// assigned node (a breadth-first sweep from every assigned node over the
+// grid's four neighbours), whose map then continues past the mesh's edge.
+static void assign_outside(MeshGrid& grid) {
+    std::vector<std::size_t> frontier;
+    for (std::size_t node = 0; node < grid.triangle.size(); ++node) {
+        if (grid.triangle[node] != unassigned) {
+            frontier.push_back(node);
+        }
+    }
+    if (frontier.empty()) {
+        throw std::invalid_argument("The reshape mesh lies outside the destination.");
+    }
+    std::vector<std::size_t> next;
+    while (!frontier.empty()) {
+        next.clear();
+        for (std::size_t node : frontier) {
+            const std::size_t row = node / grid.nodes_x;
+            const std::size_t column = node % grid.nodes_x;
+            const std::size_t neighbours[4] = {column > 0 ? node - 1 : unassigned,
+                                               column + 1 < grid.nodes_x ? node + 1 : unassigned,
+                                               row > 0 ? node - grid.nodes_x : unassigned,
+                                               row + 1 < grid.nodes_y ? node + grid.nodes_x : unassigned};
+            for (std::size_t neighbour : neighbours) {
+                if (neighbour != unassigned && grid.triangle[neighbour] == unassigned) {
+                    grid.triangle[neighbour] = grid.triangle[node];
+                    next.push_back(neighbour);
+                }
+            }
+        }
+        frontier.swap(next);
+    }
+}
+// Every grid node's source position: its triangle's map at the node, plus
+// the ground's margin.
+static void place_sources(MeshGrid& grid, const std::vector<AffineMap>& inverses) {
+    for (std::size_t node = 0; node < grid.triangle.size(); ++node) {
+        const AffineMap& inverse = inverses[grid.triangle[node]];
+        const Point point{static_cast<double>(node % grid.nodes_x) * grid.spacing,
+                          static_cast<double>(node / grid.nodes_x) * grid.spacing};
+        const Point source = transformed(point, inverse);
+        grid.source_uv[node * 2] = source.x + ground_margin;
+        grid.source_uv[node * 2 + 1] = source.y + ground_margin;
+    }
+}
 } // namespace
 void render_mesh(const ConvWarpField& field, const ReshapeMesh& mesh, int width, int height,
                  Image& destination, WarpSampling sampling) {
@@ -857,85 +813,30 @@ void render_mesh(const ConvWarpField& field, const ReshapeMesh& mesh, int width,
     if (!reshape_mesh_valid(mesh)) {
         throw std::invalid_argument("The reshape mesh folds or overlaps.");
     }
-    Image output;
-    output.reset(width, height, {0, 0, 0, 0});
+    if (width < 1 || height < 1) {
+        throw std::invalid_argument("Cannot render a mesh to an empty image.");
+    }
+    std::vector<AffineMap> inverses;
+    inverses.reserve(mesh.triangles.size());
     double footprint = 1.0;
     for (const MeshTriangle& triangle : mesh.triangles) {
         AffineMap inverse = triangle_inverse(mesh.nodes[triangle.nodes[0]], mesh.nodes[triangle.nodes[1]],
                                              mesh.nodes[triangle.nodes[2]]);
         footprint = std::max(footprint, map_footprint(inverse));
+        inverses.push_back(inverse);
     }
-    SampleRule rule = sample_rule(footprint, sampling);
-    // One bit owns each quadrature node. Shared triangle edges can include
-    // the same point, but exactly one triangle contributes its value.
-    std::vector<std::uint64_t> ownership(output.pixels.size(), 0);
-    std::vector<WarpSample> totals(output.pixels.size());
-    for (const MeshTriangle& triangle : mesh.triangles) {
-        const MeshNode& a = mesh.nodes[triangle.nodes[0]];
-        const MeshNode& b = mesh.nodes[triangle.nodes[1]];
-        const MeshNode& c = mesh.nodes[triangle.nodes[2]];
-        AffineMap inverse = triangle_inverse(a, b, c);
-        double area = orient(a.target, b.target, c.target);
-        double low_x =
-            std::clamp(std::min({a.target.x, b.target.x, c.target.x}) - 0.5, 0.0, static_cast<double>(width));
-        double high_x = std::clamp(std::max({a.target.x, b.target.x, c.target.x}) + 0.5, -1.0,
-                                   static_cast<double>(width - 1));
-        double low_y = std::clamp(std::min({a.target.y, b.target.y, c.target.y}) - 0.5, 0.0,
-                                  static_cast<double>(height));
-        double high_y = std::clamp(std::max({a.target.y, b.target.y, c.target.y}) + 0.5, -1.0,
-                                   static_cast<double>(height - 1));
-        int left = static_cast<int>(std::floor(low_x)), right = static_cast<int>(std::ceil(high_x));
-        int top = static_cast<int>(std::floor(low_y)), bottom = static_cast<int>(std::ceil(high_y));
-        for (int y = top; y <= bottom; ++y) {
-            for (int x = left; x <= right; ++x) {
-                std::size_t pixel = static_cast<std::size_t>(y) * width + x;
-                if (sampling == WarpSampling::Area) {
-                    FootprintPolygon polygon;
-                    polygon.count = 3;
-                    polygon.points[0] = a.target;
-                    polygon.points[1] = b.target;
-                    polygon.points[2] = c.target;
-                    polygon = clip_footprint(polygon, 0, x - 0.5, true);
-                    polygon = clip_footprint(polygon, 0, x + 0.5, false);
-                    polygon = clip_footprint(polygon, 1, y - 0.5, true);
-                    polygon = clip_footprint(polygon, 1, y + 0.5, false);
-                    if (polygon.count >= 3) {
-                        for (int i = 0; i < polygon.count; ++i) {
-                            polygon.points[i] = transformed(polygon.points[i], inverse);
-                        }
-                        add_weighted(totals[pixel],
-                                     integrate_footprint(
-                                         field, polygon,
-                                         1.0 / std::abs(inverse.xx * inverse.yy - inverse.xy * inverse.yx)),
-                                     1.0);
-                    }
-                    continue;
-                }
-                for (int j = 0; j < rule.count; ++j) {
-                    for (int i = 0; i < rule.count; ++i) {
-                        std::uint64_t bit = std::uint64_t{1} << (j * rule.count + i);
-                        if ((ownership[pixel] & bit) != 0) {
-                            continue;
-                        }
-                        Point point{x + rule.offsets[i], y + rule.offsets[j]};
-                        double wb = orient(a.target, point, c.target) / area;
-                        double wc = orient(a.target, b.target, point) / area;
-                        double wa = 1.0 - wb - wc;
-                        if (wa < -1.0e-10 || wb < -1.0e-10 || wc < -1.0e-10) {
-                            continue;
-                        }
-                        Point source = transformed(point, inverse);
-                        WarpSample value = field.sample_premultiplied(source);
-                        add_weighted(totals[pixel], value, rule.weights[i] * rule.weights[j]);
-                        ownership[pixel] |= bit;
-                    }
-                }
-            }
-        }
-    }
-    for (std::size_t i = 0; i < output.pixels.size(); ++i) {
-        output.pixels[i] = encoded_sample(totals[i]);
-    }
+    // The mesh as stxlib::conv's MeshMap: a regular destination grid whose
+    // nodes carry the piecewise-affine source position (continued past the
+    // mesh by the nearest triangle's map, onto the transparent ground).
+    MeshGrid grid = make_mesh_grid(width, height);
+    assign_inside(grid, mesh);
+    assign_outside(grid);
+    place_sources(grid, inverses);
+    const stxlib::conv::MeshMap map{grid.nodes_x, grid.nodes_y, grid.spacing,
+                                    stxlib::View<double>(grid.source_uv.data(), grid.source_uv.size())};
+    Image output;
+    output.reset(width, height, {0, 0, 0, 0});
+    transfer_into(field.ground(), map, transfer_mode(sampling, footprint), output, nullptr);
     destination = std::move(output);
 }
 } // namespace paint
