@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "Imposta come sfondo del desktop (affianca)",
   "Diagnostic overlay: on": "Sovrapposizione di invalidazione: attiva",
   "Superimpose": "Sovrapponi",
-  "Brightness": "Luminosità"
+  "Brightness": "Luminosità",
+  "Open the File tab as a menu": "Apri la scheda File come menu",
+  "Open the File tab as a page": "Apri la scheda File come pagina"
 }

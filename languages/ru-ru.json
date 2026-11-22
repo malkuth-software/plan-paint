@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "Сделать фоном рабочего стола (мозаика)",
   "Diagnostic overlay: on": "Подсветка перерисовки: включена",
   "Superimpose": "Наложение",
-  "Brightness": "Яркость"
+  "Brightness": "Яркость",
+  "Open the File tab as a menu": "Открывать вкладку «Файл» как меню",
+  "Open the File tab as a page": "Открывать вкладку «Файл» как страницу"
 }

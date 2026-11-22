@@ -58,7 +58,7 @@ void EditorSettings::load() {
         return;
     }
     const int version = magic.size() == 5 && magic.starts_with("RSPS") ? magic[4] - '0' : 0;
-    if (version < 1 || version > 8 || !std::isfinite(distance) || distance < 0.1 || distance > 100) {
+    if (version < 1 || version > 9 || !std::isfinite(distance) || distance < 0.1 || distance > 100) {
         return;
     }
     scroll_distance = distance;
@@ -95,13 +95,15 @@ void EditorSettings::load() {
             canvas_controls = controls == 1;
         }
     }
+    int menu = 0;
+    file_menu = version >= 9 && (input >> menu) && menu == 1;
 }
 void EditorSettings::save() const {
     if (storage_path.empty()) {
         return;
     }
     std::ostringstream output;
-    output << "RSPS8\n"
+    output << "RSPS9\n"
            << scroll_distance << '\n'
            << static_cast<int>(canvas_backing) << '\n'
            << (solid_transparency ? 1 : 0) << '\n'
@@ -109,7 +111,8 @@ void EditorSettings::save() const {
            << (drag_shapes ? 1 : 0) << '\n'
            << (rotate_view ? 1 : 0) << '\n'
            << interface_hue << '\n' << (recovery_enabled ? 1 : 0) << '\n'
-           << recovery_seconds << '\n' << language << '\n' << (canvas_controls ? 1 : 0) << '\n';
+           << recovery_seconds << '\n' << language << '\n' << (canvas_controls ? 1 : 0) << '\n'
+           << (file_menu ? 1 : 0) << '\n';
     const std::string encoded = output.str();
     const std::vector<std::uint8_t> bytes(encoded.begin(), encoded.end());
     write_file_atomic(bytes, storage_path, "Paint could not save its settings file.");

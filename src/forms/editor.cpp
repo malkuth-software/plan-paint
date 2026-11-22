@@ -290,12 +290,16 @@ void Editor::rebuild_file_menu() {
     items.push_back(menu_separator("rule-picture"));
     items.push_back(menu_item("properties", tr("Properties…"), "Ctrl+E"));
     items.push_back(menu_item("recover", tr("Recover unfinished artwork…")));
+    // The File tab's own form is a choice on it: Backstage's Settings topic
+    // offers the two-pane menu, and that menu offers Backstage back.
+    items.push_back(settings.file_menu ? menu_item("file-area-backstage", tr("Open the File tab as a page"))
+                                       : menu_item("file-area-menu", tr("Open the File tab as a menu")));
     items.push_back(menu_item("settings", tr("Settings…")));
     items.push_back(menu_separator("rule-about"));
     items.push_back(menu_item("about", tr("About Plan Paint")));
     items.push_back(menu_item("quit", tr("Exit")));
     if (ribbon_) {
-        (*ribbon_).set_file_menu(std::move(items), std::move(recent_items));
+        (*ribbon_).set_file_menu(std::move(items), std::move(recent_items), settings.file_menu);
     }
 }
 gf::MenuItemSpec Editor::menu_separator(const std::string& id) {
@@ -2476,6 +2480,12 @@ void Editor::execute(const std::string& command) {
         if (command == "stamp-apply") { apply_stamp_placement(); return; }
         if (command == "stamp-cancel") { cancel_stamp_placement(); return; }
         if (command == "reload") { reload_file(); return; }
+        if (command == "file-area-menu" || command == "file-area-backstage") {
+            settings.file_menu = command == "file-area-menu";
+            rebuild_file_menu();
+            settings.save();
+            return;
+        }
         if (command == "guide-edit") {
             edit_guide();
             return;

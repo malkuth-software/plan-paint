@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "הגדרה כרקע שולחן העבודה (פריסה)",
   "Diagnostic overlay: on": "שכבת סימון פסילה: פעילה",
   "Superimpose": "שכבת־על",
-  "Brightness": "בהירות"
+  "Brightness": "בהירות",
+  "Open the File tab as a menu": "פתיחת לשונית הקובץ כתפריט",
+  "Open the File tab as a page": "פתיחת לשונית הקובץ כדף"
 }

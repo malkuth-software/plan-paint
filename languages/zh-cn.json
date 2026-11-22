@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "设为桌面背景 (平铺)",
   "Diagnostic overlay: on": "失效叠加层：开启",
   "Superimpose": "叠加",
-  "Brightness": "亮度"
+  "Brightness": "亮度",
+  "Open the File tab as a menu": "以菜单形式打开“文件”选项卡",
+  "Open the File tab as a page": "以页面形式打开“文件”选项卡"
 }

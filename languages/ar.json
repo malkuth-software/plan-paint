@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "تعيين كخلفية لسطح المكتب (تجانب)",
   "Diagnostic overlay: on": "طبقة إبراز الإبطال: مفعّلة",
   "Superimpose": "تراكب",
-  "Brightness": "السطوع"
+  "Brightness": "السطوع",
+  "Open the File tab as a menu": "افتح علامة تبويب الملف كقائمة",
+  "Open the File tab as a page": "افتح علامة تبويب الملف كصفحة"
 }

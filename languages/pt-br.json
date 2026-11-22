@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "Definir como plano de fundo (lado a lado)",
   "Diagnostic overlay: on": "Sobreposição de invalidação: ativa",
   "Superimpose": "Sobrepor",
-  "Brightness": "Brilho"
+  "Brightness": "Brilho",
+  "Open the File tab as a menu": "Abrir a guia Arquivo como menu",
+  "Open the File tab as a page": "Abrir a guia Arquivo como página"
 }

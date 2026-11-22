@@ -11,14 +11,13 @@
   /* Plan Paint's edge and text colours as application roles, so forced
      high contrast remaps them by meaning (a literal in a text or edge
      position warns W201). Each falls back to the built-in role named. */
-  color-roles: paint-command-edge from ordinary-line, paint-command-edge-disabled from ordinary-line,
+  color-roles: paint-command-edge-disabled from ordinary-line,
                paint-plane-keyline from ordinary-line, paint-tab-taper from dark-line,
                paint-tab-shadow from shadow, paint-selected-tab-ink from ink-on-soft-paper,
                paint-swatch-clear from ordinary-line, paint-swatch-hover-edge from selection-line,
                paint-swatch-chosen-edge from selection-line, paint-swatch-light from chrome-highlight,
                paint-swatch-light-soft from chrome-highlight, paint-swatch-shade from shadow,
                paint-dialog-ink from ink-on-paper;
-  paint-command-edge: #6384b2;
   paint-command-edge-disabled: rgba(143, 166, 196, 0.39);
   paint-plane-keyline: #91acca;
   paint-tab-taper: #496c9f;
@@ -33,30 +32,16 @@
   paint-dialog-ink: #2d4258 on #ffffff;
 }
 
-/* The soft-dither hover (owner, 2026-11-09): command faces are flat at
-   rest and rise in the engine's dithered bulge while hot, as gallery items
-   and tabs do; no resting or hover face is authored here (an authored
-   resting face would beat the built-in rise). The pressed, checked and
-   disabled faces keep the original cobalt frame. */
-ribbon::part(command-face):active,
-ribbon::part(command-face):checked,
+/* The soft-dither look (owner, 2026-11-09 and 2026-11-22): command faces
+   are flat at rest, rise in the engine's dithered bulge while hot, dent
+   while pressed and stand gold while checked, as gallery items and tabs
+   do. No resting, hover, pressed or checked face is authored here: an
+   authored face beats the built-in bulge (R13), which is how the pressed
+   dent and the checked state were lost before. The disabled face keeps the
+   original cobalt frame. */
 ribbon::part(command-face):disabled {
   border-radius: 3px;
-  border: 1px solid role(paint-command-edge);
-}
-
-ribbon::part(command-face):active {
-  background-image: linear-gradient(to bottom, #98b5da 0%, #b5cceb 100%);
-  box-shadow: inset 0 1px 0 rgba(44, 86, 132, 0.51), inset 0 -1px 0 rgba(255, 255, 255, 0.61);
-}
-
-ribbon::part(command-face):checked {
-  background-image: linear-gradient(to bottom, #bcd2f1 0%, #99b5de 100%);
-  box-shadow: 0 1px 0 rgba(41, 75, 119, 0.33), inset 0 1px 0 rgba(255, 255, 255, 0.73), inset 0 -1px 0 rgba(49, 86, 134, 0.43);
-}
-
-ribbon::part(command-face):disabled {
-  border-color: role(paint-command-edge-disabled);
+  border: 1px solid role(paint-command-edge-disabled);
   background-image: linear-gradient(to bottom, #becfe4 0%, #b5c7de 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.39);
 }

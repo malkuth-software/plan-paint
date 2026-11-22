@@ -394,12 +394,146 @@ double Ribbon::ribbon_height() const {
     return quick_access_height + measured.height;
 }
 
-void Ribbon::set_file_menu(std::vector<gf::MenuItemSpec> items, std::vector<gf::RibbonRecentItem> recent) {
+void Ribbon::set_file_menu(std::vector<gf::MenuItemSpec> items, std::vector<gf::RibbonRecentItem> recent,
+                           bool as_menu) {
+    if (!as_menu) {
+        build_backstage(items, recent);
+    }
+    const std::shared_ptr<gf::BackstageView> wanted = as_menu ? nullptr : backstage_;
+    if ((*bar_).backstage.read() != wanted) {
+        (*bar_).close_backstage();
+        (*bar_).backstage = wanted;
+    }
+    // The application menu stays set under Backstage, ready for the switch.
     // The two-pane menu refuses checks and radio items beside recent items,
     // so the recent items go last and leave first.
     (*bar_).set_recent_items({});
     (*bar_).set_application_menu(std::move(items));
     (*bar_).set_recent_items(std::move(recent));
+}
+
+namespace {
+// Where an editor command goes in Backstage: "first" and "last" are the
+// column's commands above and below the topics; the rest name a topic.
+// Commands it does not know join the Settings topic.
+std::string backstage_place(const std::string& id) {
+    if (id == "new" || id == "open" || id == "save" || id == "save-as") {
+        return "first";
+    }
+    if (id == "about" || id == "quit") {
+        return "last";
+    }
+    if (id == "print-preview" || id == "print" || id == "page-setup") {
+        return "print";
+    }
+    if (id == "reload" || id == "properties" || id == "recover" || id == "acquire" || id == "wallpaper") {
+        return "image";
+    }
+    return "settings";
+}
+} // namespace
+
+void Ribbon::build_backstage(const std::vector<gf::MenuItemSpec>& items,
+                             const std::vector<gf::RibbonRecentItem>& recent) {
+    if (!backstage_) {
+        backstage_ = gf::make_control<gf::BackstageView>(gf::StableId("backstage"));
+    }
+    if (!backstage_clicking_) {
+        retired_pages_.clear();
+        retired_subscriptions_.clear();
+    }
+    for (const gf::BackstageItemSpec& item : (*backstage_).items()) {
+        if (item.page) {
+            retired_pages_.push_back(item.page);
+        }
+    }
+    for (gf::SubscriptionToken& token : backstage_subscriptions_) {
+        retired_subscriptions_.push_back(std::move(token));
+    }
+    backstage_subscriptions_.clear();
+    const std::shared_ptr<gf::FlexPanel> recent_page = backstage_page("recent", tr("Recent pictures"));
+    for (const gf::RibbonRecentItem& item : recent) {
+        add_backstage_button(*recent_page, item.stable_id, item.text);
+    }
+    const std::shared_ptr<gf::FlexPanel> image_page = backstage_page("image", tr("Image"));
+    const std::shared_ptr<gf::FlexPanel> print_page = backstage_page("print", tr("Print"));
+    const std::shared_ptr<gf::FlexPanel> settings_page = backstage_page("settings", tr("Settings"));
+    std::vector<gf::BackstageItemSpec> first;
+    std::vector<gf::BackstageItemSpec> last;
+    for (const gf::MenuItemSpec& item : items) {
+        if (item.kind == gf::MenuItemKind::separator) {
+            continue;
+        }
+        const std::string place = backstage_place(item.stable_id);
+        if (place == "first" || place == "last") {
+            if (item.command) {
+                (place == "first" ? first : last)
+                    .push_back({.stable_id = item.stable_id, .command = item.command, .definitive = true});
+            }
+            continue;
+        }
+        gf::FlexPanel& page = place == "print" ? *print_page : place == "image" ? *image_page : *settings_page;
+        if (item.kind == gf::MenuItemKind::submenu) {
+            // A submenu becomes its caption over its commands' buttons.
+            add_backstage_label(page, "backstage." + item.stable_id, item.text);
+            for (const gf::MenuItemSpec& child : item.children) {
+                if (child.kind != gf::MenuItemKind::separator) {
+                    add_backstage_button(page, child.stable_id, child.text);
+                }
+            }
+            continue;
+        }
+        add_backstage_button(page, item.stable_id, item.text);
+    }
+    std::vector<gf::BackstageItemSpec> column = std::move(first);
+    column.push_back({.stable_id = "recent", .kind = gf::BackstageItemKind::topic, .text = tr("Recent pictures"),
+                      .page = recent_page});
+    column.push_back({.stable_id = "image", .kind = gf::BackstageItemKind::topic, .text = tr("Image"), .page = image_page});
+    column.push_back({.stable_id = "print", .kind = gf::BackstageItemKind::topic, .text = tr("Print"), .page = print_page});
+    column.push_back({.stable_id = "settings", .kind = gf::BackstageItemKind::topic, .text = tr("Settings"),
+                      .page = settings_page});
+    for (gf::BackstageItemSpec& item : last) {
+        column.push_back(std::move(item));
+    }
+    (*backstage_).set_items(std::move(column));
+}
+
+// A topic's page: its title over a column of buttons, at their own widths.
+std::shared_ptr<gf::FlexPanel> Ribbon::backstage_page(const std::string& topic, const std::string& title) {
+    const std::shared_ptr<gf::FlexPanel> page = gf::make_control<gf::FlexPanel>(gf::StableId("backstage-" + topic));
+    (*page).flex_direction = gf::FlexDirection::column;
+    (*page).align_items = gf::LayoutAlignment::flex_start;
+    (*page).row_gap = gf::LengthPercentage{gf::LogicalLength{6.0}, 0.0};
+    (*page).padding = {24.0, 20.0, 24.0, 20.0};
+    add_backstage_label(*page, "backstage-" + topic + "-title", title);
+    return page;
+}
+
+void Ribbon::add_backstage_label(gf::FlexPanel& page, const std::string& id, const std::string& text) {
+    page.add_child(gf::make_control<gf::Label>(gf::StableId(id), text));
+}
+
+void Ribbon::add_backstage_button(gf::FlexPanel& page, const std::string& command_id, const std::string& text) {
+    const std::shared_ptr<gf::Button> button =
+        gf::make_control<gf::Button>(gf::StableId("backstage." + command_id), text);
+    backstage_subscriptions_.push_back((*button).clicked().subscribe(
+        *this, gf::Delegate<gf::ButtonBase&>::bind<Ribbon, &Ribbon::backstage_clicked>(*this)));
+    page.add_child(button);
+}
+
+void Ribbon::backstage_clicked(gf::ButtonBase& button) {
+    const std::string id(button.stable_id().value());
+    const std::string prefix = "backstage.";
+    const std::shared_ptr<Editor> editor = editor_.lock();
+    if (!editor || !id.starts_with(prefix)) {
+        return;
+    }
+    // The page's command returns to the document first: a dialog it opens
+    // shows over the picture, not over Backstage.
+    (*bar_).close_backstage();
+    backstage_clicking_ = true;
+    (*editor).execute(id.substr(prefix.size()));
+    backstage_clicking_ = false;
 }
 
 bool Ribbon::file_menu_open() const {

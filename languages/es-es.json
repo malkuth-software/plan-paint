@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "Establecer como fondo de escritorio (mosaico)",
   "Diagnostic overlay: on": "Superposición de invalidación: activa",
   "Superimpose": "Superponer",
-  "Brightness": "Brillo"
+  "Brightness": "Brillo",
+  "Open the File tab as a menu": "Abrir la pestaña Archivo como menú",
+  "Open the File tab as a page": "Abrir la pestaña Archivo como página"
 }
