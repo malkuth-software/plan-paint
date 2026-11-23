@@ -21,11 +21,12 @@ void near(double a, double b, double tolerance, const char* message) {
     require(std::abs(a - b) <= tolerance, message);
 }
 // Straight 8-bit from premultiplied channel values, clamped once as a
-// transfer clamps them (alpha to [0, 1], colour to [0, alpha]).
+// transfer clamps them (alpha to [0, 1], colour to [0, alpha]); a pixel whose
+// alpha rounds to 0 is written 0, 0, 0, 0.
 paint::Color straight(const double values[4]) {
     const double alpha = std::clamp(values[3], 0.0, 1.0);
     paint::Color result{0, 0, 0, static_cast<std::uint8_t>(std::round(255.0 * alpha))};
-    if (alpha > 0.0) {
+    if (result.a > 0) {
         result.r = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[0], 0.0, alpha) / alpha));
         result.g = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[1], 0.0, alpha) / alpha));
         result.b = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[2], 0.0, alpha) / alpha));
