@@ -76,14 +76,12 @@ endif()
 target_link_libraries(paint_core PUBLIC ${RAINSTAR_TIFF_TARGET} ${RAINSTAR_WEBP_TARGET} avif lunasvg::lunasvg tinyxml2::tinyxml2)
 # CONV resampling, the transform tools and the rotated canvas view
 # (src/conv.cpp, src/warp.cpp, src/canvas_surface.cpp) use stxlib::conv (in
-# stxlib::algorithms). stx_conv, the CONV library these replaced, is linked
-# only by tests/canvas_surface_tests.cpp (the field against stx_conv's
-# Surface, bit for bit) and the opt-in comparison PLAN_PAINT_CONV_COMPARE.
+# stxlib::algorithms). stx_conv, the CONV library these replaced, is found
+# and linked only by the opt-in comparison PLAN_PAINT_CONV_COMPARE.
 # Both ship beside GUI.Forms:
 # cmake/GUIFormsFrontend.cmake links them once the toolkit or SDK has found
 # them. Without the GUI.Forms frontend they must be found on CMAKE_PREFIX_PATH.
 if(NOT RAINSTAR_GUI_FORMS)
-  find_package(stx_conv CONFIG REQUIRED)
   find_package(stxlib CONFIG REQUIRED)
   target_link_libraries(paint_core PUBLIC stxlib::algorithms)
 endif()
@@ -187,7 +185,7 @@ add_executable(paint-warp-tests tests/warp_tests.cpp)
 target_link_libraries(paint-warp-tests PRIVATE paint_core)
 add_test(NAME paint-warp COMMAND paint-warp-tests)
 add_executable(paint-canvas-surface-tests tests/canvas_surface_tests.cpp)
-target_link_libraries(paint-canvas-surface-tests PRIVATE paint_core stx_conv::stx_conv)
+target_link_libraries(paint-canvas-surface-tests PRIVATE paint_core)
 add_test(NAME paint-canvas-surface COMMAND paint-canvas-surface-tests)
 add_executable(paint-smoothing-tests tests/smoothing_tests.cpp)
 target_link_libraries(paint-smoothing-tests PRIVATE paint_core)

@@ -1,5 +1,4 @@
 #include "warp.hpp"
-#include <stx_conv/surface.hpp>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -175,10 +174,11 @@ void test_mesh() {
     require(rejected, "crossing lasso accepted");
 }
 // The field is stxlib::conv's (the paper's Surface, paper closure, no
-// bubble) through the premultiplied pixels: its raw samples are stx_conv's
-// tensor surface's, bit for bit (stxlib::conv::Field::evaluate's promise), on this 7x8 mixed affine/wrapped/curved-edge input; the surface is
-// continuous across cells; projected samples stay in the colour domain.
-void test_surface_reference() {
+// bubble) through the premultiplied pixels, on this 7x8 mixed
+// affine/wrapped/curved-edge input: the surface is continuous across cells
+// and projected samples stay in the colour domain. (Its equality with
+// stx_conv's surface is reported by the one-off benchmarks/conv_compare.)
+void test_surface_continuity() {
     paint::Image image;
     image.reset(8, 7);
     for (int y = 0; y < 7; ++y) {
@@ -191,31 +191,6 @@ void test_surface_reference() {
     }
     paint::ConvWarpField field;
     field.compile(image);
-    std::vector<double> nodes(image.pixels.size() * 4);
-    for (std::size_t i = 0; i < image.pixels.size(); ++i) {
-        const double alpha = image.pixels[i].a / 255.0;
-        nodes[i * 4] = image.pixels[i].r / 255.0 * alpha;
-        nodes[i * 4 + 1] = image.pixels[i].g / 255.0 * alpha;
-        nodes[i * 4 + 2] = image.pixels[i].b / 255.0 * alpha;
-        nodes[i * 4 + 3] = alpha;
-    }
-    stx_conv::surface::SurfaceShape shape;
-    shape.nodes_u = 8;
-    shape.nodes_v = 7;
-    shape.channels = 4;
-    shape.closure = stx_conv::surface::Closure::paper;
-    shape.bubble = stx_conv::surface::Bubble::none;
-    stx_conv::surface::Surface reference(shape);
-    require(reference.compile(nodes, {}, {}) == stx_conv::Status::ok, "stx_conv surface compile failed");
-    double positions[6][2] = {{.13, .31}, {1.7, 2.1}, {2.3, 3.7}, {4.14, 1.16}, {5.9, 4.1}, {6.7, 5.6}};
-    for (int i = 0; i < 6; ++i) {
-        double values[4] = {};
-        require(reference.evaluate(positions[i][0], positions[i][1], values) == stx_conv::Status::ok,
-                "stx_conv surface evaluation failed");
-        paint::WarpSample sample = field.sample_components({positions[i][0], positions[i][1]});
-        require(sample.r == values[0] && sample.g == values[1] && sample.b == values[2] && sample.a == values[3],
-                "field differs from stx_conv's surface");
-    }
     for (int y = 0; y < 6; ++y) {
         for (int x = 1; x < 7; ++x) {
             paint::WarpSample left = field.sample_components({x - 1.0e-9, y + 0.37});
@@ -468,12 +443,12 @@ int main(int argc, char** argv) {
         test_constant_and_affine();
         test_identity_and_alpha();
         test_mesh();
-        test_surface_reference();
+        test_surface_continuity();
         test_admitted_edge_and_mesh_area();
         test_physical_alpha_before_filtering();
         test_sampling_continuity_and_equivalent_maps();
         test_reused_affine_workers();
-        std::cout << "CONV warp constants, stx_conv surface reference, stxlib::conv canon, affine fields, alpha, tiny "
+        std::cout << "CONV warp constants, surface continuity, stxlib::conv canon, affine fields, alpha, tiny "
                      "images, mesh identity, folds and lasso tests passed.\n";
         if (argc > 1) {
             benchmark(std::stoi(argv[1]));

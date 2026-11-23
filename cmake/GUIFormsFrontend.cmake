@@ -48,8 +48,7 @@ endif()
 endif()
 
 # paint_core's CONV uses stxlib::conv (stxlib::algorithms); stx_conv is found
-# for tests/canvas_surface_tests.cpp and the opt-in PLAN_PAINT_CONV_COMPARE
-# comparison only, not linked into paint_core. An SDK's GUIFormsConfig finds both in this
+# only for the opt-in PLAN_PAINT_CONV_COMPARE comparison. An SDK's GUIFormsConfig finds both in this
 # scope; a pinned in-tree toolkit defines them as global targets; a toolkit
 # that installs stx at configure time leaves them in <build>/stx-prefix (or
 # the GUI_FORMS_STX_PREFIX it was given), where they are found here.
@@ -58,7 +57,7 @@ if(GUI_FORMS_STX_PREFIX)
 else()
   set(paint_stx_prefix "${CMAKE_BINARY_DIR}/stx-prefix")
 endif()
-if(NOT TARGET stx_conv::stx_conv)
+if(PLAN_PAINT_CONV_COMPARE AND NOT TARGET stx_conv::stx_conv)
   find_package(stx_conv CONFIG REQUIRED NO_DEFAULT_PATH PATHS "${paint_stx_prefix}")
 endif()
 if(NOT TARGET stxlib::algorithms)

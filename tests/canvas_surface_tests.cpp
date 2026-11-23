@@ -1,5 +1,4 @@
 #include "canvas_surface.hpp"
-#include <stx_conv/surface.hpp>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -38,49 +37,22 @@ paint::Image document(int width, int height) {
 bool same(const paint::WarpSample& a, const paint::WarpSample& b) {
     return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
 }
-// The canvas surface (stxlib::conv's field) evaluates stx_conv's tensor
-// surface: its samples are stx_conv::surface::Surface's, bit for bit, at
-// nodes, inside cells, on the clamped half-pixel border and at the far edges.
-void surface_equals_stx_conv() {
+// Outside the half-pixel footprint the surface is transparent, and it
+// passes through every pixel. (Its equality with stx_conv's Surface is
+// reported by the one-off benchmarks/conv_compare, not tested here.)
+void surface_passes_through_pixels() {
     const paint::Image image = document(41, 29);
     paint::CanvasSurface canvas;
     canvas.build(image);
-    std::vector<double> nodes(image.pixels.size() * 4);
-    for (std::size_t i = 0; i < image.pixels.size(); ++i) {
-        const double alpha = image.pixels[i].a / 255.0;
-        nodes[i * 4] = image.pixels[i].r / 255.0 * alpha;
-        nodes[i * 4 + 1] = image.pixels[i].g / 255.0 * alpha;
-        nodes[i * 4 + 2] = image.pixels[i].b / 255.0 * alpha;
-        nodes[i * 4 + 3] = alpha;
-    }
-    stx_conv::surface::SurfaceShape shape;
-    shape.nodes_u = static_cast<std::size_t>(image.width);
-    shape.nodes_v = static_cast<std::size_t>(image.height);
-    shape.channels = 4;
-    shape.closure = stx_conv::surface::Closure::paper;
-    shape.bubble = stx_conv::surface::Bubble::none;
-    stx_conv::surface::Surface reference(shape);
-    require(reference.compile(nodes, {}, {}) == stx_conv::Status::ok, "the stx_conv surface compiles");
-    std::size_t checked = 0;
     for (int j = -3; j < image.height * 7 - 3; ++j) {
         for (int i = -3; i < image.width * 7 - 3; ++i) {
             const paint::Point position{i / 7.0 - 0.0625, j / 7.0 - 0.0625};
             if (position.x < -0.5 || position.y < -0.5 || position.x >= image.width - 0.5 ||
                 position.y >= image.height - 0.5) {
-                require(same(canvas.sample_components(position), {}),
-                        "outside the footprint is transparent");
-                continue;
+                require(same(canvas.sample_components(position), {}), "outside the footprint is transparent");
             }
-            double values[4] = {};
-            require(reference.evaluate(position.x, position.y, values) == stx_conv::Status::ok,
-                    "the stx_conv surface evaluates");
-            const paint::WarpSample sample = canvas.sample_components(position);
-            require(sample.r == values[0] && sample.g == values[1] && sample.b == values[2] && sample.a == values[3],
-                    "the canvas surface is stx_conv's surface, bit for bit");
-            ++checked;
         }
     }
-    require(checked > 50000, "the comparison covers the image");
     for (int y = 0; y < image.height; ++y) {
         for (int x = 0; x < image.width; ++x) {
             // Premultiplied pixels keep no colour where they keep no opacity.
@@ -226,12 +198,12 @@ void sizes_are_checked() {
 } // namespace
 int main() {
     try {
-        surface_equals_stx_conv();
+        surface_passes_through_pixels();
         local_update_is_exact();
         areas_render_like_the_whole_frame();
         render_masks_the_footprint();
         sizes_are_checked();
-        std::cout << "Canvas surface: stx_conv's surface bit for bit, exact local updates, area renders, the "
+        std::cout << "Canvas surface: pass-through, exact local updates, area renders, the "
                      "footprint mask and size limits passed.\n";
         return 0;
     } catch (const std::exception& error) {

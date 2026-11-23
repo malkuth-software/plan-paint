@@ -11,12 +11,18 @@
 // is that implementation's alone: the peak resident set after the first call
 // less the peak before it (inputs, and for a render its field, already
 // built). Time is the median of the repeats after that first call.
+//
+// It also reports whether stxlib::conv's field (CanvasSurface and
+// ConvWarpField samples) equals stx_conv's tensor surface bit for bit, or the
+// size of any difference; that check was a test until the owner moved
+// comparisons with the old CONV out of CI.
 #include "canvas_surface.hpp"
 #include "conv.hpp"
 #include "legacy_canvas_surface.hpp"
 #include "legacy_conv.hpp"
 #include "legacy_warp.hpp"
 #include "warp.hpp"
+#include <stx_conv/surface.hpp>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -421,6 +427,142 @@ std::string ratio(double fresh, double old) {
     text << std::fixed << std::setprecision(2) << fresh / old;
     return text.str();
 }
+
+// stxlib::conv's field against stx_conv's tensor surface (paper closure, no
+// bubble), sample by sample.
+struct Equality {
+    std::size_t samples = 0;
+    std::size_t differing = 0;
+    double largest = 0.0;
+    bool failed = false;
+};
+void compare_sample(const paint::WarpSample& sample, const double values[4], Equality& result) {
+    const double got[4] = {sample.r, sample.g, sample.b, sample.a};
+    bool differs = false;
+    for (int c = 0; c < 4; ++c) {
+        if (got[c] != values[c]) {
+            differs = true;
+            result.largest = std::max(result.largest, std::abs(got[c] - values[c]));
+        }
+    }
+    ++result.samples;
+    result.differing += differs ? 1 : 0;
+}
+// Builds stx_conv's surface of `image` into `reference`; false on failure.
+bool build_reference(const paint::Image& image, stx_conv::surface::Surface& reference) {
+    std::vector<double> nodes(image.pixels.size() * 4);
+    for (std::size_t i = 0; i < image.pixels.size(); ++i) {
+        const double alpha = image.pixels[i].a / 255.0;
+        nodes[i * 4] = image.pixels[i].r / 255.0 * alpha;
+        nodes[i * 4 + 1] = image.pixels[i].g / 255.0 * alpha;
+        nodes[i * 4 + 2] = image.pixels[i].b / 255.0 * alpha;
+        nodes[i * 4 + 3] = alpha;
+    }
+    return reference.compile(nodes, {}, {}) == stx_conv::Status::ok;
+}
+stx_conv::surface::SurfaceShape reference_shape(const paint::Image& image) {
+    stx_conv::surface::SurfaceShape shape;
+    shape.nodes_u = static_cast<std::size_t>(image.width);
+    shape.nodes_v = static_cast<std::size_t>(image.height);
+    shape.channels = 4;
+    shape.closure = stx_conv::surface::Closure::paper;
+    shape.bubble = stx_conv::surface::Bubble::none;
+    return shape;
+}
+// CanvasSurface over the whole half-pixel footprint, seven samples a pixel
+// each way (nodes, cell interiors, the clamped border, the far edges).
+Equality canvas_equality(const paint::Image& image) {
+    Equality result;
+    paint::CanvasSurface canvas;
+    canvas.build(image);
+    stx_conv::surface::Surface reference(reference_shape(image));
+    if (!build_reference(image, reference)) {
+        result.failed = true;
+        return result;
+    }
+    for (int j = -3; j < image.height * 7 - 3; ++j) {
+        for (int i = -3; i < image.width * 7 - 3; ++i) {
+            const paint::Point position{i / 7.0 - 0.0625, j / 7.0 - 0.0625};
+            if (position.x < -0.5 || position.y < -0.5 || position.x >= image.width - 0.5 ||
+                position.y >= image.height - 0.5) {
+                continue;
+            }
+            double values[4] = {};
+            if (reference.evaluate(position.x, position.y, values) != stx_conv::Status::ok) {
+                result.failed = true;
+                return result;
+            }
+            compare_sample(canvas.sample_components(position), values, result);
+        }
+    }
+    return result;
+}
+// ConvWarpField's raw samples inside a mixed 8 x 7 material (the positions
+// tests/warp_tests.cpp used).
+Equality warp_equality() {
+    Equality result;
+    paint::Image image;
+    image.reset(8, 7);
+    for (int y = 0; y < 7; ++y) {
+        for (int x = 0; x < 8; ++x) {
+            image.set(x, y,
+                      {static_cast<std::uint8_t>((x * 31 + y * 17) % 256),
+                       static_cast<std::uint8_t>((x * 11 + y * 53) % 256),
+                       static_cast<std::uint8_t>((x - 3) * (x - 3) + (y - 3) * (y - 3) < 7 ? 255 : 0), 255});
+        }
+    }
+    paint::ConvWarpField field;
+    field.compile(image);
+    stx_conv::surface::Surface reference(reference_shape(image));
+    if (!build_reference(image, reference)) {
+        result.failed = true;
+        return result;
+    }
+    const double positions[6][2] = {{.13, .31}, {1.7, 2.1}, {2.3, 3.7}, {4.14, 1.16}, {5.9, 4.1}, {6.7, 5.6}};
+    for (int i = 0; i < 6; ++i) {
+        double values[4] = {};
+        if (reference.evaluate(positions[i][0], positions[i][1], values) != stx_conv::Status::ok) {
+            result.failed = true;
+            return result;
+        }
+        compare_sample(field.sample_components({positions[i][0], positions[i][1]}), values, result);
+    }
+    return result;
+}
+// The canvas tests' shapes: flat runs, hard edges, translucent and
+// transparent pixels, and a ramp.
+paint::Image document(int width, int height) {
+    paint::Image image;
+    image.reset(width, height, {255, 255, 255, 255});
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (x > width / 2) {
+                image.set(x, y, {static_cast<std::uint8_t>(x * 9), static_cast<std::uint8_t>(y * 5), 90, 255});
+            }
+            if (x > 4 && x < 15 && y > 3 && y < 12) {
+                image.set(x, y, {200, 30, 40, 255});
+            }
+            if (y == height - 3) {
+                image.set(x, y, {20, 120, 220, static_cast<std::uint8_t>(x * 6)});
+            }
+            if (x == 2 && y > 6) {
+                image.set(x, y, {0, 0, 0, 0});
+            }
+        }
+    }
+    return image;
+}
+void print_equality(const char* name, const Equality& result) {
+    std::cout << std::left << std::setw(34) << name;
+    if (result.failed) {
+        std::cout << "stx_conv's surface failed to compile or evaluate\n";
+    } else if (result.differing == 0) {
+        std::cout << "bit for bit over " << result.samples << " samples\n";
+    } else {
+        std::cout << result.differing << " of " << result.samples << " samples differ, by at most "
+                  << std::scientific << std::setprecision(3) << result.largest << std::fixed << '\n';
+    }
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -460,6 +602,10 @@ int main(int argc, char** argv) {
         for (const Workload& workload : workloads) {
             std::cout << std::left << std::setw(18) << workload.name << workload.description << '\n';
         }
+        std::cout << "\nField equality, stxlib::conv against stx_conv's tensor surface (raw samples):\n";
+        print_equality("CanvasSurface, canvas document", canvas_equality(document(41, 29)));
+        print_equality("CanvasSurface, 257x193 fixture", canvas_equality(fixture(257, 193)));
+        print_equality("ConvWarpField, 8x7 material", warp_equality());
         std::cout << "\nBar (owner): new time as good as or better than old on every row; memory expected lower.\n"
                   << (all_good ? "Every row meets the time bar.\n" : "At least one row misses the time bar.\n");
         return 0;
