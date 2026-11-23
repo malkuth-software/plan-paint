@@ -616,7 +616,6 @@ void test_conv() {
                     "height-only alias resize moved a column");
         }
     }
-    }
     input.reset(1, 3, {20, 40, 60, 255});
     paint::conv_resize(input, 7, 1, output);
     for (paint::Color pixel : output.pixels) {

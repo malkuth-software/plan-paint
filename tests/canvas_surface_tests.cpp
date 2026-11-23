@@ -1,9 +1,11 @@
 #include "canvas_surface.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 namespace {
 void require(bool value, const char* message) {
@@ -118,11 +120,58 @@ void areas_render_like_the_whole_frame() {
         require(paint::equal(whole[i], parts[i]), "an area renders as the whole frame does");
     }
 }
+// Frame pixel (x, y) as stxlib::conv's affine preview forms it on a map
+// whose columns are its lines (|vy| > |vx|): the composited transfer
+// (include/stxlib/conv.hpp; transfer.cpp, affine_composited_state), not the
+// 2D field's value at the pixel's centre. Pass 1 reads each source row r at
+// the point of the pixel's frame column where v = r, its u clamped to the
+// row; pass 2 compiles those row values as a 1D field along v and reads it
+// at the pixel's v. The two differ wherever admission acts (hard edges,
+// opacity steps), by more than a level at some pixels. Straight 8-bit as a
+// transfer encodes: colour clamped to [0, alpha], then divided.
+paint::Color composited_preview(const paint::CanvasSurface& surface, const paint::CanvasSurface::TargetMap& map,
+                                int x, int y) {
+    require(std::abs(map.vy) > std::abs(map.vx), "the fixture map runs its lines along frame columns");
+    constexpr std::size_t lanes = 4;
+    const std::size_t rows = static_cast<std::size_t>(surface.height());
+    const double cx = x + 0.5, cy = y + 0.5;
+    std::vector<double> line(rows * lanes, 0.0);
+    for (std::size_t row = 0; row < rows; ++row) {
+        const double along = (static_cast<double>(row) - map.vx * cx - map.v0) / map.vy;
+        const double u = std::clamp(map.ux * cx + map.uy * along + map.u0, 0.0, surface.width() - 1.0);
+        const paint::WarpSample value = surface.sample_components({u, static_cast<double>(row)});
+        line[row * lanes] = value.r;
+        line[row * lanes + 1] = value.g;
+        line[row * lanes + 2] = value.b;
+        line[row * lanes + 3] = value.a;
+    }
+    stxlib::OperationResult<stxlib::conv::LineField> made =
+        stxlib::conv::LineField::make(rows, lanes, stxlib::conv::FieldOptions{});
+    require(made.succeeded(), "the column field is made");
+    stxlib::conv::LineField column = std::move(made).take_value();
+    const stxlib::conv::LineSamples samples{stxlib::View<double>(line.data(), line.size()), rows, lanes, lanes};
+    require(column.compile(samples).succeeded(), "the column field compiles");
+    double values[4] = {};
+    const double v = map.vx * cx + map.vy * cy + map.v0;
+    require(column.evaluate(v, stxlib::MutableView<double>(values)).succeeded(), "the column field evaluates");
+    const double alpha = std::clamp(values[3], 0.0, 1.0);
+    if (alpha < 0.5 / 255.0) {
+        return paint::Color{0, 0, 0, 0};
+    }
+    const paint::Color result{
+        static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[0], 0.0, alpha) / alpha)),
+        static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[1], 0.0, alpha) / alpha)),
+        static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[2], 0.0, alpha) / alpha)),
+        static_cast<std::uint8_t>(std::round(255.0 * alpha))};
+    return result;
+}
 // The render is the field's preview transfer masked at the footprint: a
 // frame pixel whose centre maps outside [-0.5, width - 0.5) x [-0.5,
-// height - 0.5) is transparent, and inside it agrees with sample() at that
-// position to one 8-bit level (the transfer rounds its own encoding). An
-// unbuilt surface renders a transparent area.
+// height - 0.5) is transparent, and inside it agrees with the composited
+// preview above to one 8-bit level (the transfer rounds its own encoding).
+// The 2D field's sample() is not the contract on a rotation: the composited
+// transfer equals its bytes on most pixels only. An unbuilt surface renders
+// a transparent area.
 void render_masks_the_footprint() {
     const paint::Image image = document(37, 26);
     paint::CanvasSurface surface;
@@ -146,7 +195,7 @@ void render_masks_the_footprint() {
                 ++outside;
                 continue;
             }
-            const paint::Color want = surface.sample(position);
+            const paint::Color want = composited_preview(surface, map, x, y);
             require(std::abs(pixel.a - want.a) <= 1, "the frame's opacity is the surface's");
             if (want.a >= 16) {
                 require(std::abs(pixel.r - want.r) <= 1 && std::abs(pixel.g - want.g) <= 1 &&

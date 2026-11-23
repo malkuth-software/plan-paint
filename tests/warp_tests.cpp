@@ -3,10 +3,13 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 namespace {
 void require(bool value, const char* message) {
@@ -17,27 +20,50 @@ void require(bool value, const char* message) {
 void near(double a, double b, double tolerance, const char* message) {
     require(std::abs(a - b) <= tolerance, message);
 }
-// The canon's pixel over the source square [left, left + 1) x [top, top + 1):
-// the dense midpoint average of the ground's raw field (the material on its
-// transparent margin of two pixels), clamped once as a transfer clamps it
-// (colour to [0, alpha]) and made straight. Only the bounded midpoint
-// integration error separates it from the exact canon.
+// The canon's pixel over the source square [left, left + 1) x [top, top + 1)
+// under an axis-aligned map, as stxlib::conv's affine transfer forms it: the
+// composited canon (include/stxlib/conv.hpp; transfer.cpp,
+// affine_composited_state), not the 2D field's average. Pass 1 averages each
+// ground row's 1D field over [left, left + 1); pass 2 compiles the column of
+// those averages as a 1D field (its admission acts on the averages, so the
+// result differs from the 2D average wherever admission acts) and averages
+// it over [top, top + 1). Ground coordinates are the material's plus its
+// two-pixel margin. Both averages are dense midpoint sums, then clamped once
+// as a transfer clamps (colour to [0, alpha]) and made straight; only the
+// bounded midpoint error separates it from the exact canon.
 paint::Color canon_reference(const paint::ConvWarpField& field, double left, double top) {
     constexpr int divisions = 256;
-    double sums[4] = {};
-    for (int y = 0; y < divisions; ++y) {
+    constexpr std::size_t lanes = 4;
+    const std::size_t rows = static_cast<std::size_t>(field.height() + 4);
+    std::vector<double> averages(rows * lanes, 0.0);
+    for (std::size_t row = 0; row < rows; ++row) {
         for (int x = 0; x < divisions; ++x) {
             double values[4] = {};
             const double u = left + (x + 0.5) / divisions + 2.0;
-            const double v = top + (y + 0.5) / divisions + 2.0;
-            require(field.ground().evaluate(u, v, stxlib::MutableView<double>(values)).succeeded(),
-                    "the ground evaluates");
-            for (int channel = 0; channel < 4; ++channel) {
-                sums[channel] += values[channel];
+            const stxlib::OperationStatus status =
+                field.ground().evaluate(u, static_cast<double>(row), stxlib::MutableView<double>(values));
+            require(status.succeeded(), "the ground evaluates");
+            for (std::size_t channel = 0; channel < lanes; ++channel) {
+                averages[row * lanes + channel] += values[channel] / divisions;
             }
         }
     }
-    const double count = static_cast<double>(divisions) * divisions;
+    stxlib::OperationResult<stxlib::conv::LineField> made =
+        stxlib::conv::LineField::make(rows, lanes, stxlib::conv::FieldOptions{});
+    require(made.succeeded(), "the column field is made");
+    stxlib::conv::LineField column = std::move(made).take_value();
+    const stxlib::conv::LineSamples samples{stxlib::View<double>(averages.data(), averages.size()), rows, lanes, lanes};
+    require(column.compile(samples).succeeded(), "the column field compiles");
+    double sums[4] = {};
+    for (int y = 0; y < divisions; ++y) {
+        double values[4] = {};
+        const double v = top + (y + 0.5) / divisions + 2.0;
+        require(column.evaluate(v, stxlib::MutableView<double>(values)).succeeded(), "the column field evaluates");
+        for (std::size_t channel = 0; channel < lanes; ++channel) {
+            sums[channel] += values[channel];
+        }
+    }
+    const double count = static_cast<double>(divisions);
     const double alpha = std::clamp(sums[3] / count, 0.0, 1.0);
     paint::Color result{0, 0, 0, static_cast<std::uint8_t>(std::round(255.0 * alpha))};
     if (alpha > 0.0) {
@@ -300,7 +326,7 @@ void test_physical_alpha_before_filtering() {
     // red 248 here, where late clipping gave 252).
     paint::Image edge;
     paint::render_affine(field, {1, 0, 0.2, 0, 1, 0}, 5, 5, edge, paint::WarpSampling::Area);
-    near_color(edge.get(2, 2), canon_reference(field, 1.3, 1.5), "area render is not the ground's canon");
+    near_color(edge.get(2, 2), canon_reference(field, 1.3, 1.5), "area render is not the ground's composited canon");
     // All channels, including mixed colors and hidden RGB in transparent source pixels.
     std::uint32_t state = 19;
     for (paint::Color& pixel : image.pixels) {
@@ -327,8 +353,8 @@ void test_physical_alpha_before_filtering() {
                     "physical projection changed a visible source node");
         }
     }
-    // The canon against an independent dense integration of the ground's raw
-    // field over the pixel's footprint, clamped once.
+    // The canon against an independent dense integration of the composited
+    // canon's two passes over the pixel's footprint, clamped once.
     paint::Image output;
     paint::render_affine(field, {1, 0, 0.3, 0, 1, 0.4}, 5, 5, output, paint::WarpSampling::Area);
     near_color(output.get(2, 2), canon_reference(field, 1.2, 1.1), "filtered pixel differs from the canon integral");
