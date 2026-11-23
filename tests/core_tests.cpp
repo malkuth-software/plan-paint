@@ -587,28 +587,35 @@ void test_conv() {
             input.set(x, y, {static_cast<std::uint8_t>(x * 17), static_cast<std::uint8_t>(y * 23), 0, 255});
         }
     }
-    paint::conv_resize(input, 25, 17, output);
+    // stxlib::conv's axis lattice (include/stxlib/conv.hpp, AxisMap): target
+    // pixel x covers source node coordinates (x + [0, 1)) w / W - 1/2, and the
+    // preview reads that footprint's centre, (x + 1/2) w / W - 1/2. On a
+    // threefold enlargement target pixel 3x + 1 reads exactly node x, where
+    // the field interpolates the source pixel, so those pixels keep their
+    // bytes; an unchanged axis reads every node in place.
+    paint::conv_resize(input, 39, 27, output);
     for (int y = 0; y < input.height; ++y) {
         for (int x = 0; x < input.width; ++x) {
-            require(paint::equal(input.get(x, y), output.get(x * 2, y * 2)),
+            require(paint::equal(input.get(x, y), output.get(x * 3 + 1, y * 3 + 1)),
                     "CONV nodal interpolation failed");
         }
     }
     // An unchanged dimension must preserve its rows/columns, including when
     // source and destination alias. These fixtures exercise both one-axis paths.
-    paint::conv_resize(input, 25, 9, output);
+    paint::conv_resize(input, 39, 9, output);
     for (int y = 0; y < 9; ++y) {
         for (int x = 0; x < 13; ++x) {
-            require(paint::equal(input.get(x, y), output.get(x * 2, y)), "width-only resize moved a row");
+            require(paint::equal(input.get(x, y), output.get(x * 3 + 1, y)), "width-only resize moved a row");
         }
     }
     paint::Image original = input;
-    paint::conv_resize(input, 13, 17, input);
+    paint::conv_resize(input, 13, 27, input);
     for (int y = 0; y < 9; ++y) {
         for (int x = 0; x < 13; ++x) {
-            require(paint::equal(original.get(x, y), input.get(x, y * 2)),
+            require(paint::equal(original.get(x, y), input.get(x, y * 3 + 1)),
                     "height-only alias resize moved a column");
         }
+    }
     }
     input.reset(1, 3, {20, 40, 60, 255});
     paint::conv_resize(input, 7, 1, output);

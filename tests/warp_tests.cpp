@@ -157,11 +157,18 @@ void test_mesh() {
     require(paint::move_reshape_node(mesh, interior, old), "reset move failed");
     paint::ConvWarpField field;
     field.compile(image);
-    paint::Image output;
+    // The unmoved mesh's triangle maps are the identity only to rounding:
+    // Minification must still take the preview (the canon would average the
+    // edge pixels with the transparent ground), so it covers every pixel and
+    // gives the Point render's bytes.
+    paint::Image output, point;
     paint::render_mesh(field, mesh, 80, 60, output);
     for (paint::Color pixel : output.pixels) {
         require(paint::equal(pixel, {3, 90, 230, 255}), "mesh identity has cracks");
     }
+    paint::render_mesh(field, mesh, 80, 60, point, paint::WarpSampling::Point);
+    require(std::equal(output.pixels.begin(), output.pixels.end(), point.pixels.begin(), paint::equal),
+            "an identity mesh minifies");
     std::vector<paint::Point> outline{{0, 0}, {60, 0}, {60, 20}, {30, 20}, {30, 50}, {0, 50}};
     mesh = paint::make_reshape_mesh(outline, 10);
     require(paint::reshape_mesh_valid(mesh), "concave lasso triangulation failed");

@@ -65,8 +65,8 @@ enum class WarpSampling { Point, Minification, Area };
 // translations and quarter rotations keep their samples. Area is the canon
 // (the field's average over each destination pixel's pulled-back unit
 // square, including at identity). Minification is the canon where the map
-// minifies (largest source footprint above one pixel) and the preview
-// elsewhere. A transfer clamps each value to [0, alpha] after it is formed.
+// minifies (largest source footprint above one pixel, beyond rounding, so an
+// unmoved mesh is not minifying) and the preview elsewhere. A transfer clamps each value to [0, alpha] after it is formed.
 // Outside the material the ground is transparent; the material's edge falls
 // to it across one pixel. All output pixels are replaced. Invalid maps leave
 // destination unchanged.

@@ -128,7 +128,9 @@ void render_masks_the_footprint() {
     paint::CanvasSurface surface;
     surface.build(image);
     const double c = std::cos(-0.6) / 2.3, s = std::sin(-0.6) / 2.3;
-    const paint::CanvasSurface::TargetMap map{c, s, -9.0, -s, c, 4.75};
+    // The frame's centre (80, 75) maps near the picture's (18, 12.5), so the
+    // whole footprint, 37 x 26 pixels magnified 2.3 times, lies inside it.
+    const paint::CanvasSurface::TargetMap map{c, s, 7.75, -s, c, -34.0};
     const int columns = 160, rows = 150;
     std::vector<paint::Color> frame(static_cast<std::size_t>(columns) * rows, paint::Color{9, 9, 9, 9});
     surface.render(map, {frame.data(), columns, rows, static_cast<std::size_t>(columns)}, 0, 0, columns, rows);
@@ -157,7 +159,9 @@ void render_masks_the_footprint() {
             ++inside;
         }
     }
-    require(inside > 2000 && outside > 2000, "the frame covers the footprint and beyond");
+    const double footprint = 37.0 * 26.0 * 2.3 * 2.3;
+    require(std::abs(static_cast<double>(inside) - footprint) < 0.02 * footprint && outside > 2000,
+            "the frame covers the footprint and beyond");
     paint::CanvasSurface unbuilt;
     std::vector<paint::Color> blank(64, paint::Color{9, 9, 9, 9});
     unbuilt.render(map, {blank.data(), 8, 8, 8}, 2, 2, 4, 4);

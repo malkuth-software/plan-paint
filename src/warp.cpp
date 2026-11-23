@@ -198,15 +198,23 @@ static double map_footprint(const AffineMap& inverse) {
     double footprint = scale * std::sqrt(eigenvalue);
     return footprint;
 }
+// How far above one pixel a footprint must be to count as minifying. A
+// mesh triangle's map is its target matrix's inverse times its source
+// matrix, so an unmoved triangle's footprint is one only to rounding, often
+// a few units in the last place above it; read as minification, that would
+// switch an identity mesh to the canon, whose average over each edge pixel
+// reaches the transparent ground past the material and opens cracks along
+// the edge.
+constexpr double minification_tolerance = 1.0e-9;
 // The transfer mode of a sampling: Point is the preview, Area the canon, and
 // Minification the canon where the map minifies (a source footprint wider
-// than a pixel) and the preview elsewhere, so identity, translations and
-// quarter turns keep their samples.
+// than a pixel, beyond rounding) and the preview elsewhere, so identity,
+// translations, quarter turns and unmoved meshes keep their samples.
 static stxlib::conv::Mode transfer_mode(WarpSampling sampling, double footprint) {
     if (sampling == WarpSampling::Area) {
         return stxlib::conv::Mode::canon;
     }
-    if (sampling == WarpSampling::Minification && footprint > 1.0) {
+    if (sampling == WarpSampling::Minification && footprint > 1.0 + minification_tolerance) {
         return stxlib::conv::Mode::canon;
     }
     return stxlib::conv::Mode::preview;
