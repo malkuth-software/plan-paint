@@ -230,6 +230,8 @@ struct TransferJob {
     stxlib::conv::Mode mode = stxlib::conv::Mode::preview;
     stxlib::conv::MutableRgba8Image destination;
     const std::atomic<bool>* cancelled = nullptr;
+    // The transferred pixels are [border, width) x [border, height).
+    std::size_t border = 0;
     std::atomic<std::size_t> next_chunk{0};
     std::atomic<bool> failed{false};
 };
@@ -248,11 +250,11 @@ struct TransferWorker {
                 return;
             }
             const std::size_t chunk = job.next_chunk.fetch_add(1, std::memory_order_relaxed);
-            const std::size_t first = chunk * rows_per_chunk;
+            const std::size_t first = job.border + chunk * rows_per_chunk;
             if (first >= height) {
                 return;
             }
-            const stxlib::conv::Region region{0, first, job.destination.width,
+            const stxlib::conv::Region region{job.border, first, job.destination.width,
                                               std::min(height, first + rows_per_chunk)};
             const stxlib::OperationStatus status =
                 stxlib::conv::transfer(job.field, job.map, job.mode, job.destination, region, worker.workspace);
@@ -263,11 +265,12 @@ struct TransferWorker {
         }
     }
 };
-// `field` through `map` by `mode` into `output` (its size already set).
+// `field` through `map` by `mode` into `output` (its size already set),
+// except its first `border` rows and columns, which keep their pixels.
 // Throws on a refusal or on cancellation; `output` is then unspecified.
 template <typename Map>
 void transfer_into(const stxlib::conv::Field& field, const Map& map, stxlib::conv::Mode mode, Image& output,
-                   const std::atomic<bool>* cancelled) {
+                   const std::atomic<bool>* cancelled, std::size_t border = 0) {
     const std::size_t width = static_cast<std::size_t>(output.width);
     const std::size_t height = static_cast<std::size_t>(output.height);
     TransferJob<Map> job{field, map, mode,
@@ -275,7 +278,8 @@ void transfer_into(const stxlib::conv::Field& field, const Map& map, stxlib::con
                              stxlib::MutableView<stxlib::u8>(pixel_bytes(output), output.pixels.size() * 4), width,
                              height, width * 4}};
     job.cancelled = cancelled;
-    const std::size_t chunks = (height + rows_per_chunk - 1) / rows_per_chunk;
+    job.border = border;
+    const std::size_t chunks = (height - border + rows_per_chunk - 1) / rows_per_chunk;
     std::size_t count = std::min<std::size_t>(8, std::max(1u, std::thread::hardware_concurrency()));
     if (width * height < 65536) {
         count = 1;
@@ -710,9 +714,17 @@ static AffineMap triangle_inverse(const MeshNode& a, const MeshNode& b, const Me
 // The largest number of grid nodes a mesh map is sampled on; a larger
 // destination doubles its spacing until it fits.
 constexpr std::size_t maximum_grid_nodes = std::size_t{1} << 22;
+// A mesh map's grid starts at its destination's origin, and its canon
+// averages each pixel over the part of [x - 1/2, x + 1/2] x [y - 1/2,
+// y + 1/2] the grid covers. So the reshape is transferred into a copy of the
+// destination one pixel larger at the top and left (`mesh_border`): pixel
+// (x, y) is the copy's (x + 1, y + 1), and the grid, starting at the copy's
+// origin, covers every pixel's whole square.
+constexpr int mesh_border = 1;
 // The destination grid a reshape mesh is carried on: nodes `spacing` pixels
-// apart from (0, 0) to past the last pixel centre, each with the triangle
-// whose map gives its source position (none yet: `unassigned`).
+// apart from the copy's origin, destination (-1, -1), to past the last
+// pixel's square, each with the triangle whose map gives its source position
+// (none yet: `unassigned`).
 struct MeshGrid {
     std::size_t nodes_x = 0, nodes_y = 0;
     double spacing = 1.0;
@@ -724,8 +736,9 @@ static MeshGrid make_mesh_grid(int width, int height) {
     MeshGrid grid;
     std::size_t step = 1;
     for (;;) {
-        grid.nodes_x = static_cast<std::size_t>(width - 1) / step + 2;
-        grid.nodes_y = static_cast<std::size_t>(height - 1) / step + 2;
+        // The last node lies at or past the copy's width + 1/2.
+        grid.nodes_x = static_cast<std::size_t>(width) / step + 2;
+        grid.nodes_y = static_cast<std::size_t>(height) / step + 2;
         if (grid.nodes_x * grid.nodes_y <= maximum_grid_nodes) {
             break;
         }
@@ -736,6 +749,12 @@ static MeshGrid make_mesh_grid(int width, int height) {
     grid.source_uv.assign(grid.nodes_x * grid.nodes_y * 2, 0.0);
     return grid;
 }
+// Grid node (column, row) in destination coordinates.
+static Point grid_point(const MeshGrid& grid, std::size_t column, std::size_t row) {
+    const Point point{static_cast<double>(column) * grid.spacing - mesh_border,
+                      static_cast<double>(row) * grid.spacing - mesh_border};
+    return point;
+}
 // Each grid node inside a target triangle takes that triangle (the first
 // that holds it, shared edges once).
 static void assign_inside(MeshGrid& grid, const ReshapeMesh& mesh) {
@@ -744,12 +763,14 @@ static void assign_inside(MeshGrid& grid, const ReshapeMesh& mesh) {
         const Point a = mesh.nodes[triangle.nodes[0]].target;
         const Point b = mesh.nodes[triangle.nodes[1]].target;
         const Point c = mesh.nodes[triangle.nodes[2]].target;
-        const double low_x = std::max(0.0, std::ceil(std::min({a.x, b.x, c.x}) / grid.spacing));
-        const double high_x =
-            std::min(static_cast<double>(grid.nodes_x - 1), std::floor(std::max({a.x, b.x, c.x}) / grid.spacing));
-        const double low_y = std::max(0.0, std::ceil(std::min({a.y, b.y, c.y}) / grid.spacing));
-        const double high_y =
-            std::min(static_cast<double>(grid.nodes_y - 1), std::floor(std::max({a.y, b.y, c.y}) / grid.spacing));
+        const double low_x =
+            std::max(0.0, std::ceil((std::min({a.x, b.x, c.x}) + mesh_border) / grid.spacing));
+        const double high_x = std::min(static_cast<double>(grid.nodes_x - 1),
+                                       std::floor((std::max({a.x, b.x, c.x}) + mesh_border) / grid.spacing));
+        const double low_y =
+            std::max(0.0, std::ceil((std::min({a.y, b.y, c.y}) + mesh_border) / grid.spacing));
+        const double high_y = std::min(static_cast<double>(grid.nodes_y - 1),
+                                       std::floor((std::max({a.y, b.y, c.y}) + mesh_border) / grid.spacing));
         if (high_x < low_x || high_y < low_y) {
             continue;
         }
@@ -758,8 +779,7 @@ static void assign_inside(MeshGrid& grid, const ReshapeMesh& mesh) {
             for (std::size_t column = static_cast<std::size_t>(low_x); column <= static_cast<std::size_t>(high_x);
                  ++column) {
                 const std::size_t node = row * grid.nodes_x + column;
-                const Point point{static_cast<double>(column) * grid.spacing,
-                                  static_cast<double>(row) * grid.spacing};
+                const Point point = grid_point(grid, column, row);
                 if (grid.triangle[node] == unassigned && within_triangle(point, a, b, c, tolerance)) {
                     grid.triangle[node] = index;
                 }
@@ -805,8 +825,7 @@ static void assign_outside(MeshGrid& grid) {
 static void place_sources(MeshGrid& grid, const std::vector<AffineMap>& inverses) {
     for (std::size_t node = 0; node < grid.triangle.size(); ++node) {
         const AffineMap& inverse = inverses[grid.triangle[node]];
-        const Point point{static_cast<double>(node % grid.nodes_x) * grid.spacing,
-                          static_cast<double>(node / grid.nodes_x) * grid.spacing};
+        const Point point = grid_point(grid, node % grid.nodes_x, node / grid.nodes_x);
         const Point source = transformed(point, inverse);
         grid.source_uv[node * 2] = source.x + ground_margin;
         grid.source_uv[node * 2 + 1] = source.y + ground_margin;
@@ -842,9 +861,17 @@ void render_mesh(const ConvWarpField& field, const ReshapeMesh& mesh, int width,
     place_sources(grid, inverses);
     const stxlib::conv::MeshMap map{grid.nodes_x, grid.nodes_y, grid.spacing,
                                     stxlib::View<double>(grid.source_uv.data(), grid.source_uv.size())};
+    Image bordered;
+    bordered.reset(width + mesh_border, height + mesh_border, {0, 0, 0, 0});
+    transfer_into(field.ground(), map, transfer_mode(sampling, footprint), bordered, nullptr,
+                  static_cast<std::size_t>(mesh_border));
     Image output;
     output.reset(width, height, {0, 0, 0, 0});
-    transfer_into(field.ground(), map, transfer_mode(sampling, footprint), output, nullptr);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            output.set(x, y, bordered.get(x + mesh_border, y + mesh_border));
+        }
+    }
     destination = std::move(output);
 }
 } // namespace paint

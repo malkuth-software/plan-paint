@@ -102,10 +102,12 @@ struct ReshapeMesh {
 [[nodiscard]] bool move_reshape_node(ReshapeMesh& mesh, std::size_t node, Point target);
 [[nodiscard]] bool reshape_mesh_valid(const ReshapeMesh& mesh);
 // Mesh geometry is piecewise affine, carried as stxlib::conv's MeshMap: a
-// regular destination grid (one pixel apart, wider past 4M nodes) whose nodes
-// take the source position of the target triangle that holds them, or, past
-// the mesh, of the nearest one's map continued onto the ground. Minification
-// takes the canon when any triangle minifies.
+// regular destination grid (one pixel apart, wider past 4M nodes) from
+// (-1, -1), so it covers every pixel's whole square (the canon averages a
+// pixel over the part the grid covers), whose nodes take the source position
+// of the target triangle that holds them, or, past the mesh, of the nearest
+// one's map continued onto the ground. Minification takes the canon when any
+// triangle minifies.
 void render_mesh(const ConvWarpField& field, const ReshapeMesh& mesh, int width, int height,
                  Image& destination, WarpSampling sampling = WarpSampling::Minification);
 } // namespace paint

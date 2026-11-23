@@ -20,31 +20,69 @@ void require(bool value, const char* message) {
 void near(double a, double b, double tolerance, const char* message) {
     require(std::abs(a - b) <= tolerance, message);
 }
-// The canon's pixel over the source square [left, left + 1) x [top, top + 1)
-// under an axis-aligned map, as stxlib::conv's affine transfer forms it: the
-// composited canon (include/stxlib/conv.hpp; transfer.cpp,
-// affine_composited_state), not the 2D field's average. Pass 1 averages each
-// ground row's 1D field over [left, left + 1); pass 2 compiles the column of
-// those averages as a 1D field (its admission acts on the averages, so the
-// result differs from the 2D average wherever admission acts) and averages
-// it over [top, top + 1). Ground coordinates are the material's plus its
-// two-pixel margin. Both averages are dense midpoint sums, then clamped once
-// as a transfer clamps (colour to [0, alpha]) and made straight; only the
-// bounded midpoint error separates it from the exact canon.
-paint::Color canon_reference(const paint::ConvWarpField& field, double left, double top) {
-    constexpr int divisions = 256;
+// Straight 8-bit from premultiplied channel values, clamped once as a
+// transfer clamps them (alpha to [0, 1], colour to [0, alpha]).
+paint::Color straight(const double values[4]) {
+    const double alpha = std::clamp(values[3], 0.0, 1.0);
+    paint::Color result{0, 0, 0, static_cast<std::uint8_t>(std::round(255.0 * alpha))};
+    if (alpha > 0.0) {
+        result.r = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[0], 0.0, alpha) / alpha));
+        result.g = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[1], 0.0, alpha) / alpha));
+        result.b = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[2], 0.0, alpha) / alpha));
+    }
+    return result;
+}
+// The ground's raw field at ground node coordinates (u, v), clamped to it.
+void ground_at(const paint::ConvWarpField& field, double u, double v, double values[4]) {
+    const stxlib::OperationStatus status = field.ground().evaluate(u, v, stxlib::MutableView<double>(values, 4));
+    require(status.succeeded(), "the ground evaluates");
+}
+// render_affine's pull-back: destination pixel (x, y) reads the ground's
+// node coordinates (ou + a11 x + a12 y, ov + a21 x + a22 y), the source
+// position plus the two-pixel margin.
+stxlib::conv::AffineMap ground_pull(const paint::AffineMap& map) {
+    const double determinant = map.xx * map.yy - map.xy * map.yx;
+    const double a11 = map.yy / determinant, a12 = -map.xy / determinant;
+    const double a21 = -map.yx / determinant, a22 = map.xx / determinant;
+    const stxlib::conv::AffineMap pull{a11, a12, a21, a22, -a11 * map.tx - a12 * map.ty + 2.0,
+                                       -a21 * map.tx - a22 * map.ty + 2.0};
+    return pull;
+}
+constexpr int divisions = 256;
+// Destination pixel (x, y) as stxlib::conv's affine transfer forms it, on a
+// map whose lines are destination columns (|a22| > |a21|): the composited
+// transfer (include/stxlib/conv.hpp; transfer.cpp, affine_composited_state),
+// not the 2D field. Pass 1 reads each ground row r at the point of column x
+// where v = r, u = alpha x + beta r + gamma: its value (preview) or its 1D
+// field's average over u +- |alpha| / 2 (canon). Pass 2 compiles that column
+// as a 1D field, whose admission acts on pass 1's values, and reads it at
+// the pixel's v (preview) or averages it over v +- |a22| / 2 (canon). The
+// averages are dense midpoint sums; only their bounded error separates this
+// from the transfer.
+paint::Color composited_reference(const paint::ConvWarpField& field, const stxlib::conv::AffineMap& pull, int x,
+                                  int y, bool canon) {
+    require(std::abs(pull.a22) > std::abs(pull.a21), "the reference takes maps whose lines are columns");
     constexpr std::size_t lanes = 4;
+    const double alpha = pull.a11 - pull.a12 * pull.a21 / pull.a22;
+    const double beta = pull.a12 / pull.a22;
+    const double gamma = pull.ou - pull.a12 * pull.ov / pull.a22;
+    const double half_u = 0.5 * std::abs(alpha), half_v = 0.5 * std::abs(pull.a22);
     const std::size_t rows = static_cast<std::size_t>(field.height() + 4);
-    std::vector<double> averages(rows * lanes, 0.0);
+    std::vector<double> line(rows * lanes, 0.0);
     for (std::size_t row = 0; row < rows; ++row) {
-        for (int x = 0; x < divisions; ++x) {
-            double values[4] = {};
-            const double u = left + (x + 0.5) / divisions + 2.0;
-            const stxlib::OperationStatus status =
-                field.ground().evaluate(u, static_cast<double>(row), stxlib::MutableView<double>(values));
-            require(status.succeeded(), "the ground evaluates");
+        const double u = alpha * x + beta * static_cast<double>(row) + gamma;
+        double values[4] = {};
+        if (!canon) {
+            ground_at(field, u, static_cast<double>(row), values);
             for (std::size_t channel = 0; channel < lanes; ++channel) {
-                averages[row * lanes + channel] += values[channel] / divisions;
+                line[row * lanes + channel] = values[channel];
+            }
+            continue;
+        }
+        for (int i = 0; i < divisions; ++i) {
+            ground_at(field, u - half_u + 2.0 * half_u * (i + 0.5) / divisions, static_cast<double>(row), values);
+            for (std::size_t channel = 0; channel < lanes; ++channel) {
+                line[row * lanes + channel] += values[channel] / divisions;
             }
         }
     }
@@ -52,26 +90,48 @@ paint::Color canon_reference(const paint::ConvWarpField& field, double left, dou
         stxlib::conv::LineField::make(rows, lanes, stxlib::conv::FieldOptions{});
     require(made.succeeded(), "the column field is made");
     stxlib::conv::LineField column = std::move(made).take_value();
-    const stxlib::conv::LineSamples samples{stxlib::View<double>(averages.data(), averages.size()), rows, lanes, lanes};
+    const stxlib::conv::LineSamples samples{stxlib::View<double>(line.data(), line.size()), rows, lanes, lanes};
     require(column.compile(samples).succeeded(), "the column field compiles");
+    const double v = pull.ov + pull.a21 * x + pull.a22 * y;
     double sums[4] = {};
-    for (int y = 0; y < divisions; ++y) {
+    const int count = canon ? divisions : 1;
+    for (int i = 0; i < count; ++i) {
         double values[4] = {};
-        const double v = top + (y + 0.5) / divisions + 2.0;
-        require(column.evaluate(v, stxlib::MutableView<double>(values)).succeeded(), "the column field evaluates");
+        const double at = canon ? v - half_v + 2.0 * half_v * (i + 0.5) / divisions : v;
+        require(column.evaluate(at, stxlib::MutableView<double>(values, 4)).succeeded(),
+                "the column field evaluates");
         for (std::size_t channel = 0; channel < lanes; ++channel) {
-            sums[channel] += values[channel];
+            sums[channel] += values[channel] / count;
         }
     }
-    const double count = static_cast<double>(divisions);
-    const double alpha = std::clamp(sums[3] / count, 0.0, 1.0);
-    paint::Color result{0, 0, 0, static_cast<std::uint8_t>(std::round(255.0 * alpha))};
-    if (alpha > 0.0) {
-        result.r = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(sums[0] / count, 0.0, alpha) / alpha));
-        result.g = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(sums[1] / count, 0.0, alpha) / alpha));
-        result.b = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(sums[2] / count, 0.0, alpha) / alpha));
+    return straight(sums);
+}
+// The canon's pixel over the source square [left, left + 1) x [top, top + 1)
+// under an axis-aligned map, composited as above.
+paint::Color canon_reference(const paint::ConvWarpField& field, double left, double top) {
+    const stxlib::conv::AffineMap pull{1.0, 0.0, 0.0, 1.0, left + 0.5 + 2.0, top + 0.5 + 2.0};
+    return composited_reference(field, pull, 0, 0, true);
+}
+// Destination pixel (x, y) through the 2D field, as a mesh map forms it:
+// the ground's value at the pulled-back centre (preview), or its average
+// over the pulled-back pixel square (canon; dense midpoint sum).
+paint::Color field_reference(const paint::ConvWarpField& field, const stxlib::conv::AffineMap& pull, int x, int y,
+                             bool canon) {
+    constexpr int samples = 96;
+    const int count = canon ? samples : 1;
+    double sums[4] = {};
+    for (int j = 0; j < count; ++j) {
+        for (int i = 0; i < count; ++i) {
+            const double px = canon ? x - 0.5 + (i + 0.5) / samples : x;
+            const double py = canon ? y - 0.5 + (j + 0.5) / samples : y;
+            double values[4] = {};
+            ground_at(field, pull.ou + pull.a11 * px + pull.a12 * py, pull.ov + pull.a21 * px + pull.a22 * py, values);
+            for (int channel = 0; channel < 4; ++channel) {
+                sums[channel] += values[channel] / (static_cast<double>(count) * count);
+            }
+        }
     }
-    return result;
+    return straight(sums);
 }
 void near_color(paint::Color actual, paint::Color expected, const char* message) {
     near(actual.r, expected.r, 1.0, message);
@@ -379,8 +439,14 @@ void test_sampling_continuity_and_equivalent_maps() {
                "explicit area mode is not the canon at identity");
     paint::render_affine(field, {1, 0, 0.000001, 0, 1, 0}, 5, 5, moved, paint::WarpSampling::Area);
     require(moved.get(2, 2).r == area.get(2, 2).r, "explicit area functional jumps near identity");
-    constexpr paint::AffineMap maps[4] = {
-        {1, 0, 1, 0, 1, 0}, {0.8, 0.12, 0.4, 0, 0.9, 0.3}, {0, -1, 4, 1, 0, 0}, {1, 0, 0.000001, 0, 1, 0}};
+    // Equivalent affine and mesh maps. render_affine is stxlib::conv's
+    // composited transfer, render_mesh the 2D field; the two agree where pass
+    // 1 reads every row at the same u (beta = a12 / a22 = 0: translations and
+    // quarter turns), since this fixture's material rows are identical, so
+    // each column pass 2 compiles is one profile scaled. The mesh's grid
+    // carries source positions rounded once more than the affine map's, so a
+    // byte may round the other way.
+    constexpr paint::AffineMap maps[3] = {{1, 0, 1, 0, 1, 0}, {0, -1, 4, 1, 0, 0}, {1, 0, 0.000001, 0, 1, 0}};
     for (const paint::AffineMap& map : maps) {
         paint::ReshapeMesh mesh = paint::make_reshape_mesh(image, 2.0);
         for (paint::MeshNode& node : mesh.nodes) {
@@ -392,11 +458,38 @@ void test_sampling_continuity_and_equivalent_maps() {
             paint::Image affine_output, mesh_output;
             paint::render_affine(field, map, 7, 7, affine_output, sampling);
             paint::render_mesh(field, mesh, 7, 7, mesh_output, sampling);
-            // The mesh's grid carries source positions rounded once more
-            // than the affine map's, so a byte may round the other way.
             for (std::size_t i = 0; i < affine_output.pixels.size(); ++i) {
                 near_color(affine_output.pixels[i], mesh_output.pixels[i],
                            "equivalent affine and mesh maps produced different pixels");
+            }
+        }
+    }
+    // A shear with scale reads each row at its own u, so the two transfers
+    // are different readings of the field near admission (material edges):
+    // each is checked against its own reference, every pixel, including the
+    // first row and column, whose squares the mesh grid must cover whole.
+    {
+        const paint::AffineMap map{0.8, 0.12, 0.4, 0, 0.9, 0.3};
+        const stxlib::conv::AffineMap pull = ground_pull(map);
+        paint::ReshapeMesh mesh = paint::make_reshape_mesh(image, 2.0);
+        for (paint::MeshNode& node : mesh.nodes) {
+            node.target = {map.xx * node.source.x + map.xy * node.source.y + map.tx,
+                           map.yx * node.source.x + map.yy * node.source.y + map.ty};
+        }
+        // The map minifies, so Minification is the canon.
+        for (paint::WarpSampling sampling :
+             {paint::WarpSampling::Point, paint::WarpSampling::Minification, paint::WarpSampling::Area}) {
+            const bool canon = sampling != paint::WarpSampling::Point;
+            paint::Image affine_output, mesh_output;
+            paint::render_affine(field, map, 7, 7, affine_output, sampling);
+            paint::render_mesh(field, mesh, 7, 7, mesh_output, sampling);
+            for (int y = 0; y < 7; ++y) {
+                for (int x = 0; x < 7; ++x) {
+                    near_color(affine_output.get(x, y), composited_reference(field, pull, x, y, canon),
+                               "a sheared affine render is not the composited transfer");
+                    near_color(mesh_output.get(x, y), field_reference(field, pull, x, y, canon),
+                               "a sheared mesh render is not the 2D field");
+                }
             }
         }
     }
