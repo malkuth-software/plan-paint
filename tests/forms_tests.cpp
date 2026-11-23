@@ -5961,8 +5961,8 @@ void rotated_view_prepares_at_once_and_pans_by_fractions() {
             "the rest render equals a whole render at the view's origin");
 }
 // The owner: the CONV view came back seconds after a stroke, which
-// recompiled the whole picture. The view's surface recompiles only the cells
-// an edit reads and the next frame resamples only the view over the edit;
+// recompiled the whole picture. The view's surface recompiles only the rows
+// holding an edit and the next frame resamples only the view over the edit;
 // that frame equals a whole render of the edited picture.
 void rotated_view_edit_resamples_locally() {
     Fixture fixture;

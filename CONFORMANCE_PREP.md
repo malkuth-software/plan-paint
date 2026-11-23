@@ -411,7 +411,7 @@ Plan Paint rasterizes into its own `Image` (`src/raster.cpp`, `curve.cpp`, `docu
   - `HatchBrush`, `TextureBrush` and `CheckerBrush`, for patterns and the transparency checker.
 - **Transforms and areas:** `Matrix` (transform tool, view rotation); `Region` (selection masks).
 - **Colour:** `ColorBlend`, `LinearSrgb` and `SrgbConversion`, for blending and dithering in linear light.
-- **Already sourced:** PNG through GUI.Forms' image layer (stx_png); resampling through stx_conv.
+- **Already sourced:** PNG through GUI.Forms' image layer (stx_png); resampling through stxlib::conv (STXlib).
 
 The missing atomic: rasterizing a path, pen or brush into caller-owned pixels.
 - Plan Paint needs a `Graphics` over a caller-owned `Bitmap` (or over a `BitmapEditView` of Plan Paint's buffer).

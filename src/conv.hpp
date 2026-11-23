@@ -1,11 +1,17 @@
 #pragma once
 #include "image.hpp"
 namespace paint {
-// CONV* through stx_conv: double precision, premultiplied sRGB, separable
-// nodal/basin plans; independent lines run on up to eight worker threads.
-// Input and output may alias; destination is replaced only after success.
+// CONV through stxlib::conv: the canonical CONV field of the straight-alpha
+// image (its separated form, paper closure, no bubble), read through an axis
+// map; destination rows are split into bands on up to eight worker threads,
+// one workspace each. Sides up to stxlib::conv::max_side (32768). A one-pixel
+// source side is repeated to two (the field is constant across it). Input and
+// output may alias; destination is replaced only after success, and an
+// unchanged size is a byte-exact copy.
+// Preview: footprint centres (target x reads source (x + 1/2) w / W - 1/2, STXlib
+// CONV 19323d6); the first and last pixels are no longer the source's own.
 void conv_resize(const Image& source, int width, int height, Image& destination);
-// Full target-pixel basins on each resized axis, including half-pixel source edges.
-// Unchanged dimensions preserve their samples; no-op resize is byte-exact.
+// Canon: each target pixel is the field's average over its footprint,
+// (x + [0, 1)) w / W - 1/2 on each axis, exact for the field's cells.
 void conv_resize_area(const Image& source, int width, int height, Image& destination);
 } // namespace paint

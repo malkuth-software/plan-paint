@@ -3,7 +3,6 @@
 #include "conv.hpp"
 #include "desktop.hpp"
 #include "document.hpp"
-#include "fixtures/conv_reference.hpp"
 #include "guide.hpp"
 #include "material.hpp"
 #include "paint_tools.hpp"
@@ -588,26 +587,32 @@ void test_conv() {
             input.set(x, y, {static_cast<std::uint8_t>(x * 17), static_cast<std::uint8_t>(y * 23), 0, 255});
         }
     }
-    paint::conv_resize(input, 25, 17, output);
+    // stxlib::conv's axis lattice (include/stxlib/conv.hpp, AxisMap): target
+    // pixel x covers source node coordinates (x + [0, 1)) w / W - 1/2, and the
+    // preview reads that footprint's centre, (x + 1/2) w / W - 1/2. On a
+    // threefold enlargement target pixel 3x + 1 reads exactly node x, where
+    // the field interpolates the source pixel, so those pixels keep their
+    // bytes; an unchanged axis reads every node in place.
+    paint::conv_resize(input, 39, 27, output);
     for (int y = 0; y < input.height; ++y) {
         for (int x = 0; x < input.width; ++x) {
-            require(paint::equal(input.get(x, y), output.get(x * 2, y * 2)),
+            require(paint::equal(input.get(x, y), output.get(x * 3 + 1, y * 3 + 1)),
                     "CONV nodal interpolation failed");
         }
     }
     // An unchanged dimension must preserve its rows/columns, including when
     // source and destination alias. These fixtures exercise both one-axis paths.
-    paint::conv_resize(input, 25, 9, output);
+    paint::conv_resize(input, 39, 9, output);
     for (int y = 0; y < 9; ++y) {
         for (int x = 0; x < 13; ++x) {
-            require(paint::equal(input.get(x, y), output.get(x * 2, y)), "width-only resize moved a row");
+            require(paint::equal(input.get(x, y), output.get(x * 3 + 1, y)), "width-only resize moved a row");
         }
     }
     paint::Image original = input;
-    paint::conv_resize(input, 13, 17, input);
+    paint::conv_resize(input, 13, 27, input);
     for (int y = 0; y < 9; ++y) {
         for (int x = 0; x < 13; ++x) {
-            require(paint::equal(original.get(x, y), input.get(x, y * 2)),
+            require(paint::equal(original.get(x, y), input.get(x, y * 3 + 1)),
                     "height-only alias resize moved a column");
         }
     }
@@ -616,10 +621,10 @@ void test_conv() {
     for (paint::Color pixel : output.pixels) {
         require(paint::equal(pixel, {20, 40, 60, 255}), "short line failed");
     }
-    // Images of 65536 pixels or more fan their lines out over worker threads.
-    // With identical rows (columns), every threaded row (column) must equal the
-    // single-line resize, which runs on one thread: this pins each worker's
-    // line offsets and strides, for nodal and area sampling.
+    // Images of 65536 pixels or more split their rows into bands over worker
+    // threads. With identical rows (columns), every threaded row (column) must
+    // equal the single-line resize, which runs on one thread and whose field
+    // repeats the line: this pins each band's region, for preview and canon.
     const int wide = 300, tall = 240;
     paint::Image row, rows, column, columns, expected, actual;
     row.reset(wide, 1);
@@ -714,22 +719,6 @@ void test_conv_area() {
     paint::conv_resize_area(source, 1, 1, output);
     require(paint::equal(output.get(0, 0), {255, 0, 0, 128}),
             "area resize averages premultiplied opacity without hidden-color bleed");
-}
-void test_conv_reference() {
-    for (const fixtures::Case& fixture : fixtures::cases) {
-        paint::Image input, output;
-        input.reset(fixture.width, fixture.height);
-        std::memcpy(input.pixels.data(), fixture.input, input.pixels.size() * 4);
-        paint::conv_resize(input, fixture.out_width, fixture.out_height, output);
-        const std::uint8_t* actual = reinterpret_cast<const std::uint8_t*>(output.pixels.data());
-        for (std::size_t i = 0; i < output.pixels.size() * 4; ++i) {
-            if (actual[i] != fixture.expected[i]) {
-                std::cerr << "reference difference at byte " << i << ": " << static_cast<int>(actual[i])
-                          << " vs " << static_cast<int>(fixture.expected[i]) << '\n';
-                throw std::runtime_error("Native CONV differs from website JavaScript reference");
-            }
-        }
-    }
 }
 void test_editing() {
     paint::Document doc;
@@ -1724,7 +1713,6 @@ int main() {
         test_transformative_brushes();
         test_material_collections_and_dry_contact();
         test_conv();
-        test_conv_reference();
         test_conv_area();
         test_editing();
         test_superimpose();

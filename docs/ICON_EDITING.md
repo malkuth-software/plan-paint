@@ -141,10 +141,11 @@ The whole-image result is clipped to the existing canvas, with transparent pixel
 where the transformed image has no coverage. A transformed selection retains its
 floating bounds and remains editable, including portions outside the canvas.
 
-Sampling offers **CONV* point**, **CONV* minification** (default), and **CONV* area**,
-using the same continuous premultiplied material as Reshape. Point evaluates the
-material at output pixel centers; minification integrates a footprint when
-shrinking; area integrates the output pixel footprint even at unit scale.
+Sampling offers **CONV point**, **CONV minification** (default), and **CONV area**,
+using the same field (stxlib::conv, the material on a transparent ground) as
+Reshape. Point evaluates the field at output pixel centers (its preview);
+minification takes the canon, the field's average over the footprint, when
+shrinking; area takes the canon even at unit scale.
 Integer translation with point or minification sampling copies exact RGBA bytes,
 including RGB under zero alpha. Neutral settings with these two modes create no
 edit. Area sampling can change pixel values at unit scale.
@@ -243,7 +244,7 @@ For different quantization settings, use Palette conversion after generation.
 Indexed targets save as their selected DIB depth, including 256-pixel images.
 RGBA save encoding follows the ordinary representation output rules above.
 
-Resizing uses Paint's CONV resampler, independently along the two axes; rectangular
+Resizing uses STXlib's CONV field (stxlib::conv) through an axis map; rectangular
 sources are stretched to the requested dimensions. Choose proportional target
 dimensions to retain their aspect ratio. Cursor hotspots follow the chosen
 source's pixel centers on each axis, round to the nearest target pixel and clamp

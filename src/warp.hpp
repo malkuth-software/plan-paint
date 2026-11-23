@@ -1,6 +1,7 @@
 #pragma once
 #include "canvas_surface.hpp"
 #include "image.hpp"
+#include <stxlib/conv.hpp>
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -14,26 +15,26 @@ struct AffineMap {
     double yx = 0.0, yy = 1.0, ty = 0.0;
 };
 
-// The CONV field of a transform's material: stx_conv's tensor surface
-// through its pixels (CanvasSurface: five admitted currents per pixel cell of
-// every row, each sample read from the 8 by 8 pixels around it). About 256
-// bytes a pixel; up to 4 megapixels. A constant material is held as its one
+// The CONV field of a transform's material: stxlib::conv's field (the
+// paper's Surface in its separated form, paper closure, no bubble) through
+// its pixels, twice: the material itself, for point samples, and the
+// material on a transparent margin (the ground), which the renders transfer
+// from. A few bytes a pixel each. A constant material is sampled as its one
 // colour; a material one pixel wide or high is its line, constant across.
-// Compile once per selected material; reuse for every rotation/mesh preview.
-// compile() prepares a replacement before publishing; old state survives failure.
+// Up to 32764 pixels a side. Compile once per selected material; reuse for
+// every rotation/mesh preview. compile() prepares a replacement before
+// publishing; old state survives failure. Move-only (the fields are).
 class ConvWarpField {
   public:
     void compile(const Image& source, const std::atomic<bool>* cancelled = nullptr);
-    // Independently admitted CONV channels, before physical color projection.
-    // Raw RGB can exceed alpha; use only for numerical inspection/reference work.
+    // Independently admitted CONV channels, before physical color projection
+    // (stxlib::conv::Field::evaluate). Raw RGB can exceed alpha; use only for
+    // numerical inspection/reference work. Transparent outside the
+    // half-pixel footprint.
     [[nodiscard]] WarpSample sample_components(Point source_position) const;
-    // Physical premultiplied RGBA: 0 <= RGB <= alpha <= 1, projected before filtering.
+    // Physical premultiplied RGBA: 0 <= RGB <= alpha <= 1.
     [[nodiscard]] WarpSample sample_premultiplied(Point source_position) const;
     [[nodiscard]] Color sample(Point source_position) const;
-    // The integral of sample_premultiplied over a convex polygon (at most
-    // twelve vertices) inside one evaluation cell; see
-    // CanvasSurface::integrate_cell_polygon.
-    [[nodiscard]] WarpSample integrate_cell_polygon(std::span<const Point> polygon) const;
     [[nodiscard]] int width() const {
         return width_;
     }
@@ -41,26 +42,34 @@ class ConvWarpField {
         return height_;
     }
     [[nodiscard]] std::size_t storage_bytes() const;
+    // The ground's field: the material at node (x + 2, y + 2) of a copy with
+    // a transparent margin of two pixels. Empty before compile().
+    [[nodiscard]] const stxlib::conv::Field& ground() const {
+        return ground_;
+    }
 
   private:
     int width_ = 0, height_ = 0;
-    // The material's surface; a one-pixel axis is repeated to two pixels.
-    CanvasSurface surface_;
+    // The material's field (a one-pixel axis repeated to two); empty for a
+    // constant material.
+    stxlib::conv::Field material_;
+    stxlib::conv::Field ground_;
     bool constant_ = false;
     WarpSample constant_value_;
 };
 
 enum class WarpSampling { Point, Minification, Area };
 
-// Point preserves nodal samples. Minification uses a continuous residual filter:
-// target-square side sqrt(max(0, 1 - 1 / sigma_max(inverse)^2)), so identity,
-// translations and quarter rotations remain exact. Area always uses the full
-// unit target square, including at identity. Affine Area clips footprints at
-// source-cell boundaries and uses positive triangle quadrature; physical color
-// projection is piecewise polynomial, so its integral remains a numerical approximation.
-// Mesh Area additionally clips at triangle boundaries. Minification uses an 8x8 stencil.
-// Transparent outside the source footprint; edge centres extend half a pixel.
-// All output pixels are replaced. Invalid maps leave destination unchanged.
+// Renders are stxlib::conv transfers from the ground. Point is the preview
+// (the field at each destination pixel's pulled-back centre), so identity,
+// translations and quarter rotations keep their samples. Area is the canon
+// (the field's average over each destination pixel's pulled-back unit
+// square, including at identity). Minification is the canon where the map
+// minifies (largest source footprint above one pixel, beyond rounding, so an
+// unmoved mesh is not minifying) and the preview elsewhere. A transfer clamps each value to [0, alpha] after it is formed.
+// Outside the material the ground is transparent; the material's edge falls
+// to it across one pixel. All output pixels are replaced. Invalid maps leave
+// destination unchanged.
 // affine_bounds includes every target pixel basin intersecting the transformed
 // source footprint. Subtract returned x/y from map.tx/map.ty before rendering.
 [[nodiscard]] Rect affine_bounds(const ConvWarpField& field, const AffineMap& source_to_target);
@@ -92,10 +101,13 @@ struct ReshapeMesh {
 // Failure preserves the previous target point.
 [[nodiscard]] bool move_reshape_node(ReshapeMesh& mesh, std::size_t node, Point target);
 [[nodiscard]] bool reshape_mesh_valid(const ReshapeMesh& mesh);
-// Mesh geometry is piecewise affine. Pixel values always use the CONV* atlas.
-// Minification uses the maximum triangle stretch for one common filter, keeping
-// shared coverage samples consistent. A local deformation can widen that filter
-// smoothly across the mesh. An equivalent whole-affine mesh uses the same filter.
+// Mesh geometry is piecewise affine, carried as stxlib::conv's MeshMap: a
+// regular destination grid (one pixel apart, wider past 4M nodes) from
+// (-1, -1), so it covers every pixel's whole square (the canon averages a
+// pixel over the part the grid covers), whose nodes take the source position
+// of the target triangle that holds them, or, past the mesh, of the nearest
+// one's map continued onto the ground. Minification takes the canon when any
+// triangle minifies.
 void render_mesh(const ConvWarpField& field, const ReshapeMesh& mesh, int width, int height,
                  Image& destination, WarpSampling sampling = WarpSampling::Minification);
 } // namespace paint
