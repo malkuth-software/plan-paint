@@ -8,7 +8,8 @@ namespace paint {
 // source side is repeated to two (the field is constant across it). Input and
 // output may alias; destination is replaced only after success, and an
 // unchanged size is a byte-exact copy.
-// Preview: nodes aligned at both ends (target x reads source x (w - 1) / (W - 1)).
+// Preview: footprint centres (target x reads source (x + 1/2) w / W - 1/2, STXlib
+// CONV 19323d6); the first and last pixels are no longer the source's own.
 void conv_resize(const Image& source, int width, int height, Image& destination);
 // Canon: each target pixel is the field's average over its footprint,
 // (x + [0, 1)) w / W - 1/2 on each axis, exact for the field's cells.
