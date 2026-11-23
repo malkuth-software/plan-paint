@@ -1,4 +1,6 @@
-#include "cell_integral_surface.hpp"
+// Plan Paint's stx_conv implementation at 45d8442 (src/canvas_surface.cpp), kept only for
+// benchmarks/conv_compare (PLAN_PAINT_CONV_COMPARE): namespace paint::legacy.
+#include "legacy_canvas_surface.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -8,7 +10,7 @@
 #include <stdexcept>
 #include <thread>
 
-namespace paint {
+namespace paint::legacy {
 namespace {
 const std::size_t channels = 4;
 // Areas below this many cells or pixels run on the calling thread.
@@ -130,14 +132,25 @@ WarpSample cells_at(const stx_conv::surface::LineCell* cells, double t) {
                            cell_value(cells[3], basis)};
     return value;
 }
+Color encoded(WarpSample value) {
+    const double alpha = std::clamp(value.a, 0.0, 1.0);
+    if (alpha < 0.5 / 255.0) {
+        return {0, 0, 0, 0};
+    }
+    const Color result{static_cast<std::uint8_t>(std::round(255.0 * std::clamp(value.r / alpha, 0.0, 1.0))),
+                       static_cast<std::uint8_t>(std::round(255.0 * std::clamp(value.g / alpha, 0.0, 1.0))),
+                       static_cast<std::uint8_t>(std::round(255.0 * std::clamp(value.b / alpha, 0.0, 1.0))),
+                       static_cast<std::uint8_t>(std::round(255.0 * alpha))};
+    return result;
+}
 } // namespace
 
 // Rows claimed one at a time from `next`; each row's cells are written by
 // one worker only.
-struct CellIntegralBuildJob {
-    CellIntegralSurface& surface;
+struct CanvasSurfaceBuildJob {
+    CanvasSurface& surface;
     std::atomic<int> next{0};
-    static void run(CellIntegralBuildJob& job) {
+    static void run(CanvasSurfaceBuildJob& job) {
         for (;;) {
             const int row = job.next.fetch_add(1, std::memory_order_relaxed);
             if (row >= job.surface.height()) {
@@ -147,7 +160,34 @@ struct CellIntegralBuildJob {
         }
     }
 };
-void CellIntegralSurface::clear() noexcept {
+namespace {
+struct RenderJob {
+    const CanvasSurface& surface;
+    const CanvasSurface::TargetMap& map;
+    int left = 0, top = 0, columns = 0, rows = 0;
+    Color* target = nullptr;
+    std::size_t stride = 0;
+    std::atomic<int> next{0};
+};
+void render_worker(RenderJob& job) {
+    for (;;) {
+        const int y = job.next.fetch_add(1, std::memory_order_relaxed);
+        if (y >= job.rows) {
+            return;
+        }
+        Color* const row = job.target + static_cast<std::size_t>(y) * job.stride;
+        const double cy = job.top + y + 0.5;
+        for (int x = 0; x < job.columns; ++x) {
+            const double cx = job.left + x + 0.5;
+            const Point position{job.map.ux * cx + job.map.uy * cy + job.map.u0,
+                                 job.map.vx * cx + job.map.vy * cy + job.map.v0};
+            row[x] = job.surface.sample(position);
+        }
+    }
+}
+} // namespace
+
+void CanvasSurface::clear() noexcept {
     ready_ = false;
     width_ = 0;
     height_ = 0;
@@ -156,7 +196,7 @@ void CellIntegralSurface::clear() noexcept {
     shapes_u_ = {};
     shapes_v_ = {};
 }
-void CellIntegralSurface::build(const Image& source) {
+void CanvasSurface::build(const Image& source) {
     clear();
     if (source.width < 2 || source.height < 2 ||
         source.pixels.size() != static_cast<std::size_t>(source.width) * source.height) {
@@ -188,15 +228,15 @@ void CellIntegralSurface::build(const Image& source) {
             shapes_v_[cell] = stx_conv::surface::cell_shape(down, cell);
         }
         cells_.resize(static_cast<std::size_t>(height_) * shapes_u_.size() * channels);
-        CellIntegralBuildJob job{*this};
+        CanvasSurfaceBuildJob job{*this};
         const unsigned count = worker_count(cells_.size());
         if (count == 1) {
-            CellIntegralBuildJob::run(job);
+            CanvasSurfaceBuildJob::run(job);
         } else {
             std::vector<std::jthread> workers;
             workers.reserve(count);
             for (unsigned index = 0; index < count; ++index) {
-                workers.emplace_back(CellIntegralBuildJob::run, std::ref(job));
+                workers.emplace_back(CanvasSurfaceBuildJob::run, std::ref(job));
             }
         }
     } catch (...) {
@@ -205,7 +245,7 @@ void CellIntegralSurface::build(const Image& source) {
     }
     ready_ = true;
 }
-void CellIntegralSurface::compile_row_cells(int row, int first_cell, int last_cell) {
+void CanvasSurface::compile_row_cells(int row, int first_cell, int last_cell) {
     const std::size_t row_nodes = static_cast<std::size_t>(row) * width_;
     const std::size_t row_cells = static_cast<std::size_t>(row) * (width_ - 1);
     std::array<double, 8> window{};
@@ -223,7 +263,34 @@ void CellIntegralSurface::compile_row_cells(int row, int first_cell, int last_ce
         }
     }
 }
-WarpSample CellIntegralSurface::sample_components(Point position) const {
+void CanvasSurface::update(const Image& source, Rect damage) {
+    if (!ready_ || source.width != width_ || source.height != height_) {
+        throw std::invalid_argument("The CONV surface was built for another image size.");
+    }
+    const int left = std::max(0, damage.x), top = std::max(0, damage.y);
+    const int right = std::min(width_, damage.x + damage.w), bottom = std::min(height_, damage.y + damage.h);
+    if (right <= left || bottom <= top) {
+        return;
+    }
+    for (int y = top; y < bottom; ++y) {
+        for (int x = left; x < right; ++x) {
+            const std::size_t i = static_cast<std::size_t>(y) * width_ + x;
+            const Color color = source.pixels[i];
+            const double alpha = color.a / 255.0;
+            nodes_[i * 4] = color.r / 255.0 * alpha;
+            nodes_[i * 4 + 1] = color.g / 255.0 * alpha;
+            nodes_[i * 4 + 2] = color.b / 255.0 * alpha;
+            nodes_[i * 4 + 3] = alpha;
+        }
+    }
+    // Cell i reads pixels i-3..i+4: the cells that read a damaged pixel.
+    const int first_cell = std::max(0, left - 4);
+    const int last_cell = std::min(width_ - 2, right - 1 + 3);
+    for (int y = top; y < bottom; ++y) {
+        compile_row_cells(y, first_cell, last_cell);
+    }
+}
+WarpSample CanvasSurface::sample_components(Point position) const {
     WarpSample result;
     if (!ready_ || !std::isfinite(position.x) || !std::isfinite(position.y) || position.x < -0.5 ||
         position.y < -0.5 || position.x >= width_ - 0.5 || position.y >= height_ - 0.5) {
@@ -255,7 +322,7 @@ WarpSample CellIntegralSurface::sample_components(Point position) const {
     result = {values[0], values[1], values[2], values[3]};
     return result;
 }
-void CellIntegralSurface::column_cells(double u, std::size_t cell_v, stx_conv::surface::LineCell* cells) const {
+void CanvasSurface::column_cells(double u, std::size_t cell_v, stx_conv::surface::LineCell* cells) const {
     const std::size_t cells_u = static_cast<std::size_t>(width_) - 1;
     std::size_t cell_u = 0;
     double t_u = 0.0;
@@ -278,7 +345,7 @@ void CellIntegralSurface::column_cells(double u, std::size_t cell_v, stx_conv::s
                                                               shapes_v_[cell_v], bubble);
     }
 }
-WarpSample CellIntegralSurface::integrate_cell_polygon(std::span<const Point> polygon) const {
+WarpSample CanvasSurface::integrate_cell_polygon(std::span<const Point> polygon) const {
     WarpSample total;
     const int count = static_cast<int>(polygon.size());
     if (!ready_ || count < 3 || count > 12) {
@@ -372,7 +439,7 @@ WarpSample CellIntegralSurface::integrate_cell_polygon(std::span<const Point> po
     }
     return total;
 }
-WarpSample CellIntegralSurface::sample_premultiplied(Point position) const {
+WarpSample CanvasSurface::sample_premultiplied(Point position) const {
     WarpSample value = sample_components(position);
     value.a = std::clamp(value.a, 0.0, 1.0);
     value.r = std::clamp(value.r, 0.0, value.a);
@@ -380,4 +447,25 @@ WarpSample CellIntegralSurface::sample_premultiplied(Point position) const {
     value.b = std::clamp(value.b, 0.0, value.a);
     return value;
 }
-} // namespace paint
+Color CanvasSurface::sample(Point position) const {
+    const Color color = encoded(sample_premultiplied(position));
+    return color;
+}
+void CanvasSurface::render(const TargetMap& map, int left, int top, int columns, int rows, Color* target,
+                           std::size_t stride) const {
+    if (columns <= 0 || rows <= 0) {
+        return;
+    }
+    RenderJob job{*this, map, left, top, columns, rows, target, stride};
+    const unsigned count = worker_count(static_cast<std::size_t>(columns) * rows);
+    if (count == 1) {
+        render_worker(job);
+        return;
+    }
+    std::vector<std::jthread> workers;
+    workers.reserve(count);
+    for (unsigned index = 0; index < count; ++index) {
+        workers.emplace_back(render_worker, std::ref(job));
+    }
+}
+} // namespace paint::legacy

@@ -47,8 +47,9 @@ if(NOT PLAN_PAINT_GUI_FORMS_STANDARD)
 endif()
 endif()
 
-# paint_core's CONV uses stxlib::conv (stxlib::algorithms), and its cell
-# integral over a polygon (src/cell_integral_surface.cpp) stx_conv's surface. An SDK's GUIFormsConfig finds both in this
+# paint_core's CONV uses stxlib::conv (stxlib::algorithms); stx_conv is found
+# for tests/canvas_surface_tests.cpp and the opt-in PLAN_PAINT_CONV_COMPARE
+# comparison only, not linked into paint_core. An SDK's GUIFormsConfig finds both in this
 # scope; a pinned in-tree toolkit defines them as global targets; a toolkit
 # that installs stx at configure time leaves them in <build>/stx-prefix (or
 # the GUI_FORMS_STX_PREFIX it was given), where they are found here.
@@ -63,7 +64,7 @@ endif()
 if(NOT TARGET stxlib::algorithms)
   find_package(stxlib CONFIG REQUIRED NO_DEFAULT_PATH PATHS "${paint_stx_prefix}")
 endif()
-target_link_libraries(paint_core PUBLIC stx_conv::stx_conv stxlib::algorithms)
+target_link_libraries(paint_core PUBLIC stxlib::algorithms)
 # The curve tools flatten through GUI.Drawing's GraphicsPath (src/curve.cpp),
 # which the static Application archive carries; the frontend-free build keeps
 # its own flattening.

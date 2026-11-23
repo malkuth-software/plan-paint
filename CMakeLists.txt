@@ -65,7 +65,7 @@ endif()
 # not shippable, and scripts/check_system_libraries.py refuses its package.
 option(RAINSTAR_SYSTEM_CODECS "Link installed libtiff, libwebp and dav1d (development only; not shippable)" OFF)
 include(cmake/ImportFormats.cmake)
-add_library(paint_core src/sticky_note.cpp vendor/playsuite-paper/paper.cpp src/localization.cpp src/localization_platform.cpp src/gradient.cpp src/recovery.cpp src/dither.cpp src/spirograph.cpp src/carpet.cpp src/canvas_backing.cpp src/desktop.cpp src/safe_file.cpp src/warp_session.cpp src/text.cpp src/embedded_font.cpp src/text_session.cpp src/font_inventory.cpp src/image.cpp src/color_palette.cpp src/color_tools.cpp src/paint_tools.cpp src/guide.cpp src/conv.cpp src/raster.cpp src/material.cpp src/atlas.cpp src/icon_validation.cpp src/icon_sheet.cpp src/toolbar_strip.cpp src/icon_export.cpp src/asset_browser.cpp src/file_change.cpp src/file_reveal.cpp src/alpha_tools.cpp src/icon_effects.cpp src/numeric_transform.cpp src/icon_palette.cpp src/icon_palette_file.cpp src/icon_generation.cpp src/icon_states.cpp src/icon_batch.cpp src/icon_stamp.cpp src/document.cpp src/document_atlas.cpp src/curve.cpp src/document_curve.cpp src/document_path.cpp src/superimpose.cpp src/file_type.cpp src/command_line.cpp src/codecs.cpp src/icon_codec.cpp src/import_codecs.cpp src/warp.cpp src/canvas_surface.cpp src/cell_integral_surface.cpp)
+add_library(paint_core src/sticky_note.cpp vendor/playsuite-paper/paper.cpp src/localization.cpp src/localization_platform.cpp src/gradient.cpp src/recovery.cpp src/dither.cpp src/spirograph.cpp src/carpet.cpp src/canvas_backing.cpp src/desktop.cpp src/safe_file.cpp src/warp_session.cpp src/text.cpp src/embedded_font.cpp src/text_session.cpp src/font_inventory.cpp src/image.cpp src/color_palette.cpp src/color_tools.cpp src/paint_tools.cpp src/guide.cpp src/conv.cpp src/raster.cpp src/material.cpp src/atlas.cpp src/icon_validation.cpp src/icon_sheet.cpp src/toolbar_strip.cpp src/icon_export.cpp src/asset_browser.cpp src/file_change.cpp src/file_reveal.cpp src/alpha_tools.cpp src/icon_effects.cpp src/numeric_transform.cpp src/icon_palette.cpp src/icon_palette_file.cpp src/icon_generation.cpp src/icon_states.cpp src/icon_batch.cpp src/icon_stamp.cpp src/document.cpp src/document_atlas.cpp src/curve.cpp src/document_curve.cpp src/document_path.cpp src/superimpose.cpp src/file_type.cpp src/command_line.cpp src/codecs.cpp src/icon_codec.cpp src/import_codecs.cpp src/warp.cpp src/canvas_surface.cpp)
 target_sources(paint_core PRIVATE src/geometry_style.cpp src/geometry_organic.cpp src/geometry_markers.cpp)
 target_include_directories(paint_core PUBLIC src PRIVATE vendor/playsuite-paper vendor/stb ${WEBP_INCLUDE_DIR})
 if(MSVC)
@@ -76,16 +76,16 @@ endif()
 target_link_libraries(paint_core PUBLIC ${RAINSTAR_TIFF_TARGET} ${RAINSTAR_WEBP_TARGET} avif lunasvg::lunasvg tinyxml2::tinyxml2)
 # CONV resampling, the transform tools and the rotated canvas view
 # (src/conv.cpp, src/warp.cpp, src/canvas_surface.cpp) use stxlib::conv (in
-# stxlib::algorithms). Only the cell integral over a polygon
-# (src/cell_integral_surface.cpp, which tests/canvas_surface_tests.cpp checks)
-# still reads stx_conv's surface, since stxlib::conv has no such integral.
+# stxlib::algorithms). stx_conv, the CONV library these replaced, is linked
+# only by tests/canvas_surface_tests.cpp (the field against stx_conv's
+# Surface, bit for bit) and the opt-in comparison PLAN_PAINT_CONV_COMPARE.
 # Both ship beside GUI.Forms:
 # cmake/GUIFormsFrontend.cmake links them once the toolkit or SDK has found
 # them. Without the GUI.Forms frontend they must be found on CMAKE_PREFIX_PATH.
 if(NOT RAINSTAR_GUI_FORMS)
   find_package(stx_conv CONFIG REQUIRED)
   find_package(stxlib CONFIG REQUIRED)
-  target_link_libraries(paint_core PUBLIC stx_conv::stx_conv stxlib::algorithms)
+  target_link_libraries(paint_core PUBLIC stxlib::algorithms)
 endif()
 if(WIN32)
   # command_line.cpp reads the UTF-16 command line with CommandLineToArgvW.
@@ -187,7 +187,7 @@ add_executable(paint-warp-tests tests/warp_tests.cpp)
 target_link_libraries(paint-warp-tests PRIVATE paint_core)
 add_test(NAME paint-warp COMMAND paint-warp-tests)
 add_executable(paint-canvas-surface-tests tests/canvas_surface_tests.cpp)
-target_link_libraries(paint-canvas-surface-tests PRIVATE paint_core)
+target_link_libraries(paint-canvas-surface-tests PRIVATE paint_core stx_conv::stx_conv)
 add_test(NAME paint-canvas-surface COMMAND paint-canvas-surface-tests)
 add_executable(paint-smoothing-tests tests/smoothing_tests.cpp)
 target_link_libraries(paint-smoothing-tests PRIVATE paint_core)
@@ -222,6 +222,25 @@ if(RAINSTAR_BENCHMARKS)
   target_link_libraries(paint-benchmark PRIVATE paint_core)
   add_executable(paint-carpet-benchmark benchmarks/carpet_benchmark.cpp)
   target_link_libraries(paint-carpet-benchmark PRIVATE paint_core)
+endif()
+
+# One-off comparison of the CONV paths, stx_conv (Plan Paint 45d8442's
+# implementation, kept in benchmarks/conv_compare as paint::legacy) against
+# stxlib::conv: time and peak memory on fixed workloads. Not a test and not
+# built or run by CI (owner, 2026-11-22); run it by hand once and report.
+option(PLAN_PAINT_CONV_COMPARE "Build paint-conv-compare, the one-off stx_conv against stxlib::conv comparison" OFF)
+if(PLAN_PAINT_CONV_COMPARE)
+  if(NOT TARGET stx_conv::stx_conv)
+    find_package(stx_conv CONFIG REQUIRED)
+  endif()
+  add_executable(paint-conv-compare benchmarks/conv_compare/conv_compare.cpp
+    benchmarks/conv_compare/legacy_conv.cpp benchmarks/conv_compare/legacy_warp.cpp
+    benchmarks/conv_compare/legacy_canvas_surface.cpp)
+  target_include_directories(paint-conv-compare PRIVATE benchmarks/conv_compare)
+  target_link_libraries(paint-conv-compare PRIVATE paint_core stx_conv::stx_conv)
+  if(WIN32)
+    target_link_libraries(paint-conv-compare PRIVATE psapi)
+  endif()
 endif()
 
 option(RAINSTAR_COMPILER_REPORTS "Save CONV assembly and vectorization diagnostics" OFF)

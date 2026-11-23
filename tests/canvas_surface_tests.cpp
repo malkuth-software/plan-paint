@@ -1,5 +1,4 @@
 #include "canvas_surface.hpp"
-#include "cell_integral_surface.hpp"
 #include <stx_conv/surface.hpp>
 #include <algorithm>
 #include <cmath>
@@ -39,16 +38,13 @@ paint::Image document(int width, int height) {
 bool same(const paint::WarpSample& a, const paint::WarpSample& b) {
     return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
 }
-// The canvas surface (stxlib::conv's field) and the cell-integral surface
-// (stx_conv's cells) both evaluate stx_conv's tensor surface: their samples
-// are stx_conv::surface::Surface's, bit for bit, at nodes, inside cells, on
-// the clamped half-pixel border and at the far edges.
+// The canvas surface (stxlib::conv's field) evaluates stx_conv's tensor
+// surface: its samples are stx_conv::surface::Surface's, bit for bit, at
+// nodes, inside cells, on the clamped half-pixel border and at the far edges.
 void surface_equals_stx_conv() {
     const paint::Image image = document(41, 29);
     paint::CanvasSurface canvas;
     canvas.build(image);
-    paint::CellIntegralSurface cells;
-    cells.build(image);
     std::vector<double> nodes(image.pixels.size() * 4);
     for (std::size_t i = 0; i < image.pixels.size(); ++i) {
         const double alpha = image.pixels[i].a / 255.0;
@@ -61,8 +57,8 @@ void surface_equals_stx_conv() {
     shape.nodes_u = static_cast<std::size_t>(image.width);
     shape.nodes_v = static_cast<std::size_t>(image.height);
     shape.channels = 4;
-    shape.closure = paint::CellIntegralSurface::closure;
-    shape.bubble = paint::CellIntegralSurface::bubble;
+    shape.closure = stx_conv::surface::Closure::paper;
+    shape.bubble = stx_conv::surface::Bubble::none;
     stx_conv::surface::Surface reference(shape);
     require(reference.compile(nodes, {}, {}) == stx_conv::Status::ok, "the stx_conv surface compiles");
     std::size_t checked = 0;
@@ -71,7 +67,7 @@ void surface_equals_stx_conv() {
             const paint::Point position{i / 7.0 - 0.0625, j / 7.0 - 0.0625};
             if (position.x < -0.5 || position.y < -0.5 || position.x >= image.width - 0.5 ||
                 position.y >= image.height - 0.5) {
-                require(same(canvas.sample_components(position), {}) && same(cells.sample_components(position), {}),
+                require(same(canvas.sample_components(position), {}),
                         "outside the footprint is transparent");
                 continue;
             }
@@ -81,8 +77,6 @@ void surface_equals_stx_conv() {
             const paint::WarpSample sample = canvas.sample_components(position);
             require(sample.r == values[0] && sample.g == values[1] && sample.b == values[2] && sample.a == values[3],
                     "the canvas surface is stx_conv's surface, bit for bit");
-            require(same(cells.sample_components(position), sample),
-                    "the cell-integral surface is stx_conv's surface, bit for bit");
             ++checked;
         }
     }
@@ -204,67 +198,6 @@ void render_masks_the_footprint() {
         }
     }
 }
-// The slab integral over a polygon inside one cell agrees with dense
-// midpoint integration of the projected surface: on smooth colour (closed
-// form), at a hard translucent edge (projected fallback) and in the half
-// pixels beyond the first and last centres (constant extension).
-void cell_integral_matches_dense_integration() {
-    const paint::Image image = document(23, 19);
-    paint::CellIntegralSurface surface;
-    surface.build(image);
-    struct Case {
-        paint::Point points[4];
-        int count;
-    };
-    const Case cases[] = {
-        {{{8.1, 3.05}, {8.9, 3.3}, {8.6, 3.95}, {8.2, 3.7}}, 4},   // inside the red block (smooth)
-        {{{4.05, 6.1}, {4.95, 6.2}, {4.5, 6.9}, {4.1, 6.8}}, 4},   // across the block's edge
-        {{{1.1, 15.2}, {1.9, 15.9}, {1.2, 16.0}, {1.05, 15.6}}, 3}, // translucent row
-        {{{-0.45, 2.1}, {-0.05, 2.4}, {-0.3, 2.9}, {-0.4, 2.5}}, 4}, // left half pixel
-        {{{21.1, 18.05}, {21.9, 18.2}, {21.5, 18.45}, {21.2, 18.4}}, 4}, // bottom half pixel
-        {{{12.0, 9.0}, {13.0, 9.0}, {13.0, 10.0}, {12.0, 10.0}}, 4}, // a whole cell
-    };
-    for (const Case& test : cases) {
-        const paint::WarpSample integral =
-            surface.integrate_cell_polygon(std::span<const paint::Point>(test.points, test.count));
-        // Dense midpoint rule over the polygon's box, inside the polygon only.
-        double left = 1e9, right = -1e9, top = 1e9, bottom = -1e9;
-        for (int i = 0; i < test.count; ++i) {
-            left = std::min(left, test.points[i].x);
-            right = std::max(right, test.points[i].x);
-            top = std::min(top, test.points[i].y);
-            bottom = std::max(bottom, test.points[i].y);
-        }
-        const int divisions = 600;
-        const double du = (right - left) / divisions, dv = (bottom - top) / divisions;
-        double sums[4] = {};
-        for (int j = 0; j < divisions; ++j) {
-            for (int i = 0; i < divisions; ++i) {
-                const paint::Point point{left + (i + 0.5) * du, top + (j + 0.5) * dv};
-                int positive = 0, negative = 0;
-                for (int k = 0; k < test.count; ++k) {
-                    const paint::Point a = test.points[k], b = test.points[(k + 1) % test.count];
-                    const double side = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x);
-                    positive += side > 0 ? 1 : 0;
-                    negative += side < 0 ? 1 : 0;
-                }
-                const bool inside = positive == 0 || negative == 0;
-                if (!inside) {
-                    continue;
-                }
-                const paint::WarpSample value = surface.sample_premultiplied(point);
-                sums[0] += value.r * du * dv;
-                sums[1] += value.g * du * dv;
-                sums[2] += value.b * du * dv;
-                sums[3] += value.a * du * dv;
-            }
-        }
-        const double tolerance = 2e-4;
-        require(std::abs(integral.r - sums[0]) < tolerance && std::abs(integral.g - sums[1]) < tolerance &&
-                    std::abs(integral.b - sums[2]) < tolerance && std::abs(integral.a - sums[3]) < tolerance,
-                "the cell integral matches dense integration of the projected surface");
-    }
-}
 void sizes_are_checked() {
     paint::CanvasSurface surface;
     paint::Image narrow;
@@ -297,10 +230,9 @@ int main() {
         local_update_is_exact();
         areas_render_like_the_whole_frame();
         render_masks_the_footprint();
-        cell_integral_matches_dense_integration();
         sizes_are_checked();
         std::cout << "Canvas surface: stx_conv's surface bit for bit, exact local updates, area renders, the "
-                     "footprint mask, cell integrals and size limits passed.\n";
+                     "footprint mask and size limits passed.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

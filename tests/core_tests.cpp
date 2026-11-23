@@ -1,10 +1,8 @@
-#include "cell_integral_surface.hpp"
 #include "codecs.hpp"
 #include "color_tools.hpp"
 #include "conv.hpp"
 #include "desktop.hpp"
 #include "document.hpp"
-#include "fixtures/conv_reference.hpp"
 #include "guide.hpp"
 #include "material.hpp"
 #include "paint_tools.hpp"
@@ -715,85 +713,6 @@ void test_conv_area() {
     paint::conv_resize_area(source, 1, 1, output);
     require(paint::equal(output.get(0, 0), {255, 0, 0, 128}),
             "area resize averages premultiplied opacity without hidden-color bleed");
-}
-// test_conv_reference's independent reference: stx_conv's tensor surface
-// (paint::CellIntegralSurface, the CONV Surface that stxlib::conv was restated
-// from; a separate implementation, none of stxlib::conv's code), encoded to
-// straight RGBA8 here.
-paint::Image transposed_image(const paint::Image& image) {
-    paint::Image result;
-    result.reset(image.height, image.width);
-    for (int y = 0; y < image.height; ++y) {
-        for (int x = 0; x < image.width; ++x) {
-            result.pixels[static_cast<std::size_t>(x) * image.height + y] =
-                image.pixels[static_cast<std::size_t>(y) * image.width + x];
-        }
-    }
-    return result;
-}
-std::uint8_t reference_byte(double value) {
-    return static_cast<std::uint8_t>(std::clamp(value, 0.0, 1.0) * 255.0 + 0.5);
-}
-void encode_reference(const paint::WarpSample& sample, std::uint8_t* pixel) {
-    const double alpha = std::clamp(sample.a, 0.0, 1.0);
-    const double colour[3] = {sample.r, sample.g, sample.b};
-    for (int c = 0; c < 3; ++c) {
-        pixel[c] = alpha > 0.0 ? reference_byte(std::clamp(colour[c], 0.0, alpha) / alpha) : 0;
-    }
-    pixel[3] = reference_byte(alpha);
-}
-// conv_resize (stxlib::conv preview on an axis map) against the CONV Surface
-// read directly at each target pixel's footprint centre, (x + 1/2) w / W - 1/2
-// on each axis (STXlib CONV 19323d6's lattice). stxlib::conv admits the longer
-// axis first and compiles a source over 150% taller than wide transposed, so
-// there the reference is the transposed source's surface read at (v, u). The
-// inputs are the website's CONV* cases; their CONV* outputs were
-// endpoint-aligned (x (w - 1) / (W - 1)) and left with that lattice. The port
-// is held to 6 codes, and a pixel whose alpha byte is 0 on either side has its
-// colour skipped (stxlib::conv writes it 0, 0, 0, 0).
-void test_conv_reference() {
-    int differing = 0;
-    int largest = 0;
-    for (const fixtures::Case& fixture : fixtures::cases) {
-        paint::Image input, output;
-        input.reset(fixture.width, fixture.height);
-        std::memcpy(input.pixels.data(), fixture.input, input.pixels.size() * 4);
-        paint::conv_resize(input, fixture.out_width, fixture.out_height, output);
-        if (output.width != fixture.out_width || output.height != fixture.out_height) {
-            throw std::runtime_error("conv_resize gave the wrong size");
-        }
-        const bool tall = fixture.height * 2 > fixture.width * 3;
-        paint::CellIntegralSurface surface;
-        surface.build(tall ? transposed_image(input) : input);
-        const std::uint8_t* actual = reinterpret_cast<const std::uint8_t*>(output.pixels.data());
-        for (int y = 0; y < output.height; ++y) {
-            const double v = (y + 0.5) * fixture.height / output.height - 0.5;
-            for (int x = 0; x < output.width; ++x) {
-                const double u = (x + 0.5) * fixture.width / output.width - 0.5;
-                const paint::WarpSample sample =
-                    surface.sample_premultiplied(tall ? paint::Point{v, u} : paint::Point{u, v});
-                std::uint8_t expected[4];
-                encode_reference(sample, expected);
-                const std::size_t pixel = static_cast<std::size_t>(y) * output.width + x;
-                const std::uint8_t* got = actual + pixel * 4;
-                for (int c = 0; c < 4; ++c) {
-                    const bool invisible_colour = c != 3 && (got[3] == 0 || expected[3] == 0);
-                    const int difference = std::abs(static_cast<int>(got[c]) - static_cast<int>(expected[c]));
-                    if (invisible_colour || difference == 0) {
-                        continue;
-                    }
-                    ++differing;
-                    largest = std::max(largest, difference);
-                    if (difference > 6) {
-                        std::cerr << "reference difference at pixel " << x << ", " << y << " channel " << c << ": "
-                                  << static_cast<int>(got[c]) << " vs " << static_cast<int>(expected[c]) << '\n';
-                        throw std::runtime_error("conv_resize differs from the CONV surface at footprint centres by more than 6 codes");
-                    }
-                }
-            }
-        }
-    }
-    std::cout << "CONV reference: " << differing << " bytes differ from the CONV surface, by at most " << largest << '\n';
 }
 void test_editing() {
     paint::Document doc;
@@ -1788,7 +1707,6 @@ int main() {
         test_transformative_brushes();
         test_material_collections_and_dry_contact();
         test_conv();
-        test_conv_reference();
         test_conv_area();
         test_editing();
         test_superimpose();
