@@ -80,6 +80,9 @@ gui_forms_add_form(paint_forms forms/english_help.form CLASS EnglishHelpForm NAM
 gui_forms_add_form(paint_forms forms/tool_size.form CLASS ToolSizeForm NAMESPACE paint::forms DERIVED)
 add_executable(plan-paint MACOSX_BUNDLE src/forms/main.cpp)
 target_link_libraries(plan-paint PRIVATE paint_forms)
+# All the program's C++ allocations come from STXlib's allocator, as in
+# GUI.Forms' own programs; a sanitizer build keeps the toolchain's operator new.
+gui_forms_use_library_allocator(plan-paint)
 # Plan Paint's theme package (colours, fonts and the bubble ribbon buttons),
 # embedded and compiled once by Application::create.
 gui_forms_add_theme(plan-paint themes/plan-paint FUNCTION plan_paint_theme NAMESPACE paint)
