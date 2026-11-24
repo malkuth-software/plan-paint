@@ -10,9 +10,12 @@
 // - Commands that open a dialog are marked so a model knows a user must
 //   answer it; where Plan Paint can do the same with arguments, a tool does
 //   it without the dialog (EditorModelTools).
+// - Tools draw in picture pixels (draw, stroke, set_colour), convert picture
+//   points to window points (to_window), and image_info names what floats.
 
 #include <gui_forms/automation/tools/model_tools.hpp>
 
+#include <string>
 #include <string_view>
 
 namespace gui_forms {
@@ -28,8 +31,27 @@ class Editor;
 // ribbon's "choice-" row prefix.
 void mark_command(gui_forms::Command& command, std::string_view id);
 
-// Registers the editor's dialog-free tools and the dialog marks for the
-// editor's lifetime; unregisters them on destruction.
+// Names what the editor leaves floating (a shape still being placed, a live
+// curve or path, a paste not yet on the canvas) as the automation's pending
+// state, so every reply to a model says it and how to settle it; clears it
+// once nothing floats. Cheap when nothing changed.
+void note_model_pending(const Editor& editor);
+
+// Notes the pending state when a scope ends: Editor::pointer's events leave
+// a shape floating without a refresh.
+class PendingStateNote final {
+  public:
+    explicit PendingStateNote(const Editor& editor) noexcept : editor_(editor) {}
+    ~PendingStateNote();
+    PendingStateNote(const PendingStateNote&) = delete;
+    PendingStateNote& operator=(const PendingStateNote&) = delete;
+
+  private:
+    const Editor& editor_;
+};
+
+// Registers the editor's tools, its note for a model and the dialog marks
+// for the editor's lifetime; unregisters them on destruction.
 class EditorModelTools final {
   public:
     explicit EditorModelTools(Editor& editor);
@@ -44,8 +66,18 @@ class EditorModelTools final {
                              gui_forms::automation::ModelToolReply& reply);
     static void new_image(void* context, const gui_forms::automation::ModelToolCall& call,
                           gui_forms::automation::ModelToolReply& reply);
+    static void draw(void* context, const gui_forms::automation::ModelToolCall& call,
+                     gui_forms::automation::ModelToolReply& reply);
+    static void stroke(void* context, const gui_forms::automation::ModelToolCall& call,
+                       gui_forms::automation::ModelToolReply& reply);
+    static void set_colour(void* context, const gui_forms::automation::ModelToolCall& call,
+                           gui_forms::automation::ModelToolReply& reply);
+    static void to_window(void* context, const gui_forms::automation::ModelToolCall& call,
+                          gui_forms::automation::ModelToolReply& reply);
 
     Editor& editor_;
+    // The draw tool's schema names every shape it draws, so it is built.
+    std::string draw_schema_;
 };
 
 } // namespace paint::forms

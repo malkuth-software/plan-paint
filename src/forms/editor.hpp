@@ -451,6 +451,12 @@ class Editor final : public gui_forms::Control {
     void rotate_view(double radians);
     void pointer(const gui_forms::PointerEvent& event);
     void canvas_control_action(int action);
+    // A shape follows the pointer until the next click places it (Shape
+    // gesture "Click to place", the default).
+    bool placing_shape() const noexcept { return placing_shape_; }
+    // Ends whatever is in progress (text, a warp, a gesture) and commits
+    // live paths and curves; `deselect` commits the selection too.
+    void finish_controls(bool deselect = false);
 
   private:
     void reset_file_watch();
@@ -698,7 +704,6 @@ class Editor final : public gui_forms::Control {
     void move(Point point);
     void end(Point point);
     void release_gesture();
-    void finish_controls(bool deselect = false);
     void zoom(double factor, gui_forms::Point anchor);
     void copy();
     void paste();

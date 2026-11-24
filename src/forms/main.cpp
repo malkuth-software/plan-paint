@@ -6,7 +6,9 @@
 #include "localization.hpp"
 #include "plan_paint_theme.hpp"
 #include <gui_forms/application.hpp>
+#include <gui_forms/automation/marks/automation_marks.hpp>
 #include <clocale>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
@@ -56,7 +58,25 @@ int main(int argc, char** argv) {
             // Preference storage failure must not prevent starting in English.
             startup_settings.language = "en-us";
         }
-        const std::vector<std::string> arguments = paint::utf8_arguments(argc, argv);
+        // GUI.Forms reads its MCP launch options itself; they never reach
+        // Plan Paint's parser.
+        gui_forms::automation::take_mcp_arguments(argc, argv);
+        std::vector<std::string> arguments = paint::utf8_arguments(argc, argv);
+        // Windows' arguments come from the wide command line, which still
+        // holds them.
+        for (std::size_t index = 0; index < arguments.size();) {
+            const std::string& argument = arguments[index];
+            if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--model-directed" ||
+                argument == "--mcp-appearance-review") {
+                arguments.erase(arguments.begin() + static_cast<std::ptrdiff_t>(index));
+            } else if (argument == "--mcp-script") {
+                const std::size_t taken = index + 1 < arguments.size() ? 2 : 1;
+                arguments.erase(arguments.begin() + static_cast<std::ptrdiff_t>(index),
+                                arguments.begin() + static_cast<std::ptrdiff_t>(index + taken));
+            } else {
+                ++index;
+            }
+        }
         const paint::CommandLine command_line = paint::parse_command_line(arguments);
         for (const std::string& ignored : command_line.ignored_options) {
             std::cerr << "Plan Paint: ignoring unknown option " << ignored << '\n';

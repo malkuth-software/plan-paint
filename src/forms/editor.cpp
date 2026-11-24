@@ -720,6 +720,7 @@ void Editor::publish_path_preview() {
     publish_image(composed, *canvas_);
 }
 void Editor::refresh() {
+    note_model_pending(*this);
     if (stamp_placement_ && (document.revision != stamp_placement_revision_ ||
                              document.atlas_epoch != stamp_placement_epoch_)) {
         reset_stamp();
@@ -984,6 +985,8 @@ void Editor::choose_tool(Tool tool) {
     refresh();
 }
 void Editor::pointer(const gf::PointerEvent& event) {
+    // Whatever this event leaves floating is named in a model's replies.
+    const PendingStateNote pending(*this);
     if (canvas_control_stroke_ && !canvas_control_dispatch_) { return; }
     try {
         if (panning_ && event.action != gf::PointerAction::up) {
