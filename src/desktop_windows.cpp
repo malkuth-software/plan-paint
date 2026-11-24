@@ -14,6 +14,7 @@
 // The base SDK must precede the COM declarations.
 // clang-format off
 #include <windows.h>
+#include <objbase.h>
 #include <oleauto.h>
 // clang-format on
 namespace paint {
