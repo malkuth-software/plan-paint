@@ -11,11 +11,10 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-// The base SDK must precede COM and mail declarations.
+// The base SDK must precede the COM declarations.
 // clang-format off
 #include <windows.h>
 #include <oleauto.h>
-#include <mapi.h>
 // clang-format on
 namespace paint {
 class ComSession {
