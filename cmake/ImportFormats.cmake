@@ -9,6 +9,45 @@
 # WEBP_INCLUDE_DIR (the directory holding webp/decode.h) and the avif target.
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
+# Writes the meson cross file for dav1d on x86_64-pc-windows-msvc (the own
+# runtime) and sets `out` to its path. Meson takes each array element as one
+# argument, so the flags CMake holds as command lines are split into words.
+function(rainstar_dav1d_cross_file out)
+  separate_arguments(c_args NATIVE_COMMAND "${CMAKE_C_FLAGS}")
+  separate_arguments(link_args NATIVE_COMMAND "${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_C_STANDARD_LIBRARIES}")
+  set(words "")
+  foreach(list_name IN ITEMS c_args link_args)
+    set(quoted "")
+    foreach(word IN LISTS ${list_name})
+      string(REPLACE "\\" "/" word "${word}")
+      string(REPLACE "'" "\\'" word "${word}")
+      list(APPEND quoted "'${word}'")
+    endforeach()
+    list(JOIN quoted ", " ${list_name}_meson)
+  endforeach()
+  set(file "${CMAKE_BINARY_DIR}/dav1d-windows-msvc-own.meson")
+  file(WRITE "${file}" "[binaries]
+c = ['${CMAKE_C_COMPILER}', '--target=${CMAKE_C_COMPILER_TARGET}']
+c_ld = 'lld'
+ar = '${CMAKE_AR}'
+nasm = 'nasm'
+
+[built-in options]
+c_args = [${c_args_meson}]
+c_link_args = [${link_args_meson}]
+
+[properties]
+needs_exe_wrapper = false
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+")
+  set(${out} "${file}" PARENT_SCOPE)
+endfunction()
+
 if(RAINSTAR_SYSTEM_CODECS)
   message(WARNING "RAINSTAR_SYSTEM_CODECS links installed codec libraries; this program is not shippable.")
   find_package(PkgConfig QUIET)
@@ -69,6 +108,14 @@ else()
     set(ENV{MACOSX_DEPLOYMENT_TARGET} "${CMAKE_OSX_DEPLOYMENT_TARGET}")
   endif()
   set(AVIF_CODEC_DAV1D LOCAL CACHE STRING "" FORCE)
+  # Windows: x86_64-pc-windows-msvc on GUI.Forms' own runtime. LocalDav1d
+  # runs meson at build time and passes CROSS_FILE as --cross-file when it is
+  # set (libavif cmake/Modules/LocalDav1d.cmake). This cross file gives meson
+  # this build's compiler, target, headers and link line, so dav1d reads the
+  # own runtime and nothing else, as the program does.
+  if(WIN32 AND GUI_FORMS_MSVC_RUNTIME STREQUAL "OWN")
+    rainstar_dav1d_cross_file(CROSS_FILE)
+  endif()
 endif()
 
 foreach(codec AOM LIBGAV1 RAV1E SVT AVM)
@@ -82,6 +129,7 @@ FetchContent_Declare(avif
   URL_HASH SHA256=2b645287340ba5a631d268b551dc2d72bd73ac33335962dd36dcdb6d8366921d
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(avif)
+unset(CROSS_FILE)
 
 set(LUNASVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(lunasvg

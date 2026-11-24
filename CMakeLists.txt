@@ -1,12 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 project(PlanPaint VERSION 1.2.0 LANGUAGES C CXX)
-# Every shipped program imports only system DLLs (scripts/check_system_libraries.py):
-# link libc++, libunwind, compiler-rt and winpthreads statically, as GUI.Forms does
-# for its own programs (gui_forms/CMakeLists.txt, add_link_options(-static) under
-# MINGW, which reaches only GUI.Forms' own directory).
-if(MINGW)
-  add_link_options(-static)
-endif()
+# Every shipped program imports only system DLLs (scripts/check_system_libraries.py).
+# On Windows GUI.Forms' toolchain (x86_64-pc-windows-msvc on STXlib's own runtime,
+# gui_forms/cmake/llvm22-windows-msvc-own.cmake) links libc++ and the runtime
+# statically, so the program imports Windows system DLLs and ucrtbase only.
 set(PAINT_RELEASE_VERSION "${PROJECT_VERSION}" CACHE STRING "Tested publication version")
 if(NOT PAINT_RELEASE_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
   message(FATAL_ERROR "PAINT_RELEASE_VERSION must be numeric major.minor.patch")
@@ -345,8 +342,10 @@ foreach(target IN ITEMS plan-paint-legacy plan-paint)
   if(TARGET ${target})
     if(APPLE)
       target_link_options(${target} PRIVATE "$<$<CONFIG:Release,MinSizeRel>:-Wl,-dead_strip>")
-    elseif(MSVC)
-      target_link_options(${target} PRIVATE "$<$<CONFIG:Release,MinSizeRel>:/OPT:REF;/OPT:ICF>")
+    elseif(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+      # lld-link (clang for x86_64-pc-windows-msvc) takes the MSVC spellings.
+      target_link_options(${target} PRIVATE "$<$<CONFIG:Release,MinSizeRel>:LINKER:/OPT:REF>"
+        "$<$<CONFIG:Release,MinSizeRel>:LINKER:/OPT:ICF>")
     else()
       target_link_options(${target} PRIVATE "$<$<CONFIG:Release,MinSizeRel>:-Wl,--gc-sections>")
     endif()

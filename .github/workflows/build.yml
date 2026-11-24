@@ -126,6 +126,8 @@ jobs:
         run: '"$TOOLCHAIN_PYTHON" template_harness/harness/windows_toolchain.py restore'
       # The codecs build statically from pinned sources; dav1d's local build
       # (libavif AVIF_CODEC_DAV1D=LOCAL) needs Meson and, on x86-64, NASM.
+      # These packages give only those tools: the codecs compile for
+      # x86_64-pc-windows-msvc on the own runtime (cmake/ImportFormats.cmake).
       - name: Install Windows codec build tools without upgrading the compiler
         if: runner.os == 'Windows'
         run: pacman -Sy --needed --noconfirm mingw-w64-clang-x86_64-pkgconf mingw-w64-clang-x86_64-meson mingw-w64-clang-x86_64-nasm
@@ -195,6 +197,28 @@ jobs:
         run: python template_harness/harness/compiler_identity.py
       - name: Fetch the pinned GUI.Forms source
         run: python3 scripts/fetch-gui-forms.py
+      # Windows builds x86_64-pc-windows-msvc on STXlib's own runtime, as
+      # GUI.Forms 1.0 does (no MinGW runtime, Visual C++ tools or Windows
+      # SDK): the CLANG64 package gives only clang, lld and the shell, and
+      # GUI.Forms' tools/own_runtime.py builds static libc++ 22.1.8 and
+      # STXlib's C and Windows runtime from the STXlib commit its stx pin
+      # names, and sets the toolchain's three locations in the environment.
+      # Cached per pin and recipe, with the key GUI.Forms' CI uses.
+      - uses: actions/cache/restore@v4
+        id: own-runtime
+        if: runner.os == 'Windows'
+        with:
+          path: .ci/own-runtime
+          key: gui-own-runtime-v1-${{ steps.compiler.outputs.identity }}-${{ hashFiles('gui_forms/stx.lock', 'gui_forms/tools/own_runtime.py', 'gui_forms/cmake/llvm22-windows-msvc.cmake', 'gui_forms/cmake/llvm22-windows-msvc-own.cmake') }}
+      - name: Build STXlib's own runtime and libc++ for the Windows target
+        id: own-runtime-build
+        if: runner.os == 'Windows'
+        run: python gui_forms/tools/own_runtime.py build --out .ci/own-runtime --jobs 4 --github-env
+      - uses: actions/cache/save@v4
+        if: steps.own-runtime-build.outcome == 'success' && steps.own-runtime.outputs.cache-hit != 'true'
+        with:
+          path: .ci/own-runtime
+          key: ${{ steps.own-runtime.outputs.cache-primary-key }}
       - uses: actions/cache/restore@v4
         id: objects
         with:
@@ -254,6 +278,12 @@ jobs:
         run: sh scripts/native-build.sh configure '${{ matrix.platform }}'
       - name: Build application and tests
         run: sh scripts/native-build.sh build '${{ matrix.platform }}'
+      # The build read only the own runtime: its #include search list, every
+      # link command and link map, and every program's and DLL's imports
+      # (Windows system DLLs and ucrtbase only), the codecs included.
+      - name: Prove the Windows build read only the own runtime
+        if: runner.os == 'Windows'
+        run: python gui_forms/tools/own_runtime.py evidence --build .build/native/app --dlls .build/native/app
       # Only a push saves objects: a pull request's cache reaches no other ref.
       - uses: actions/cache/save@v4
         if: github.event_name == 'push' && steps.objects.outputs.cache-hit != 'true'
