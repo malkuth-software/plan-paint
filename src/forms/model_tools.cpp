@@ -1,6 +1,8 @@
 #include "forms/model_tools.hpp"
 
 #include "forms/editor.hpp"
+#include "codecs.hpp"
+#include "paths.hpp"
 #include "raster.hpp"
 
 #include <gui_forms/automation/marks/automation_marks.hpp>
@@ -12,7 +14,9 @@
 #include <cstdio>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace gf = gui_forms;
@@ -37,7 +41,8 @@ struct DialogOpener final {
     const char* id;
     const char* tool;
 };
-constexpr std::array<DialogOpener, 4> dialog_openers{{
+constexpr std::array<DialogOpener, 5> dialog_openers{{
+    {"save-as", "plan_paint_save"},
     {"resize", "plan_paint_resize_image"},
     {"ribbon-bar.resize", "plan_paint_resize_image"},
     {"properties", "plan_paint_resize_image"},
@@ -55,6 +60,12 @@ constexpr const char* new_image_schema =
     "{\"type\":\"object\",\"properties\":{"
     "\"width\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":32768},"
     "\"height\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":32768}},"
+    "\"additionalProperties\":false}";
+constexpr const char* save_schema =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"path\":{\"type\":\"string\",\"description\":\"Save as this file (.png, .bmp, .jpg, .tif, .tga); "
+    "without it, saves to the picture's own file.\"},"
+    "\"overwrite\":{\"type\":\"boolean\",\"description\":\"Replace a file already at path.\"}},"
     "\"additionalProperties\":false}";
 constexpr const char* no_arguments_schema = "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}";
 
@@ -127,7 +138,10 @@ constexpr const char* app_note =
     "- With the pointer, Edge and Fill paint with the Primary colour unless the colour group gives Fill the Alt "
     "colour.\n"
     "- Resize and Properties open dialogs: use plan_paint_resize_image instead. New, Open, Save and Exit are "
-    "destructive and ask the user once per launch.";
+    "destructive and ask the user once per launch.\n"
+    "- To finish: save with plan_paint_save (a path for a new picture), then close the window (act close on its "
+    "ID) or command_quit. Closing with unsaved changes stops there and tells you the program's question; it is "
+    "never shown to the user.";
 
 constexpr const char* draw_schema_head =
     "{\"type\":\"object\",\"properties\":{"
@@ -425,6 +439,16 @@ EditorModelTools::EditorModelTools(Editor& editor) : editor_(editor) {
     fresh.settles = true;
     static_cast<void>(automation::register_model_tool(fresh, &EditorModelTools::new_image, this));
 
+    automation::ModelToolSpec saving{};
+    saving.name = "plan_paint_save";
+    saving.title = "Save";
+    saving.description = "Saves the picture without a dialog: to its own file, or with path as a new file (Save "
+                         "As). Save first, then close: the close then needs no question.";
+    saving.input_schema = save_schema;
+    saving.access = automation::ModelToolAccess::acting;
+    saving.settles = true;
+    static_cast<void>(automation::register_model_tool(saving, &EditorModelTools::save, this));
+
     draw_schema_ = draw_schema_head;
     bool first = true;
     for (int shape = 0; shape < shape_count; ++shape) {
@@ -480,6 +504,7 @@ EditorModelTools::~EditorModelTools() {
     static_cast<void>(automation::unregister_model_tool("plan_paint_image_info"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_resize_image"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_new_image"));
+    static_cast<void>(automation::unregister_model_tool("plan_paint_save"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_draw"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_stroke"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_set_colour"));
@@ -559,6 +584,52 @@ void EditorModelTools::new_image(void* context, const automation::ModelToolCall&
     editor.document.new_image(width, height);
     editor.refresh();
     reply_text(reply, "a new " + std::to_string(width) + " by " + std::to_string(height) + " picture\n");
+}
+
+void EditorModelTools::save(void* context, const automation::ModelToolCall& call, automation::ModelToolReply& reply) {
+    EditorModelTools& tools = *static_cast<EditorModelTools*>(context);
+    stxlib::JsonDocument arguments{};
+    if (!read_arguments(call, arguments, reply)) return;
+    Editor& editor = tools.editor_;
+    std::string path = editor.document.filename;
+    const stxlib::Optional<stxlib::TextView> named = arguments.member_text(arguments.root(), "path");
+    const stxlib::Optional<bool> overwrite_member = arguments.member_boolean(arguments.root(), "overwrite");
+    const bool overwrite = overwrite_member.present() && *overwrite_member.value();
+    if (const stxlib::TextView* const given = named.value()) {
+        const std::string wanted((*given).data(), (*given).count());
+        std::error_code exists_error;
+        const bool exists = std::filesystem::exists(path_from_utf8(wanted), exists_error);
+        if (exists && !overwrite && wanted != editor.document.filename) {
+            const std::string message = "a file is already at " + wanted;
+            reply.fail(automation::ModelToolError::invalid_arguments, message.c_str(),
+                       "give another path, or overwrite: true to replace it");
+            return;
+        }
+        path = wanted;
+    } else if (path.empty()) {
+        reply.fail(automation::ModelToolError::invalid_arguments, "the picture has no file yet",
+                   "give path, the file to save as");
+        return;
+    }
+    const std::string extension = image_extension(path);
+    if (!writable_image_path(path) || extension == ".ico" || extension == ".cur") {
+        const std::string message = "Plan Paint cannot save " + path + " this way";
+        reply.fail(automation::ModelToolError::invalid_arguments, message.c_str(),
+                   "a .png, .bmp, .jpg, .tif or .tga path");
+        return;
+    }
+    try {
+        editor.finish_controls();
+        if (!editor.save_path(path)) {
+            reply.fail(automation::ModelToolError::needs_user, "the picture was not saved",
+                       "the reply names the program's question, if it asked one");
+            return;
+        }
+    } catch (const std::exception& failure) {
+        reply.fail(automation::ModelToolError::internal, failure.what(), "check the path");
+        return;
+    }
+    reply_text(reply, "saved the picture to " + path + "\n");
 }
 
 void EditorModelTools::draw(void* context, const automation::ModelToolCall& call, automation::ModelToolReply& reply) {

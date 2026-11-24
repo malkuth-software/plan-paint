@@ -74,6 +74,8 @@ class EditorModelTools final {
                            gui_forms::automation::ModelToolReply& reply);
     static void to_window(void* context, const gui_forms::automation::ModelToolCall& call,
                           gui_forms::automation::ModelToolReply& reply);
+    static void save(void* context, const gui_forms::automation::ModelToolCall& call,
+                     gui_forms::automation::ModelToolReply& reply);
 
     Editor& editor_;
     // The draw tool's schema names every shape it draws, so it is built.
