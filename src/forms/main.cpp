@@ -14,6 +14,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <string_view>
 namespace {
 void report_theme_findings(const std::vector<gui_forms::ThemeCompileDiagnostic>& findings) {
     for (const gui_forms::ThemeCompileDiagnostic& finding : findings) {
@@ -40,6 +41,23 @@ gui_forms::ApplicationCreateResult create_application() {
     return gui_forms::Application::create(std::move(fallback));
 }
 } // namespace
+// Whether GUI.Forms serves this launch over MCP: an MCP option, or
+// GUI_FORMS_MCP set to 1 or shared. Read before take_mcp_arguments removes
+// the options from argv.
+static bool served_by_mcp(int argc, char** argv) {
+    for (int index = 1; index < argc; ++index) {
+        const std::string_view argument(argv[index]);
+        if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--mcp-script" ||
+            argument == "--model-directed" || argument == "--mcp-appearance-review") {
+            return true;
+        }
+    }
+    const char* variable = std::getenv("GUI_FORMS_MCP");
+    if (variable == nullptr) { return false; }
+    const std::string_view value(variable);
+    return value == "1" || value == "shared";
+}
+
 int main(int argc, char** argv) {
 #ifdef __linux__
     // The process locale is the program's: GUI.Forms' Linux host no longer
@@ -60,6 +78,7 @@ int main(int argc, char** argv) {
         }
         // GUI.Forms reads its MCP launch options itself; they never reach
         // Plan Paint's parser.
+        const bool served = served_by_mcp(argc, argv);
         gui_forms::automation::take_mcp_arguments(argc, argv);
         std::vector<std::string> arguments = paint::utf8_arguments(argc, argv);
         // Windows' arguments come from the wide command line, which still
@@ -109,6 +128,7 @@ int main(int argc, char** argv) {
             (*editor).custom_colors.storage_path.clear();
         }
         if (session_canvas_controls) { (*editor).settings.canvas_controls = true; }
+        (*editor).served_launch = served;
         // The editor's tools and marks for a model (--mcp): kept while the
         // editor runs.
         const paint::forms::EditorModelTools model_tools(*editor);

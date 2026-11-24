@@ -37,7 +37,7 @@ void Editor::start_recovery(const std::string& initial_path) {
         reset_recovery(false, initial_path);
         // Ready can precede the native application's final launch notification.
         // Defer modal UI until a timer tick in the running event loop.
-        recovery_startup_pending = initial_path.empty();
+        recovery_startup_pending = initial_path.empty() && !served_launch;
         recovery_timer = std::make_unique<gf::Timer>(*attached_window(), std::chrono::seconds(1));
         recovery_subscription =
             (*recovery_timer)

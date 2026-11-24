@@ -310,6 +310,10 @@ class Editor final : public gui_forms::Control {
     std::chrono::steady_clock::time_point recovery_deadline{};
     std::uint64_t recovery_capture_revision = 0;
     bool recovery_failed = false, recovery_startup_pending = false;
+    // Served over MCP: the startup recovery offer is a native alert whose
+    // modal loop would hold every MCP call, so it waits for an ordinary
+    // launch (File > Recover still opens it).
+    bool served_launch = false;
     std::string recovery_notice;
     // A command-line file that failed to open. Ready may run before the host
     // can show modal UI, so the message waits for the first recovery tick.
