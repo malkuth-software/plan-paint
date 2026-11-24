@@ -285,10 +285,10 @@ jobs:
         if: runner.os == 'Windows'
         run: python gui_forms/tools/own_runtime.py evidence --build .build/native/app --dlls .build/native/app
       # The program opts into the library allocator
-      # (gui_forms_use_library_allocator): started with --mcp and
-      # GUI_FORMS_REQUIRE_LIBRARY_ALLOCATOR=1, it must serve MCP, which it
-      # cannot when its operator new is not STXlib's allocator (it exits at
-      # startup instead; gui_forms tools/check_mcp_launch.py).
+      # (gui_forms_use_library_allocator): started with
+      # GUI_FORMS_REQUIRE_LIBRARY_ALLOCATOR=1 it must keep running, since it
+      # exits with status 70 at startup when its operator new is not STXlib's
+      # allocator (gui_forms tools/check_allocator_startup.py).
       - name: Check that Plan Paint's library allocator is live at startup
         run: |
           py=python3; command -v python3 >/dev/null || py=python
@@ -299,7 +299,7 @@ jobs:
             command -v xvfb-run >/dev/null || sudo apt-get install -y -q xvfb >/dev/null
             wrapper="xvfb-run -a"
           fi
-          $wrapper $py -B gui_forms/tools/check_mcp_launch.py --require-library-allocator "$program"
+          $wrapper $py -B gui_forms/tools/check_allocator_startup.py "$program"
       # Only a push saves objects: a pull request's cache reaches no other ref.
       - uses: actions/cache/save@v4
         if: github.event_name == 'push' && steps.objects.outputs.cache-hit != 'true'

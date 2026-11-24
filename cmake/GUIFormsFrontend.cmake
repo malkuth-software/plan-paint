@@ -9,10 +9,6 @@ if(RAINSTAR_TOOLKIT_SOURCE_DIR)
   endif()
   add_subdirectory("${RAINSTAR_TOOLKIT_SOURCE_DIR}" toolkit EXCLUDE_FROM_ALL)
   set(GUIForms_FONT_DIR "${RAINSTAR_TOOLKIT_SOURCE_DIR}/assets/fonts")
-  # gui_forms_add_theme finds its embed script through a directory variable
-  # that the toolkit's add_subdirectory scope keeps to itself (and the module
-  # returns early once the function exists), so name it here as well.
-  set(GUI_FORMS_THEME_EMBED_SCRIPT "${RAINSTAR_TOOLKIT_SOURCE_DIR}/cmake/GUIFormsThemeEmbed.cmake")
 else()
 # Keep the explicitly selected SDK ahead of ambient /usr/local headers. Mixing
 # installed GUI.Forms headers from another SDK with these libraries breaks ABI.
