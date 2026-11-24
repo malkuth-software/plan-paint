@@ -284,6 +284,22 @@ jobs:
       - name: Prove the Windows build read only the own runtime
         if: runner.os == 'Windows'
         run: python gui_forms/tools/own_runtime.py evidence --build .build/native/app --dlls .build/native/app
+      # The program opts into the library allocator
+      # (gui_forms_use_library_allocator): started with --mcp and
+      # GUI_FORMS_REQUIRE_LIBRARY_ALLOCATOR=1, it must serve MCP, which it
+      # cannot when its operator new is not STXlib's allocator (it exits at
+      # startup instead; gui_forms tools/check_mcp_launch.py).
+      - name: Check that Plan Paint's library allocator is live at startup
+        run: |
+          py=python3; command -v python3 >/dev/null || py=python
+          program=$(find .build/native/app -maxdepth 4 -type f \( -name 'plan-paint' -o -name 'plan-paint.exe' \) | head -1)
+          test -n "$program" || { echo "no plan-paint program under .build/native/app"; exit 1; }
+          wrapper=""
+          if [ "$RUNNER_OS" = Linux ]; then
+            command -v xvfb-run >/dev/null || sudo apt-get install -y -q xvfb >/dev/null
+            wrapper="xvfb-run -a"
+          fi
+          $wrapper $py -B gui_forms/tools/check_mcp_launch.py --require-library-allocator "$program"
       # Only a push saves objects: a pull request's cache reaches no other ref.
       - uses: actions/cache/save@v4
         if: github.event_name == 'push' && steps.objects.outputs.cache-hit != 'true'
