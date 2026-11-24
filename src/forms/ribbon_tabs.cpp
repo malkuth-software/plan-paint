@@ -2,6 +2,7 @@
 // editor's state, built as gui_forms::Ribbon records, and the hosted controls
 // those records make (ribbon.hpp explains the layout).
 #include "codecs.hpp"
+#include "forms/model_tools.hpp"
 #include "forms/dropper_icon.hpp"
 #include "forms/editor.hpp"
 #include "forms/ribbon.hpp"
@@ -80,6 +81,7 @@ std::shared_ptr<gf::Command> Ribbon::command(const std::string& id, const std::s
     }
     CommandEntry entry;
     entry.command = std::make_shared<gf::Command>(id, text);
+    mark_command(*entry.command, id);
     entry.invoked = (*entry.command).invoked().subscribe(
         *this, gf::Delegate<const gf::CommandInvocation&>::bind<Ribbon, &Ribbon::command_invoked>(*this));
     const std::shared_ptr<gf::Command> result = entry.command;
@@ -95,6 +97,7 @@ gf::MenuItemSpec Ribbon::menu_item(const std::string& id, const std::string& tex
     std::shared_ptr<gf::Command> row_command;
     if (found == menu_commands_.end()) {
         row_command = std::make_shared<gf::Command>(row, text);
+        mark_command(*row_command, row);
         menu_commands_.emplace(row, row_command);
     } else {
         row_command = (*found).second;

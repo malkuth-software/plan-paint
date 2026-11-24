@@ -1,3 +1,4 @@
+#include "forms/model_tools.hpp"
 #include "forms/editor.hpp"
 #include "alpha_tools.hpp"
 #include "codecs.hpp"
@@ -243,6 +244,7 @@ void Editor::initialize_control_tree() {
 }
 gf::MenuItemSpec Editor::menu_item(const std::string& id, const std::string& text, const std::string& shortcut) {
     std::shared_ptr<gf::Command> command = std::make_shared<gf::Command>(id, text);
+    mark_command(*command, id);
     // The shortcut column shows the key the editor's own key handling
     // answers (Editor::on_key_preview); the menu does not bind it.
     if (!shortcut.empty()) (*command).set_shortcut(shortcut);

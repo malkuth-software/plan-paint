@@ -1,3 +1,4 @@
+#include "forms/model_tools.hpp"
 #include "forms/editor.hpp"
 #include "forms/identity.hpp"
 #include "command_line.hpp"
@@ -88,6 +89,9 @@ int main(int argc, char** argv) {
             (*editor).custom_colors.storage_path.clear();
         }
         if (session_canvas_controls) { (*editor).settings.canvas_controls = true; }
+        // The editor's tools and marks for a model (--mcp): kept while the
+        // editor runs.
+        const paint::forms::EditorModelTools model_tools(*editor);
         std::unique_ptr<gui_forms::Window> window =
             std::make_unique<gui_forms::Window>(editor, gui_forms::Size{1280, 820});
         gui_forms::ApplicationWindowOptions options;
