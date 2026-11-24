@@ -14,8 +14,32 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 # argument, so the flags CMake holds as command lines are split into words.
 function(rainstar_dav1d_cross_file out)
   separate_arguments(c_args NATIVE_COMMAND "${CMAKE_C_FLAGS}")
+  # Meson drops an -isystem that names one of the compiler's default include
+  # directories, and clang's resource directory is one, so the toolchain's
+  # -nostdinc and -isystem <resource>/include become -nostdlibinc: the
+  # system directories go, and clang's own headers stay.
+  execute_process(COMMAND "${CMAKE_C_COMPILER}" --target=${CMAKE_C_COMPILER_TARGET} -print-resource-dir
+    OUTPUT_VARIABLE resource_dir OUTPUT_STRIP_TRAILING_WHITESPACE)
+  file(TO_CMAKE_PATH "${resource_dir}/include" resource_include)
+  set(kept "")
+  set(after_isystem FALSE)
+  foreach(word IN LISTS c_args)
+    file(TO_CMAKE_PATH "${word}" word_path)
+    if(after_isystem)
+      set(after_isystem FALSE)
+      if(NOT word_path STREQUAL resource_include)
+        list(APPEND kept "-isystem" "${word}")
+      endif()
+    elseif(word STREQUAL "-isystem")
+      set(after_isystem TRUE)
+    elseif(word STREQUAL "-nostdinc")
+      list(APPEND kept "-nostdlibinc")
+    else()
+      list(APPEND kept "${word}")
+    endif()
+  endforeach()
+  set(c_args "${kept}")
   separate_arguments(link_args NATIVE_COMMAND "${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_C_STANDARD_LIBRARIES}")
-  set(words "")
   foreach(list_name IN ITEMS c_args link_args)
     set(quoted "")
     foreach(word IN LISTS ${list_name})
@@ -33,6 +57,9 @@ ar = '${CMAKE_AR}'
 nasm = 'nasm'
 
 [built-in options]
+# No Microsoft runtime: meson would otherwise compile with -fms-runtime-lib=dll,
+# which names msvcrt in every object.
+b_vscrt = 'none'
 c_args = [${c_args_meson}]
 c_link_args = [${link_args_meson}]
 
