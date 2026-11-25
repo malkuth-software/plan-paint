@@ -9,6 +9,15 @@
 # WEBP_INCLUDE_DIR (the directory holding webp/decode.h) and the avif target.
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
+# libavif links a bare `m` under `UNIX OR MINGW` (v1.4.2 CMakeLists.txt,
+# avif_obj), and on x86_64-pc-windows-msvc that became "m.lib", which
+# lld-link cannot open (#53's windows-x64 job). The own runtime's C library
+# (STXlib's crt) holds the math functions, so there `m` names an empty
+# interface target and links nothing.
+if(CMAKE_C_COMPILER_TARGET MATCHES "windows-msvc" AND NOT TARGET m)
+  add_library(m INTERFACE)
+endif()
+
 # Writes the meson cross file for dav1d on x86_64-pc-windows-msvc (the own
 # runtime) and sets `out` to its path. Meson takes each array element as one
 # argument, so the flags CMake holds as command lines are split into words.
