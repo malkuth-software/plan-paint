@@ -194,6 +194,14 @@ if(APPLE OR WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME paint-clipboard-native COMMAND "${Python3_EXECUTABLE}"
     "${PROJECT_SOURCE_DIR}/tests/native_clipboard.py" "$<TARGET_FILE:paint-forms-native-tests>")
   set_tests_properties(paint-clipboard-native PROPERTIES SKIP_RETURN_CODE 77 RUN_SERIAL TRUE TIMEOUT 90)
+  # Plan Paint's model tools over MCP (round 4): drawing, sampling, a
+  # large batch. Needs GUI.Forms' MCP transport and a window server.
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME paint-model-tools-mcp COMMAND "${Python3_EXECUTABLE}"
+      "${PROJECT_SOURCE_DIR}/tests/model_tools_mcp.py" "$<TARGET_FILE:plan-paint>" 60)
+    set_tests_properties(paint-model-tools-mcp PROPERTIES SKIP_RETURN_CODE 77 RUN_SERIAL TRUE TIMEOUT 180)
+  endif()
   add_test(NAME paint-healing-native COMMAND paint-forms-native-tests --healing)
   add_test(NAME paint-dialog-window-native COMMAND paint-forms-native-tests --dialog-window)
   # The owner's hovered selected Pencil tab (2026-11-17): fails while the

@@ -613,8 +613,23 @@ void Editor::on_detaching_from_window(gf::SurfaceRoot& former_window) noexcept {
     text_caret_frame_.disconnect();
     Control::on_detaching_from_window(former_window);
 }
+namespace {
+// Fits the picture to the view once the window has its first size, for a
+// launch served over MCP (round 3: the window opened 741 tall and clipped
+// the 960 by 640 picture, and the model never knew).
+struct FirstShowFit {
+    std::weak_ptr<Editor> editor;
+    void operator()() const {
+        const std::shared_ptr<Editor> owner = editor.lock();
+        if (owner) { (*owner).execute("fit"); }
+    }
+};
+} // namespace
 void Editor::ready(gf::Window&, gf::ApplicationWindowHandle handle, const std::string& initial_path) {
     handle_ = handle;
+    if (served_launch) {
+        static_cast<void>(begin_invoke(FirstShowFit{std::static_pointer_cast<Editor>(shared_from_this())}));
+    }
     load_custom_pattern();
     rebuild_file_menu();
     refresh();
