@@ -281,9 +281,15 @@ jobs:
       # The build read only the own runtime: its #include search list, every
       # link command and link map, and every program's and DLL's imports
       # (Windows system DLLs and ucrtbase only), the codecs included.
+      # Meson's configure probes (meson-private, from dav1d's configure) are
+      # not program outputs, as CMake's CMakeFiles are not, and they link
+      # with meson's defaults. GUI.Forms 1.0.4's evidence check skips them;
+      # until the pin moves there, they are removed first.
       - name: Prove the Windows build read only the own runtime
         if: runner.os == 'Windows'
-        run: python gui_forms/tools/own_runtime.py evidence --build .build/native/app --dlls .build/native/app
+        run: |
+          find .build/native/app -type d -name meson-private -prune -exec rm -rf {} +
+          python gui_forms/tools/own_runtime.py evidence --build .build/native/app --dlls .build/native/app
       # The program opts into the library allocator
       # (gui_forms_use_library_allocator): started with
       # GUI_FORMS_REQUIRE_LIBRARY_ALLOCATOR=1 it must keep running, since it
