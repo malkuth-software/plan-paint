@@ -5,8 +5,14 @@ framing: a new 200 by 120 picture; a filled, rotated rectangle; a filled
 Bezier path; a bucket fill; a gradient; text; plan_paint_sample and capture
 points reading the colours back; the Resize dialog, its OK marked default
 and pressed; a 100-step batch of strokes. Each drawing is checked by
-sampling. Closes the input and expects exit 0 within the
-timeout. Exit 77 skips where no window server is reachable.
+sampling. Every plan_paint_* and command_* tool, and each of its
+arguments, is described (`help <tool>` is that text, so an undocumented tool
+fails here). Ends with a hard disconnect that discards the picture and
+expects exit 0 within the timeout. Then a second launch over a home holding an unfinished-artwork snapshot opens no
+dialog: it starts with a new picture and says in the status bar that the
+artwork can be recovered from the File menu; with nothing unsaved, the end
+of its input closes it (exit 0). Exit 77 skips where no window
+server is reachable.
 
     python3 -B tests/model_tools_mcp.py <plan-paint executable> [timeout seconds]
 """
@@ -18,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 PROTOCOL_VERSION = '2025-06-18'
 
@@ -34,7 +41,8 @@ def reader(stream, replies):
 
 class Session:
     def __init__(self, program, timeout, home):
-        environment = dict(os.environ, HOME=home, XDG_CONFIG_HOME=home, GUI_FORMS_MCP_ATTACH='0')
+        environment = dict(os.environ, HOME=home, XDG_CONFIG_HOME=home, XDG_DATA_HOME=home, APPDATA=home,
+                           GUI_FORMS_MCP_ATTACH='0')
         self.process = subprocess.Popen([program, '--mcp'], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE, env=environment)
         self.replies = queue.Queue()
@@ -58,6 +66,73 @@ class Session:
         result = reply.get('result', {})
         text = ''.join(item.get('text', '') for item in result.get('content', []) if item.get('type') == 'text')
         return not result.get('isError', False) and 'result' in reply, text
+
+
+def undocumented(tools):
+    # The program's tools, or arguments of them, with no description.
+    missing = []
+    for tool in tools:
+        name = tool.get('name', '')
+        if not (name.startswith('plan_paint_') or name.startswith('command_')):
+            continue
+        if not tool.get('description', '').strip():
+            missing.append(name)
+        properties = tool.get('inputSchema', {}).get('properties', {})
+        for argument, schema in properties.items():
+            if not schema.get('description', '').strip():
+                missing.append(name + '.' + argument)
+    return missing
+
+
+def seed_recovery(home):
+    # An unfinished-artwork snapshot where Plan Paint looks for one: only
+    # its presence matters, for the launch must not open it.
+    if sys.platform == 'darwin':
+        folder = os.path.join(home, 'Library', 'Application Support', 'rainstar', 'RainstarPaint')
+    else:
+        folder = os.path.join(home, 'rainstar', 'RainstarPaint')
+    snapshot = os.path.join(folder, 'Recovery', '0f0e0d0c-0b0a-4908-8706-050403020100')
+    os.makedirs(snapshot)
+    with open(os.path.join(snapshot, '0.rpr'), 'wb') as record:
+        record.write(b'not a picture')
+
+
+def launch_without_prompt(program, timeout, check):
+    with tempfile.TemporaryDirectory() as home:
+        seed_recovery(home)
+        session = Session(program, timeout, home)
+        try:
+            initialized = session.request('initialize', {'protocolVersion': PROTOCOL_VERSION, 'capabilities': {},
+                                                         'clientInfo': {'name': 'plan-paint-launch',
+                                                                        'version': '1'}})
+            check('second launch initializes', 'result' in initialized)
+            session.process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+            session.process.stdin.flush()
+            notice = ''
+            listing = ''
+            for _ in range(20):
+                ok, listing = session.call('windows', {})
+                ok, notice = session.call('snapshot', {})
+                if 'can be recovered' in notice:
+                    break
+                time.sleep(0.25)
+            check('launch opens no dialog', ok and 'dialog' not in listing.lower(), listing)
+            check('recovery is offered in the status bar', 'can be recovered' in notice, notice[-400:])
+        except queue.Empty:
+            check('second launch replies', False, 'no reply within %s seconds' % timeout)
+        except (BrokenPipeError, OSError) as error:
+            check('second launch transport', False, str(error))
+        try:
+            session.process.stdin.close()
+        except OSError:
+            pass
+        try:
+            code = session.process.wait(timeout=timeout)
+            check('end of input closes an unchanged picture', code == 0, 'exit %s' % code)
+        except subprocess.TimeoutExpired:
+            session.process.kill()
+            session.process.wait()
+            check('end of input closes an unchanged picture', False, 'still running')
 
 
 def colour_at(text, label):
@@ -96,6 +171,8 @@ def main(argv):
             wanted = {'plan_paint_path', 'plan_paint_fill', 'plan_paint_gradient', 'plan_paint_text',
                       'plan_paint_sample', 'plan_paint_draw'}
             check('tools/list', wanted <= names, sorted(wanted - names))
+            missing = undocumented(listed.get('result', {}).get('tools', []))
+            check('every program tool and argument is described', not missing, missing)
             ok, text = session.call('plan_paint_new_image', {'width': 200, 'height': 120})
             check('new image', ok, text)
             ok, text = session.call('plan_paint_draw', {'shape': 'rectangle', 'from': {'x': 20, 'y': 20},
@@ -149,6 +226,11 @@ def main(argv):
             check('capture points, both shapes', ok and '1,1 #' in text and '2,2 #' in text, text)
             ok, text = session.call('plan_paint_image_info', {})
             check('image info', ok and 'colours: primary' in text, text)
+            # The end of the input is a hard disconnect with the default:
+            # the picture's save question would be the user's, so this
+            # session discards it itself.
+            ok, text = session.call('disconnect', {'mode': 'hard', 'discard_unsaved': True})
+            check('hard disconnect discarding', ok, text)
         except queue.Empty:
             check('replies', False, 'no reply within %s seconds' % timeout)
         except (BrokenPipeError, OSError) as error:
@@ -166,6 +248,7 @@ def main(argv):
             check('shutdown', False, 'still running')
         if failures:
             sys.stderr.write(session.process.stderr.read().decode('utf-8', 'replace')[-2000:])
+        launch_without_prompt(argv[1], timeout, check)
     return 1 if failures else 0
 
 

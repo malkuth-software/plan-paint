@@ -63,8 +63,10 @@ constexpr const char* resize_schema =
     "\"required\":[\"width\",\"height\"],\"additionalProperties\":false}";
 constexpr const char* new_image_schema =
     "{\"type\":\"object\",\"properties\":{"
-    "\"width\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":32768},"
-    "\"height\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":32768}},"
+    "\"width\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":32768,\"description\":\"Width in pixels; "
+    "default 960.\"},"
+    "\"height\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":32768,\"description\":\"Height in pixels; "
+    "default 640.\"}},"
     "\"additionalProperties\":false}";
 constexpr const char* save_schema =
     "{\"type\":\"object\",\"properties\":{"
@@ -203,31 +205,46 @@ constexpr const char* path_schema =
     ":\"number\",\"description\":\"Degrees clockwise about the points' centre; default 0.\"}},\"required\":[\"poi"
     "nts\"],\"additionalProperties\":false}";
 constexpr const char* fill_schema =
-    "{\"type\":\"object\",\"properties\":{\"at\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"number\"}"
-    ",\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],\"additionalProperties\":false},\"colour\":{\"type\""
-    ":\"string\",\"description\":\"#RRGGBB or #RRGGBBAA; default the Primary colour.\"}},\"required\":[\"at\"],\""
-    "additionalProperties\":false}";
+    "{\"type\":\"object\",\"properties\":{"
+    "\"at\":{\"type\":\"object\",\"description\":\"A point of the area to fill, in picture pixels.\","
+    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
+    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false},"
+    "\"colour\":{\"type\":\"string\",\"description\":\"#RRGGBB or #RRGGBBAA; default the Primary colour.\"}},"
+    "\"required\":[\"at\"],\"additionalProperties\":false}";
 constexpr const char* gradient_schema =
-    "{\"type\":\"object\",\"properties\":{\"from\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"number\""
-    "},\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],\"additionalProperties\":false},\"to\":{\"type\":\""
-    "object\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"]"
-    ",\"additionalProperties\":false},\"points\":{\"type\":\"array\",\"minItems\":3,\"maxItems\":4096,\"descripti"
-    "on\":\"A polygon to fill instead of the from-to box (from and to still set the gradient's extent).\",\"items"
-    "\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},\"required\""
-    ":[\"x\",\"y\"],\"additionalProperties\":false}},\"stops\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":32"
-    ",\"items\":{\"type\":\"object\",\"properties\":{\"position\":{\"type\":\"number\",\"minimum\":0,\"maximum\":"
-    "1},\"colour\":{\"type\":\"string\"}},\"required\":[\"position\",\"colour\"],\"additionalProperties\":false}}"
-    ",\"kind\":{\"type\":\"string\",\"enum\":[\"linear\",\"radial\"],\"description\":\"Default linear.\"},\"angle"
-    "\":{\"type\":\"number\",\"description\":\"A linear gradient's direction in degrees: 0 runs left to right, 90"
-    " top to bottom.\"}},\"required\":[\"from\",\"to\",\"stops\"],\"additionalProperties\":false}";
+    "{\"type\":\"object\",\"properties\":{"
+    "\"from\":{\"type\":\"object\",\"description\":\"Where the gradient starts (its first stop), in picture "
+    "pixels; with to, the box it paints.\","
+    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
+    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false},"
+    "\"to\":{\"type\":\"object\",\"description\":\"Where it ends (its last stop), in picture pixels.\","
+    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
+    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false},"
+    "\"points\":{\"type\":\"array\",\"minItems\":3,\"maxItems\":4096,\"description\":\"A polygon to fill instead "
+    "of the from-to box (from and to still set the gradient's extent).\","
+    "\"items\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
+    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false}},"
+    "\"stops\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":32,\"description\":\"The colour stops: position "
+    "0 at from to 1 at to, each with a colour #RRGGBB or #RRGGBBAA.\","
+    "\"items\":{\"type\":\"object\",\"properties\":{\"position\":{\"type\":\"number\",\"minimum\":0,"
+    "\"maximum\":1},\"colour\":{\"type\":\"string\"}},\"required\":[\"position\",\"colour\"],"
+    "\"additionalProperties\":false}},"
+    "\"kind\":{\"type\":\"string\",\"enum\":[\"linear\",\"radial\"],\"description\":\"Default linear.\"},"
+    "\"angle\":{\"type\":\"number\",\"description\":\"A linear gradient's direction in degrees: 0 runs left to "
+    "right, 90 top to bottom.\"}},"
+    "\"required\":[\"from\",\"to\",\"stops\"],\"additionalProperties\":false}";
 constexpr const char* text_schema =
-    "{\"type\":\"object\",\"properties\":{\"at\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"number\"}"
-    ",\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],\"additionalProperties\":false},\"text\":{\"type\":"
-    "\"string\",\"maxLength\":4096,\"description\":\"The text; its top-left corner is at.\"},\"size\":{\"type\":\""
-    "integer\",\"minimum\":4,\"maximum\":512,\"description\":\"Pixels; default 24.\"},\"colour\":{\"type\":\"stri"
-    "ng\",\"description\":\"#RRGGBB or #RRGGBBAA; default the Primary colour.\"},\"bold\":{\"type\":\"boolean\"},"
-    "\"italic\":{\"type\":\"boolean\"},\"mono\":{\"type\":\"boolean\"}},\"required\":[\"at\",\"text\"],\"addition"
-    "alProperties\":false}";
+    "{\"type\":\"object\",\"properties\":{"
+    "\"at\":{\"type\":\"object\",\"description\":\"The text's top-left corner, in picture pixels.\","
+    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
+    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false},"
+    "\"text\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"The text; its top-left corner is at.\"},"
+    "\"size\":{\"type\":\"integer\",\"minimum\":4,\"maximum\":512,\"description\":\"Pixels; default 24.\"},"
+    "\"colour\":{\"type\":\"string\",\"description\":\"#RRGGBB or #RRGGBBAA; default the Primary colour.\"},"
+    "\"bold\":{\"type\":\"boolean\",\"description\":\"Bold; default false.\"},"
+    "\"italic\":{\"type\":\"boolean\",\"description\":\"Italic; default false.\"},"
+    "\"mono\":{\"type\":\"boolean\",\"description\":\"A monospaced face; default false.\"}},"
+    "\"required\":[\"at\",\"text\"],\"additionalProperties\":false}";
 constexpr const char* sample_schema =
     "{\"type\":\"object\",\"properties\":{\"points\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":1024,\"descr"
     "iption\":\"Points in picture pixels.\",\"items\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"numb"
