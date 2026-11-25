@@ -139,9 +139,8 @@ constexpr const char* app_note =
     "colour.\n"
     "- Resize and Properties open dialogs: use plan_paint_resize_image instead. New, Open, Save and Exit are "
     "destructive and ask the user once per launch.\n"
-    "- To finish: save with plan_paint_save (a path for a new picture), then close the window (act close on its "
-    "ID) or command_quit. Closing with unsaved changes stops there and tells you the program's question; it is "
-    "never shown to the user.";
+    "- To finish: save with plan_paint_save (a path for a new picture), then call disconnect. A disconnect with "
+    "unsaved changes closes nothing and tells you what to save; it is never shown to the user.";
 
 constexpr const char* draw_schema_head =
     "{\"type\":\"object\",\"properties\":{"
