@@ -47,15 +47,15 @@ gui_forms::ApplicationCreateResult create_application() {
 static bool served_by_mcp(int argc, char** argv) {
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument(argv[index]);
-        if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--mcp-script" ||
-            argument == "--model-directed" || argument == "--mcp-appearance-review") {
+        if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--mcp-folder" ||
+            argument == "--mcp-script" || argument == "--model-directed" || argument == "--mcp-appearance-review") {
             return true;
         }
     }
     const char* variable = std::getenv("GUI_FORMS_MCP");
     if (variable == nullptr) { return false; }
     const std::string_view value(variable);
-    return value == "1" || value == "shared";
+    return value == "1" || value == "shared" || value == "folder";
 }
 
 int main(int argc, char** argv) {
@@ -85,8 +85,9 @@ int main(int argc, char** argv) {
         // holds them.
         for (std::size_t index = 0; index < arguments.size();) {
             const std::string& argument = arguments[index];
-            if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--model-directed" ||
-                argument == "--mcp-appearance-review" || argument == "--mcp-socket" || argument == "--help") {
+            if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--mcp-folder" ||
+                argument == "--model-directed" || argument == "--mcp-appearance-review" || argument == "--mcp-socket" ||
+                argument == "--help") {
                 arguments.erase(arguments.begin() + static_cast<std::ptrdiff_t>(index));
             } else if (argument == "--mcp-script") {
                 const std::size_t taken = index + 1 < arguments.size() ? 2 : 1;
