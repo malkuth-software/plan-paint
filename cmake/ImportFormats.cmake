@@ -9,14 +9,29 @@
 # WEBP_INCLUDE_DIR (the directory holding webp/decode.h) and the avif target.
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
-# libavif links a bare `m` under `UNIX OR MINGW` (v1.4.2 CMakeLists.txt,
-# avif_obj), and on x86_64-pc-windows-msvc that became "m.lib", which
-# lld-link cannot open (#53's windows-x64 job). The own runtime's C library
-# (STXlib's crt) holds the math functions, so there `m` names an empty
-# interface target and links nothing.
-if(CMAKE_C_COMPILER_TARGET MATCHES "windows-msvc" AND NOT TARGET m)
-  add_library(m INTERFACE)
-endif()
+# Removes the C math library `m` from the link libraries of every target
+# defined in `directory` and its subdirectories. libavif (v1.4.2, avif_obj,
+# under UNIX OR MINGW) and lunasvg's plutovg link a bare `m`, which on
+# x86_64-pc-windows-msvc is "m.lib" and lld-link cannot open it (#53's
+# windows-x64 job). The own runtime's C library (STXlib's crt) holds the
+# math functions. An empty target named `m` would break plutovg's
+# install(EXPORT), so the name is taken out instead.
+function(rainstar_drop_math_library directory)
+  get_property(targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+  foreach(target IN LISTS targets)
+    foreach(property LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+      get_target_property(libraries ${target} ${property})
+      if(libraries)
+        list(REMOVE_ITEM libraries m "$<LINK_ONLY:m>")
+        set_property(TARGET ${target} PROPERTY ${property} "${libraries}")
+      endif()
+    endforeach()
+  endforeach()
+  get_property(subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+  foreach(subdirectory IN LISTS subdirectories)
+    rainstar_drop_math_library("${subdirectory}")
+  endforeach()
+endfunction()
 
 # Writes the meson cross file for dav1d on x86_64-pc-windows-msvc (the own
 # runtime) and sets `out` to its path. Meson takes each array element as one
@@ -179,3 +194,10 @@ FetchContent_Declare(tinyxml2
   URL_HASH SHA256=5556deb5081fb246ee92afae73efd943c889cef0cafea92b0b82422d6a18f289
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(tinyxml2)
+if(CMAKE_C_COMPILER_TARGET MATCHES "windows-msvc")
+  foreach(dependency IN ITEMS avif lunasvg tinyxml2 tiff webp)
+    if(${dependency}_SOURCE_DIR)
+      rainstar_drop_math_library("${${dependency}_SOURCE_DIR}")
+    endif()
+  endforeach()
+endif()
