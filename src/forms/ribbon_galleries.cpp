@@ -11,6 +11,8 @@
 #include "localization.hpp"
 #include "material.hpp"
 #include <algorithm>
+#include <array>
+#include <cstdio>
 namespace paint::forms {
 namespace gf = gui_forms;
 namespace {
@@ -149,6 +151,21 @@ void Ribbon::fill_shapes() {
 
 // Basic, custom and themed colours, as categories (the earlier strip's
 // "palette-pane" cycled through them).
+namespace {
+// A swatch's colour as its accessible name ends: ", #RRGGBB" (with alpha,
+// "#RRGGBBAA"), so a reader, and a model, knows the colour it picks.
+std::string swatch_hex(Color color) {
+    std::array<char, 16> text{};
+    if (color.a == 255) {
+        static_cast<void>(std::snprintf(text.data(), text.size(), ", #%02X%02X%02X", color.r, color.g, color.b));
+    } else {
+        static_cast<void>(std::snprintf(text.data(), text.size(), ", #%02X%02X%02X%02X", color.r, color.g, color.b,
+                                        color.a));
+    }
+    return std::string(text.data());
+}
+} // namespace
+
 void Ribbon::fill_palette() {
     std::vector<gf::RibbonGalleryCategory> categories = {
         {"basic", tr("Basic")}, {"custom", tr("Custom")}, {"themed", tr("Themed")}};
@@ -157,20 +174,26 @@ void Ribbon::fill_palette() {
     custom_shown_.clear();
     for (int index = 0; index < 30; ++index) {
         const std::string id = "swatch-" + std::to_string(index);
-        items.push_back({id, tr("Basic") + tr(" color ") + std::to_string(index + 1),
-                         artwork(id, swatch_image(palette_color(id))), "basic", true});
+        const Color color = palette_color(id);
+        items.push_back({id, tr("Basic") + tr(" color ") + std::to_string(index + 1) + swatch_hex(color),
+                         artwork(id, swatch_image(color)), "basic", true});
     }
     for (int index = 0; index < 30; ++index) {
         const std::string id = "custom-" + std::to_string(index);
         const Color color = palette_color(id);
         custom_shown_.push_back(color);
-        items.push_back({id, index == 29 ? tr("Transparency") : tr("Custom") + tr(" color ") + std::to_string(index + 1),
+        items.push_back({id,
+                         (index == 29 ? tr("Transparency") : tr("Custom") + tr(" color ") + std::to_string(index + 1)) +
+                             swatch_hex(color),
                          artwork(id, swatch_image(color)), "custom", true});
     }
     for (int index = 0; index < 30; ++index) {
         const std::string id = "themed-" + std::to_string(index);
-        items.push_back({id, std::string(theme_name(index % 10)) + tr(" color ") + std::to_string(index / 10 + 1),
-                         artwork(id, swatch_image(palette_color(id))), "themed", true});
+        const Color color = palette_color(id);
+        items.push_back({id,
+                         std::string(theme_name(index % 10)) + tr(" color ") + std::to_string(index / 10 + 1) +
+                             swatch_hex(color),
+                         artwork(id, swatch_image(color)), "themed", true});
     }
     (*palette_.gallery).set_items(std::move(categories), std::move(items));
 }

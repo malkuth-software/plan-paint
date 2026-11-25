@@ -1,3 +1,4 @@
+#include "forms/model_tools.hpp"
 #include "forms/editor.hpp"
 #include "forms/identity.hpp"
 #include "command_line.hpp"
@@ -5,12 +6,15 @@
 #include "localization.hpp"
 #include "plan_paint_theme.hpp"
 #include <gui_forms/application.hpp>
+#include <gui_forms/automation/marks/automation_marks.hpp>
 #include <clocale>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <string_view>
 namespace {
 void report_theme_findings(const std::vector<gui_forms::ThemeCompileDiagnostic>& findings) {
     for (const gui_forms::ThemeCompileDiagnostic& finding : findings) {
@@ -37,6 +41,23 @@ gui_forms::ApplicationCreateResult create_application() {
     return gui_forms::Application::create(std::move(fallback));
 }
 } // namespace
+// Whether GUI.Forms serves this launch over MCP: an MCP option, or
+// GUI_FORMS_MCP set to 1 or shared. Read before take_mcp_arguments removes
+// the options from argv.
+static bool served_by_mcp(int argc, char** argv) {
+    for (int index = 1; index < argc; ++index) {
+        const std::string_view argument(argv[index]);
+        if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--mcp-script" ||
+            argument == "--model-directed" || argument == "--mcp-appearance-review") {
+            return true;
+        }
+    }
+    const char* variable = std::getenv("GUI_FORMS_MCP");
+    if (variable == nullptr) { return false; }
+    const std::string_view value(variable);
+    return value == "1" || value == "shared";
+}
+
 int main(int argc, char** argv) {
 #ifdef __linux__
     // The process locale is the program's: GUI.Forms' Linux host no longer
@@ -55,7 +76,26 @@ int main(int argc, char** argv) {
             // Preference storage failure must not prevent starting in English.
             startup_settings.language = "en-us";
         }
-        const std::vector<std::string> arguments = paint::utf8_arguments(argc, argv);
+        // GUI.Forms reads its MCP launch options itself; they never reach
+        // Plan Paint's parser.
+        const bool served = served_by_mcp(argc, argv);
+        gui_forms::automation::take_mcp_arguments(argc, argv);
+        std::vector<std::string> arguments = paint::utf8_arguments(argc, argv);
+        // Windows' arguments come from the wide command line, which still
+        // holds them.
+        for (std::size_t index = 0; index < arguments.size();) {
+            const std::string& argument = arguments[index];
+            if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--model-directed" ||
+                argument == "--mcp-appearance-review") {
+                arguments.erase(arguments.begin() + static_cast<std::ptrdiff_t>(index));
+            } else if (argument == "--mcp-script") {
+                const std::size_t taken = index + 1 < arguments.size() ? 2 : 1;
+                arguments.erase(arguments.begin() + static_cast<std::ptrdiff_t>(index),
+                                arguments.begin() + static_cast<std::ptrdiff_t>(index + taken));
+            } else {
+                ++index;
+            }
+        }
         const paint::CommandLine command_line = paint::parse_command_line(arguments);
         for (const std::string& ignored : command_line.ignored_options) {
             std::cerr << "Plan Paint: ignoring unknown option " << ignored << '\n';
@@ -88,6 +128,10 @@ int main(int argc, char** argv) {
             (*editor).custom_colors.storage_path.clear();
         }
         if (session_canvas_controls) { (*editor).settings.canvas_controls = true; }
+        (*editor).served_launch = served;
+        // The editor's tools and marks for a model (--mcp): kept while the
+        // editor runs.
+        const paint::forms::EditorModelTools model_tools(*editor);
         std::unique_ptr<gui_forms::Window> window =
             std::make_unique<gui_forms::Window>(editor, gui_forms::Size{1280, 820});
         gui_forms::ApplicationWindowOptions options;

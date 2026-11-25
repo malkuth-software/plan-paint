@@ -310,6 +310,10 @@ class Editor final : public gui_forms::Control {
     std::chrono::steady_clock::time_point recovery_deadline{};
     std::uint64_t recovery_capture_revision = 0;
     bool recovery_failed = false, recovery_startup_pending = false;
+    // Served over MCP: the startup recovery offer is a native alert whose
+    // modal loop would hold every MCP call, so it waits for an ordinary
+    // launch (File > Recover still opens it).
+    bool served_launch = false;
     std::string recovery_notice;
     // A command-line file that failed to open. Ready may run before the host
     // can show modal UI, so the message waits for the first recovery tick.
@@ -451,6 +455,12 @@ class Editor final : public gui_forms::Control {
     void rotate_view(double radians);
     void pointer(const gui_forms::PointerEvent& event);
     void canvas_control_action(int action);
+    // A shape follows the pointer until the next click places it (Shape
+    // gesture "Click to place", the default).
+    bool placing_shape() const noexcept { return placing_shape_; }
+    // Ends whatever is in progress (text, a warp, a gesture) and commits
+    // live paths and curves; `deselect` commits the selection too.
+    void finish_controls(bool deselect = false);
 
   private:
     void reset_file_watch();
@@ -698,7 +708,6 @@ class Editor final : public gui_forms::Control {
     void move(Point point);
     void end(Point point);
     void release_gesture();
-    void finish_controls(bool deselect = false);
     void zoom(double factor, gui_forms::Point anchor);
     void copy();
     void paste();

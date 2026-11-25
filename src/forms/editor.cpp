@@ -1,3 +1,4 @@
+#include "forms/model_tools.hpp"
 #include "forms/editor.hpp"
 #include "alpha_tools.hpp"
 #include "codecs.hpp"
@@ -243,6 +244,7 @@ void Editor::initialize_control_tree() {
 }
 gf::MenuItemSpec Editor::menu_item(const std::string& id, const std::string& text, const std::string& shortcut) {
     std::shared_ptr<gf::Command> command = std::make_shared<gf::Command>(id, text);
+    mark_command(*command, id);
     // The shortcut column shows the key the editor's own key handling
     // answers (Editor::on_key_preview); the menu does not bind it.
     if (!shortcut.empty()) (*command).set_shortcut(shortcut);
@@ -718,6 +720,7 @@ void Editor::publish_path_preview() {
     publish_image(composed, *canvas_);
 }
 void Editor::refresh() {
+    note_model_pending(*this);
     if (stamp_placement_ && (document.revision != stamp_placement_revision_ ||
                              document.atlas_epoch != stamp_placement_epoch_)) {
         reset_stamp();
@@ -982,6 +985,8 @@ void Editor::choose_tool(Tool tool) {
     refresh();
 }
 void Editor::pointer(const gf::PointerEvent& event) {
+    // Whatever this event leaves floating is named in a model's replies.
+    const PendingStateNote pending(*this);
     if (canvas_control_stroke_ && !canvas_control_dispatch_) { return; }
     try {
         if (panning_ && event.action != gf::PointerAction::up) {
