@@ -3,8 +3,8 @@
 Starts Plan Paint with --mcp in a scratch home, then over MCP's stdio
 framing: a new 200 by 120 picture; a filled, rotated rectangle; a filled
 Bezier path; a bucket fill; a gradient; text; plan_paint_sample and capture
-points reading the colours back; the Resize dialog, its OK marked default
-and pressed; a 100-step batch of strokes. Each drawing is checked by
+points reading the colours back; the Resize dialog, its OK marked default,
+closed by the model (a model never submits a dialog); a 100-step batch of strokes. Each drawing is checked by
 sampling. Every plan_paint_* and command_* tool, and each of its
 arguments, is described (`help <tool>` is that text, so an undocumented tool
 fails here). Ends with a hard disconnect that discards the picture and
@@ -20,6 +20,7 @@ server is reachable.
 import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import tempfile
@@ -220,8 +221,11 @@ def main(argv):
             ok, text = session.call('snapshot', {})
             ok_line = next((line for line in text.splitlines() if '[dialog-ok]' in line), '')
             check('dialog OK is marked default', ok and ' default' in ok_line, ok_line or text[-300:])
-            ok, text = session.call('act', {'action': 'press', 'target': 'dialog-ok'})
-            check('dialog OK submits and says so', ok and ('gave way' in text or 'closed:' in text), text)
+            # A model never submits a dialog (round 1): it closes the one it opened.
+            ok, listing = session.call('windows', {})
+            dialog = re.search(r'\[([a-z0-9.-]*dialog[a-z0-9.-]*)\]', listing)
+            ok, text = session.call('act', {'action': 'close', 'target': dialog.group(1) if dialog else 'dialog'})
+            check('the model closes the dialog it opened', ok, listing + text)
             ok, text = session.call('capture', {'points': [[1, 1], {'x': 2, 'y': 2}]})
             check('capture points, both shapes', ok and '1,1 #' in text and '2,2 #' in text, text)
             ok, text = session.call('plan_paint_image_info', {})
