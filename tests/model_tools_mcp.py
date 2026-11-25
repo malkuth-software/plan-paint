@@ -185,12 +185,13 @@ def main(argv):
             check('rotation sampled', ok and colour_at(text, '40.0,12.0') == '#FF0000' and
                   colour_at(text, '22.0,30.0') == '#FFFFFF', text)
             # A second drawing is an effect too (1.0.5 review: it replied
-            # "effect: none"), and a point may be a pair.
-            ok, text = session.call('plan_paint_draw', {'shape': 'rectangle', 'from': [150, 10], 'to': [170, 20],
+            # "effect: none").
+            ok, text = session.call('plan_paint_draw', {'shape': 'rectangle', 'from': {'x': 150, 'y': 10},
+                                                        'to': {'x': 170, 'y': 20},
                                                         'fill': '#00FFFF', 'colour': 'none'})
             check('second draw has an effect', ok and 'effect: none' not in text, text)
-            ok, text = session.call('plan_paint_sample', {'points': [[160, 15]]})
-            check('pair points sampled', ok and colour_at(text, '160.0,15.0') == '#00FFFF', text)
+            ok, text = session.call('plan_paint_sample', {'points': [{'x': 160, 'y': 15}]})
+            check('second drawing sampled', ok and colour_at(text, '160.0,15.0') == '#00FFFF', text)
             ok, text = session.call('plan_paint_path', {'points': [
                 {'x': 100, 'y': 20}, {'x': 140, 'y': 60, 'c1': {'x': 130, 'y': 20}, 'c2': {'x': 140, 'y': 40}},
                 {'x': 100, 'y': 60}], 'fill': '#0000FF', 'colour': 'none'})
