@@ -159,29 +159,28 @@ constexpr const char* draw_schema_head =
     "{\"type\":\"object\",\"properties\":{"
     "\"shape\":{\"type\":\"string\",\"description\":\"The shape, as on the ribbon's Shapes gallery.\",\"enum\":[";
 constexpr const char* draw_schema_tail =
-    "]},"
-    "\"from\":{\"type\":\"object\",\"description\":\"One corner of the shape's box (a line's start), in picture "
-    "pixels.\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],"
-    "\"additionalProperties\":false},"
-    "\"to\":{\"type\":\"object\",\"description\":\"The opposite corner (a line's end), in picture pixels.\","
-    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],"
-    "\"additionalProperties\":false},"
-    "\"colour\":{\"type\":\"string\",\"description\":\"The outline's colour, #RRGGBB or #RRGGBBAA; default the "
-    "Primary colour. \\\"none\\\" draws no outline.\"},"
-    "\"fill\":{\"type\":\"string\",\"description\":\"The fill's colour, #RRGGBB or #RRGGBBAA; default no fill.\"},"
-    "\"size\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100,\"description\":\"The outline's width in pixels; "
-    "default 3.\"},"
-    "\"rotation\":{\"type\":\"number\",\"description\":\"Degrees clockwise about the box's centre; default 0.\"}},"
-    "\"required\":[\"shape\",\"from\",\"to\"],\"additionalProperties\":false}";
+    "]},\"from\":{\"type\":[\"object\",\"array\"],\"description\":\"One corner of the shape's box (a line's start"
+    "), in picture pixels.\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
+    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false,\"items\":{\"type\":\"number\"},\"minItems\":2,"
+    "\"maxItems\":2},\"to\":{\"type\":[\"object\",\"array\"],\"description\":\"The opposite corner (a line's end)"
+    ", in picture pixels.\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
+    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false,\"items\":{\"type\":\"number\"},\"minItems\":2,"
+    "\"maxItems\":2},\"colour\":{\"type\":\"string\",\"description\":\"The outline's colour,"
+    " #RRGGBB or #RRGGBBAA; default the Primary colour. \\\"none\\\" draws no outline.\"},"
+    "\"fill\":{\"type\":\"string\",\"description\":\"The fill's colour,"
+    " #RRGGBB or #RRGGBBAA; default no fill.\"},\"size\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100,"
+    "\"description\":\"The outline's width in pixels; default 3.\"},\"rotation\":{\"type\":\"number\","
+    "\"description\":\"Degrees clockwise about the box's centre; default 0.\"}},\"required\":[\"shape\",\"from\","
+    "\"to\"],\"additionalProperties\":false}";
 constexpr const char* stroke_schema =
-    "{\"type\":\"object\",\"properties\":{"
-    "\"points\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":4096,\"description\":\"The line's points in picture "
-    "pixels, in order.\",\"items\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":"
-    "\"number\"}},\"required\":[\"x\",\"y\"],\"additionalProperties\":false}},"
+    "{\"type\":\"object\",\"properties\":{\"points\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":4096,"
+    "\"description\":\"The line's points in picture pixels, in order.\",\"items\":{\"type\":[\"object\","
+    "\"array\"],\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\","
+    "\"y\"],\"additionalProperties\":false,\"items\":{\"type\":\"number\"},\"minItems\":2,\"maxItems\":2}},"
     "\"colour\":{\"type\":\"string\",\"description\":\"#RRGGBB or #RRGGBBAA; default the Primary colour.\"},"
-    "\"size\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100,\"description\":\"The line's width in pixels; "
-    "default 3.\"}},"
-    "\"required\":[\"points\"],\"additionalProperties\":false}";
+    "\"size\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100,"
+    "\"description\":\"The line's width in pixels; default 3.\"}},\"required\":[\"points\"],"
+    "\"additionalProperties\":false}";
 constexpr const char* set_colour_schema =
     "{\"type\":\"object\",\"properties\":{"
     "\"hex\":{\"type\":\"string\",\"description\":\"#RRGGBB or #RRGGBBAA.\"},"
@@ -190,73 +189,83 @@ constexpr const char* set_colour_schema =
 // The schemas of the round-4 tools (filled paths, bucket fill, gradient,
 // text and sampling); a point is {x, y} (or [x, y]) in picture pixels.
 constexpr const char* path_schema =
-    "{\"type\":\"object\",\"properties\":{\"points\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":4096,\"descr"
-    "iption\":\"The path's points in picture pixels, in order. A point with c1 and c2 ends a cubic Bezier segment"
-    " from the point before it, c1 and c2 its control points; a point without them ends a straight edge.\",\"item"
-    "s\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"},\"c1\":{\"t"
-    "ype\":\"object\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\""
-    ",\"y\"],\"additionalProperties\":false},\"c2\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"number"
-    "\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],\"additionalProperties\":false}},\"required\":[\""
-    "x\",\"y\"],\"additionalProperties\":false}},\"closed\":{\"type\":\"boolean\",\"description\":\"Close the pat"
-    "h back to its first point; default true.\"},\"fill\":{\"type\":\"string\",\"description\":\"The fill's colou"
-    "r, #RRGGBB or #RRGGBBAA; default no fill.\"},\"colour\":{\"type\":\"string\",\"description\":\"The outline's"
-    " colour; default the Primary colour. \\\"none\\\" draws no outline.\"},\"size\":{\"type\":\"integer\",\"mini"
-    "mum\":1,\"maximum\":100,\"description\":\"The outline's width in pixels; default 3.\"},\"rotation\":{\"type\""
-    ":\"number\",\"description\":\"Degrees clockwise about the points' centre; default 0.\"}},\"required\":[\"poi"
-    "nts\"],\"additionalProperties\":false}";
+    "{\"type\":\"object\",\"properties\":{\"points\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":4096,"
+    "\"description\":\"The path's points in picture pixels, in order. A point with c1 and c2 ends a cubic Bezier "
+    "segment from the point before it, c1 and c2 its control points; a point without them ends a straight edge.\""
+    ",\"items\":{\"type\":[\"object\",\"array\"],\"properties\":{\"x\":{\"type\":\"number\"},"
+    "\"y\":{\"type\":\"number\"},\"c1\":{\"type\":[\"object\",\"array\"],"
+    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],"
+    "\"additionalProperties\":false,\"items\":{\"type\":\"number\"},\"minItems\":2,\"maxItems\":2},"
+    "\"c2\":{\"type\":[\"object\",\"array\"],\"properties\":{\"x\":{\"type\":\"number\"},"
+    "\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],\"additionalProperties\":false,"
+    "\"items\":{\"type\":\"number\"},\"minItems\":2,\"maxItems\":2}},\"required\":[\"x\",\"y\"],"
+    "\"additionalProperties\":false,\"items\":{\"type\":\"number\"},\"minItems\":2,\"maxItems\":2}},"
+    "\"closed\":{\"type\":\"boolean\",\"description\":\"Close the path back to its first point; default true.\"},"
+    "\"fill\":{\"type\":\"string\",\"description\":\"The fill's colour,"
+    " #RRGGBB or #RRGGBBAA; default no fill.\"},\"colour\":{\"type\":\"string\","
+    "\"description\":\"The outline's colour; default the Primary colour. \\\"none\\\" draws no outline.\"},"
+    "\"size\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100,"
+    "\"description\":\"The outline's width in pixels; default 3.\"},\"rotation\":{\"type\":\"number\","
+    "\"description\":\"Degrees clockwise about the points' centre; default 0.\"}},\"required\":[\"points\"],"
+    "\"additionalProperties\":false}";
 constexpr const char* fill_schema =
-    "{\"type\":\"object\",\"properties\":{"
-    "\"at\":{\"type\":\"object\",\"description\":\"A point of the area to fill, in picture pixels.\","
-    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
-    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false},"
+    "{\"type\":\"object\",\"properties\":{\"at\":{\"type\":[\"object\",\"array\"],"
+    "\"description\":\"A point of the area to fill, in picture pixels.\","
+    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],"
+    "\"additionalProperties\":false,\"items\":{\"type\":\"number\"},\"minItems\":2,\"maxItems\":2},"
     "\"colour\":{\"type\":\"string\",\"description\":\"#RRGGBB or #RRGGBBAA; default the Primary colour.\"}},"
     "\"required\":[\"at\"],\"additionalProperties\":false}";
 constexpr const char* gradient_schema =
-    "{\"type\":\"object\",\"properties\":{"
-    "\"from\":{\"type\":\"object\",\"description\":\"Where the gradient starts (its first stop), in picture "
-    "pixels; with to, the box it paints.\","
-    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
-    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false},"
-    "\"to\":{\"type\":\"object\",\"description\":\"Where it ends (its last stop), in picture pixels.\","
-    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
-    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false},"
-    "\"points\":{\"type\":\"array\",\"minItems\":3,\"maxItems\":4096,\"description\":\"A polygon to fill instead "
-    "of the from-to box (from and to still set the gradient's extent).\","
-    "\"items\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
-    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false}},"
-    "\"stops\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":32,\"description\":\"The colour stops: position "
-    "0 at from to 1 at to, each with a colour #RRGGBB or #RRGGBBAA.\","
-    "\"items\":{\"type\":\"object\",\"properties\":{\"position\":{\"type\":\"number\",\"minimum\":0,"
-    "\"maximum\":1},\"colour\":{\"type\":\"string\"}},\"required\":[\"position\",\"colour\"],"
-    "\"additionalProperties\":false}},"
-    "\"kind\":{\"type\":\"string\",\"enum\":[\"linear\",\"radial\"],\"description\":\"Default linear.\"},"
-    "\"angle\":{\"type\":\"number\",\"description\":\"A linear gradient's direction in degrees: 0 runs left to "
-    "right, 90 top to bottom.\"}},"
-    "\"required\":[\"from\",\"to\",\"stops\"],\"additionalProperties\":false}";
+    "{\"type\":\"object\",\"properties\":{\"from\":{\"type\":[\"object\",\"array\"],"
+    "\"description\":\"Where the gradient starts (its first stop), in picture pixels; with to,"
+    " the box it paints.\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
+    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false,\"items\":{\"type\":\"number\"},\"minItems\":2,"
+    "\"maxItems\":2},\"to\":{\"type\":[\"object\",\"array\"],\"description\":\"Where it ends (its last stop),"
+    " in picture pixels.\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
+    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false,\"items\":{\"type\":\"number\"},\"minItems\":2,"
+    "\"maxItems\":2},\"points\":{\"type\":\"array\",\"minItems\":3,\"maxItems\":4096,"
+    "\"description\":\"A polygon to fill instead of the from-to box (from and to still set the gradient's extent)"
+    ".\",\"items\":{\"type\":[\"object\",\"array\"],\"properties\":{\"x\":{\"type\":\"number\"},"
+    "\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],\"additionalProperties\":false,"
+    "\"items\":{\"type\":\"number\"},\"minItems\":2,\"maxItems\":2}},\"stops\":{\"type\":\"array\","
+    "\"minItems\":2,\"maxItems\":32,\"description\":\"The colour stops: position 0 at from to 1 at to,"
+    " each with a colour #RRGGBB or #RRGGBBAA.\",\"items\":{\"type\":\"object\","
+    "\"properties\":{\"position\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1},"
+    "\"colour\":{\"type\":\"string\"}},\"required\":[\"position\",\"colour\"],\"additionalProperties\":false}},"
+    "\"kind\":{\"type\":\"string\",\"enum\":[\"linear\",\"radial\"],\"description\":\"Default linear. A radial "
+    "gradient is centred on the box and, by default, reaches its corners: position 1 at half the box's "
+    "diagonal.\"},"
+    "\"radius\":{\"type\":\"number\",\"minimum\":0.5,\"maximum\":65536,\"description\":\"A radial "
+    "gradient's radius in picture pixels (position 1 at that distance from the box's centre); default half the "
+    "box's diagonal.\"},"
+    "\"angle\":{\"type\":\"number\",\"description\":\"A linear gradient's direction in degrees: 0 runs left to ri"
+    "ght, 90 top to bottom.\"}},\"required\":[\"from\",\"to\",\"stops\"],\"additionalProperties\":false}";
 constexpr const char* text_schema =
-    "{\"type\":\"object\",\"properties\":{"
-    "\"at\":{\"type\":\"object\",\"description\":\"The text's top-left corner, in picture pixels.\","
-    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
-    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false},"
+    "{\"type\":\"object\",\"properties\":{\"at\":{\"type\":[\"object\",\"array\"],"
+    "\"description\":\"The text's top-left corner, in picture pixels.\","
+    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],"
+    "\"additionalProperties\":false,\"items\":{\"type\":\"number\"},\"minItems\":2,\"maxItems\":2},"
     "\"text\":{\"type\":\"string\",\"maxLength\":4096,\"description\":\"The text; its top-left corner is at.\"},"
     "\"size\":{\"type\":\"integer\",\"minimum\":4,\"maximum\":512,\"description\":\"Pixels; default 24.\"},"
     "\"colour\":{\"type\":\"string\",\"description\":\"#RRGGBB or #RRGGBBAA; default the Primary colour.\"},"
-    "\"bold\":{\"type\":\"boolean\",\"description\":\"Bold; default false.\"},"
-    "\"italic\":{\"type\":\"boolean\",\"description\":\"Italic; default false.\"},"
-    "\"mono\":{\"type\":\"boolean\",\"description\":\"A monospaced face; default false.\"}},"
-    "\"required\":[\"at\",\"text\"],\"additionalProperties\":false}";
+    "\"bold\":{\"type\":\"boolean\",\"description\":\"Bold; default false.\"},\"italic\":{\"type\":\"boolean\","
+    "\"description\":\"Italic; default false.\"},\"mono\":{\"type\":\"boolean\","
+    "\"description\":\"A monospaced face; default false.\"},\"measure\":{\"type\":\"boolean\","
+    "\"description\":\"Only measure: reply with the width and height the text would take, drawing nothing; "
+    "default false. A drawing's reply gives them too.\"}},\"required\":[\"at\",\"text\"],"
+    "\"additionalProperties\":false}";
 constexpr const char* sample_schema =
-    "{\"type\":\"object\",\"properties\":{\"points\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":1024,\"descr"
-    "iption\":\"Points in picture pixels.\",\"items\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"numb"
-    "er\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],\"additionalProperties\":false}}},\"required\""
-    ":[\"points\"],\"additionalProperties\":false}";
-constexpr const char* to_window_schema =
-    "{\"type\":\"object\",\"properties\":{"
-    "\"points\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":256,\"description\":\"Points in picture pixels.\","
-    "\"items\":{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},"
-    "\"required\":[\"x\",\"y\"],\"additionalProperties\":false}}},"
+    "{\"type\":\"object\",\"properties\":{\"points\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":1024,"
+    "\"description\":\"Points in picture pixels.\",\"items\":{\"type\":[\"object\",\"array\"],"
+    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],"
+    "\"additionalProperties\":false,\"items\":{\"type\":\"number\"},\"minItems\":2,\"maxItems\":2}}},"
     "\"required\":[\"points\"],\"additionalProperties\":false}";
-
+constexpr const char* to_window_schema =
+    "{\"type\":\"object\",\"properties\":{\"points\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":256,"
+    "\"description\":\"Points in picture pixels.\",\"items\":{\"type\":[\"object\",\"array\"],"
+    "\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{\"type\":\"number\"}},\"required\":[\"x\",\"y\"],"
+    "\"additionalProperties\":false,\"items\":{\"type\":\"number\"},\"minItems\":2,\"maxItems\":2}}},"
+    "\"required\":[\"points\"],\"additionalProperties\":false}";
 // A shape's name for a model: the gallery's name in lower case, words
 // joined by underscores ("rounded_rectangle", "five-point_star").
 std::string shape_tool_name(int shape) {
@@ -1135,6 +1144,17 @@ void EditorModelTools::gradient(void* context, const automation::ModelToolCall& 
         }
         blend.angle = *degrees.value();
     }
+    double radius = 0.0;
+    const stxlib::Optional<stxlib::JsonRef> radius_value = arguments.member(arguments.root(), "radius");
+    if (radius_value.present()) {
+        const stxlib::Optional<double> read = arguments.number(*radius_value.value());
+        if (read.absent() || !(*read.value() >= 0.5 && *read.value() <= 65536.0)) {
+            reply.fail(automation::ModelToolError::invalid_arguments, "radius is from 0.5 to 65536 picture pixels",
+                       nullptr);
+            return;
+        }
+        radius = *read.value();
+    }
     normalize_gradient(blend);
     std::vector<Point> area{};
     if (arguments.member(arguments.root(), "points").present()) {
@@ -1151,7 +1171,8 @@ void EditorModelTools::gradient(void* context, const automation::ModelToolCall& 
     Editor& editor = tools.editor_;
     Document& document = editor.document;
     editor.finish_controls();
-    const GradientSampler sampler(blend, Rect{left, top, right - left, bottom - top});
+    GradientSampler sampler(blend, Rect{left, top, right - left, bottom - top});
+    if (radius > 0.0) sampler.set_radius(radius);
     Image drawn = document.image;
     int painted_left = left;
     int painted_top = top;
@@ -1187,6 +1208,10 @@ void EditorModelTools::gradient(void* context, const automation::ModelToolCall& 
                           (area.empty() ? "the box " + point_text(gf::Point{from.x, from.y}) + " to " +
                                               point_text(gf::Point{to.x, to.y})
                                         : "a polygon of " + std::to_string(area.size()) + " points") +
+                          (blend.kind == GradientKind::Radial
+                               ? ", radius " + std::to_string(static_cast<int>(std::lround(sampler.radius()))) +
+                                     " px from the box's centre"
+                               : std::string{}) +
                           "\n");
 }
 
@@ -1222,12 +1247,21 @@ void EditorModelTools::text(void* context, const automation::ModelToolCall& call
     style.mono = mono.present() && *mono.value();
     style.word_wrap = false;
     const std::string content((*words.value()).data(), (*words.value()).count());
+    const TextLayout laid = layout_text(content, style);
+    const std::string extent = std::to_string(laid.width) + " x " + std::to_string(laid.height) + " px (to " +
+                               point_text(gf::Point{at.x + laid.width, at.y + laid.height}) + ")";
+    const stxlib::Optional<bool> measure = arguments.member_boolean(arguments.root(), "measure");
+    if (measure.present() && *measure.value()) {
+        reply_text(reply, "the text would take " + extent + " at " + point_text(gf::Point{at.x, at.y}) +
+                              "; nothing drawn\n");
+        return;
+    }
     editor.finish_controls();
     Image drawn = document.image;
     draw_text(drawn, at, content, style, color, Color{0, 0, 0, 0}, std::string{});
     commit_drawing(editor, drawn);
     reply_text(reply, "drew " + std::to_string(content.size()) + " bytes of text at " +
-                          point_text(gf::Point{at.x, at.y}) + " in " + hex_text(color) + "\n");
+                          point_text(gf::Point{at.x, at.y}) + " in " + hex_text(color) + ", " + extent + "\n");
 }
 
 void EditorModelTools::sample(void* context, const automation::ModelToolCall& call,

@@ -3,8 +3,11 @@
 Starts Plan Paint with --mcp in a scratch home, then over MCP's stdio
 framing: a new 200 by 120 picture; a filled, rotated rectangle; a filled
 Bezier path; a bucket fill; a gradient; text; plan_paint_sample and capture
-points reading the colours back; the Resize dialog, its OK marked default,
-closed by the model (a model never submits a dialog); a 100-step batch of strokes. Each drawing is checked by
+points reading the colours back, in both point forms ({x, y} and [x, y],
+which the schemas also take); a radial gradient's radius; text's drawn size
+and the measure option; the Resize dialog, its OK marked default, a press on
+OK refused and the dialog closed by the model (a model never submits a
+dialog); a 100-step batch of strokes. Each drawing is checked by
 sampling. Every plan_paint_* and command_* tool, and each of its
 arguments, is described (`help <tool>` is that text, so an undocumented tool
 fails here). Ends with a hard disconnect that discards the picture and
@@ -192,6 +195,16 @@ def main(argv):
             check('second draw has an effect', ok and 'effect: none' not in text, text)
             ok, text = session.call('plan_paint_sample', {'points': [{'x': 160, 'y': 15}]})
             check('second drawing sampled', ok and colour_at(text, '160.0,15.0') == '#00FFFF', text)
+            # [x, y] pairs work as {x, y} does, in the schemas too (round 5).
+            ok, text = session.call('plan_paint_draw', {'shape': 'rectangle', 'from': [176, 10], 'to': [186, 20],
+                                                        'fill': '#FF00FF', 'colour': 'none'})
+            check('pair points draw', ok, text)
+            ok, text = session.call('plan_paint_sample', {'points': [[181, 15]]})
+            check('pair points sampled', ok and colour_at(text, '181.0,15.0') == '#FF00FF', text)
+            schemas = {tool.get('name'): tool.get('inputSchema', {})
+                       for tool in listed.get('result', {}).get('tools', [])}
+            from_type = schemas.get('plan_paint_draw', {}).get('properties', {}).get('from', {}).get('type')
+            check('point schemas take both forms', from_type == ['object', 'array'], repr(from_type))
             ok, text = session.call('plan_paint_path', {'points': [
                 {'x': 100, 'y': 20}, {'x': 140, 'y': 60, 'c1': {'x': 130, 'y': 20}, 'c2': {'x': 140, 'y': 40}},
                 {'x': 100, 'y': 60}], 'fill': '#0000FF', 'colour': 'none'})
@@ -208,9 +221,20 @@ def main(argv):
             check('gradient', ok, text)
             ok, text = session.call('plan_paint_sample', {'points': [{'x': 151, 'y': 95}, {'x': 189, 'y': 95}]})
             check('gradient sampled', ok and colour_at(text, '151.0,95.0') < colour_at(text, '189.0,95.0'), text)
+            ok, text = session.call('plan_paint_gradient', {'from': {'x': 100, 'y': 80}, 'to': {'x': 140, 'y': 110},
+                                                            'kind': 'radial', 'radius': 10,
+                                                            'stops': [{'position': 0, 'colour': '#000000'},
+                                                                      {'position': 1, 'colour': '#FFFFFF'}]})
+            check('radial gradient radius', ok and 'radius 10 px' in text, text)
+            ok, text = session.call('plan_paint_sample', {'points': [{'x': 120, 'y': 95}, {'x': 133, 'y': 95}]})
+            check('radial radius sampled', ok and colour_at(text, '133.0,95.0') == '#FFFFFF' and
+                  colour_at(text, '120.0,95.0') != '#FFFFFF', text)
             ok, text = session.call('plan_paint_text', {'at': {'x': 10, 'y': 70}, 'text': 'koi', 'size': 30,
                                                         'colour': '#000000'})
-            check('text', ok, text)
+            check('text', ok and re.search(r', \d+ x \d+ px', text) is not None, text)
+            ok, text = session.call('plan_paint_text', {'at': {'x': 10, 'y': 70}, 'text': 'koi', 'size': 30,
+                                                        'measure': True})
+            check('text measure', ok and 'nothing drawn' in text and re.search(r'\d+ x \d+ px', text), text)
             steps = [{'tool': 'plan_paint_stroke', 'points': [{'x': 10 + index, 'y': 112},
                                                               {'x': 10 + index, 'y': 118}],
                       'colour': '#123456', 'size': 1} for index in range(100)]
@@ -222,7 +246,10 @@ def main(argv):
             ok, text = session.call('snapshot', {})
             ok_line = next((line for line in text.splitlines() if '[dialog-ok]' in line), '')
             check('dialog OK is marked default', ok and ' default' in ok_line, ok_line or text[-300:])
-            # A model never submits a dialog (round 1): it closes the one it opened.
+            # A model never submits a dialog (round 1): pressing OK is refused,
+            # and it closes the one it opened.
+            ok, text = session.call('act', {'action': 'press', 'target': 'dialog-ok'})
+            check('pressing a dialog\'s OK is refused', not ok, text)
             ok, listing = session.call('windows', {})
             dialog = re.search(r'\[([a-z0-9.-]*dialog[a-z0-9.-]*)\]', listing)
             ok, text = session.call('act', {'action': 'close', 'target': dialog.group(1) if dialog else 'dialog'})

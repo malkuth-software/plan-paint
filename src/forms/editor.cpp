@@ -13,6 +13,7 @@
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <gui_forms/automation/marks/automation_marks.hpp>
 #include <gui_forms/host.hpp>
 #include <iomanip>
 #include <limits>
@@ -605,6 +606,8 @@ void Editor::on_attached_to_window() {
 void Editor::on_detaching_from_window(gf::SurfaceRoot& former_window) noexcept {
     file_subscription_.disconnect();
     file_timer_.reset();
+    fit_subscription_.disconnect();
+    fit_timer_.reset();
     recovery_subscription.disconnect();
     recovery_timer.reset();
     clear_transform_preview();
@@ -621,10 +624,32 @@ struct FirstShowFit {
     std::weak_ptr<Editor> editor;
     void operator()() const {
         const std::shared_ptr<Editor> owner = editor.lock();
-        if (owner) { (*owner).execute("fit"); }
+        if (owner) { (*owner).first_show_fit(); }
     }
 };
 } // namespace
+void Editor::first_show_fit() {
+    execute("fit");
+    fitted_bounds_ = (*canvas_).committed_arranged_bounds();
+    fitted_zoom_ = (*canvas_).zoom.read();
+    fit_checks_ = 0;
+    if (!attached_window()) { return; }
+    fit_timer_ = std::make_unique<gf::Timer>(*attached_window(), std::chrono::milliseconds(100));
+    fit_subscription_ = (*fit_timer_).tick().subscribe(*this, gf::Delegate<>::bind<Editor, &Editor::fit_tick>(*this));
+    (*fit_timer_).start();
+}
+void Editor::fit_tick() {
+    const gf::Rect bounds = (*canvas_).committed_arranged_bounds();
+    const bool view_kept = (*canvas_).zoom.read() == fitted_zoom_;
+    const bool resized = bounds.width != fitted_bounds_.width || bounds.height != fitted_bounds_.height;
+    if (view_kept && resized) {
+        execute("fit");
+        fitted_bounds_ = bounds;
+        fitted_zoom_ = (*canvas_).zoom.read();
+    }
+    // About 3 s, or until someone zooms.
+    if (++fit_checks_ >= 30 || !view_kept) { (*fit_timer_).stop(); }
+}
 void Editor::ready(gf::Window&, gf::ApplicationWindowHandle handle, const std::string& initial_path) {
     handle_ = handle;
     if (served_launch) {
@@ -888,6 +913,14 @@ void Editor::status_clicked(gf::ButtonBase& button) {
 void Editor::command_invoked(const gf::CommandInvocation& invocation) {
     execute(invocation.command_id);
 }
+void Editor::report_floating_cancelled() {
+    // A model's act (Escape, a right-click, another tool, a drawing tool)
+    // that drops a shape still following the pointer says so in its reply
+    // (MCP round 5: Escape replied "effect: none"). Outside an act this
+    // reports nothing.
+    if (!placing_shape_) { return; }
+    static_cast<void>(gf::automation::report_model_effect("cancelled the floating shape; nothing was placed"));
+}
 void Editor::release_gesture() {
     canvas_control_stroke_ = false;
     if (canvas_actions_.size() > 3) { (*canvas_actions_[3]).selected = false; }
@@ -929,6 +962,7 @@ void Editor::finish_controls(bool deselect) {
     }
     finish_text(true);
     finish_warp(false);
+    report_floating_cancelled();
     release_gesture();
     document.commit_path();
     document.commit_curve();
@@ -1180,6 +1214,7 @@ void Editor::pointer(const gf::PointerEvent& event) {
                 if (event.button == placement_button_) {
                     end(point);
                 } else if (event.button == gf::PointerButton::secondary) {
+                    report_floating_cancelled();
                     document.curve = {};
                     release_gesture();
                     refresh();
