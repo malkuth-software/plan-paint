@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
         for (std::size_t index = 0; index < arguments.size();) {
             const std::string& argument = arguments[index];
             if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--model-directed" ||
-                argument == "--mcp-appearance-review") {
+                argument == "--mcp-appearance-review" || argument == "--mcp-socket") {
                 arguments.erase(arguments.begin() + static_cast<std::ptrdiff_t>(index));
             } else if (argument == "--mcp-script") {
                 const std::size_t taken = index + 1 < arguments.size() ? 2 : 1;
