@@ -135,7 +135,8 @@ constexpr const char* app_note =
     "picture's corners in the window.\n"
     "- Draw with plan_paint_draw (shapes, rotatable), plan_paint_path (filled polygons and Bezier paths), "
     "plan_paint_stroke (lines through points), plan_paint_fill (bucket fill), plan_paint_gradient and "
-    "plan_paint_text, in picture pixels and #RRGGBB colours; each is one undo step. plan_paint_sample reads "
+    "plan_paint_text, in picture pixels and #RRGGBB colours; each is one undo step. A point is {x, y}, as in "
+    "GUI.Forms' tools; an [x, y] pair works too. plan_paint_sample reads "
     "colours back. A batch holds up to 512 steps, so a whole drawing can be one call. plan_paint_set_colour sets "
     "the Primary or Alt colour; the palette's swatches name their #RRGGBB.\n"
     "- If the picture is cut off by the window, command_fit fits it to the view (a launch for a model fits it "
@@ -185,7 +186,7 @@ constexpr const char* set_colour_schema =
     "\"which\":{\"type\":\"string\",\"enum\":[\"primary\",\"alt\"],\"description\":\"Default primary.\"}},"
     "\"required\":[\"hex\"],\"additionalProperties\":false}";
 // The schemas of the round-4 tools (filled paths, bucket fill, gradient,
-// text and sampling); a point is {x, y} in picture pixels.
+// text and sampling); a point is {x, y} (or [x, y]) in picture pixels.
 constexpr const char* path_schema =
     "{\"type\":\"object\",\"properties\":{\"points\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":4096,\"descr"
     "iption\":\"The path's points in picture pixels, in order. A point with c1 and c2 ends a cubic Bezier segment"
@@ -313,10 +314,13 @@ bool colour_member(const stxlib::JsonDocument& document, stxlib::TextView name, 
     return false;
 }
 
-// A point object {x, y} at `value` into `point`.
+// A point at `value` into `point`: the object {x, y}, the canonical form
+// the schemas name, or the pair [x, y], as GUI.Forms' capture also takes
+// (1.0.5 review: the two shapes differed between the tools).
 bool read_point(const stxlib::JsonDocument& document, stxlib::JsonRef value, Point& point) {
-    const stxlib::Optional<stxlib::JsonRef> x = document.member(value, "x");
-    const stxlib::Optional<stxlib::JsonRef> y = document.member(value, "y");
+    const bool pair = document.is(value, stxlib::JsonKind::array) && document.child_count(value) == 2U;
+    const stxlib::Optional<stxlib::JsonRef> x = pair ? document.element(value, 0U) : document.member(value, "x");
+    const stxlib::Optional<stxlib::JsonRef> y = pair ? document.element(value, 1U) : document.member(value, "y");
     if (x.absent() || y.absent()) return false;
     const stxlib::Optional<double> px = document.number(*x.value());
     const stxlib::Optional<double> py = document.number(*y.value());
@@ -344,7 +348,7 @@ bool point_list(const stxlib::JsonDocument& document, stxlib::TextView name, std
     while (const stxlib::JsonRef* const value = item.value()) {
         Point point{};
         if (!read_point(document, *value, point)) {
-            const std::string message = "each of " + label + " is {x, y}, numbers of picture pixels";
+            const std::string message = "each of " + label + " is {x, y} (or [x, y]), numbers of picture pixels";
             reply.fail(automation::ModelToolError::invalid_arguments, message.c_str(), nullptr);
             return false;
         }
@@ -359,7 +363,7 @@ bool point_member(const stxlib::JsonDocument& document, stxlib::TextView name, P
                   automation::ModelToolReply& reply) {
     const stxlib::Optional<stxlib::JsonRef> value = document.member(document.root(), name);
     if (value.absent() || !read_point(document, *value.value(), point)) {
-        const std::string message = std::string(name.data(), name.count()) + " is {x, y} in picture pixels";
+        const std::string message = std::string(name.data(), name.count()) + " is {x, y} (or [x, y]) in picture pixels";
         reply.fail(automation::ModelToolError::invalid_arguments, message.c_str(), nullptr);
         return false;
     }
@@ -497,7 +501,7 @@ bool path_points(const stxlib::JsonDocument& document, std::vector<Point>& point
     while (const stxlib::JsonRef* const value = item.value()) {
         Point end{};
         if (!read_point(document, *value, end)) {
-            reply.fail(automation::ModelToolError::invalid_arguments, "each point is {x, y} in picture pixels",
+            reply.fail(automation::ModelToolError::invalid_arguments, "each point is {x, y} (or [x, y]) in picture pixels",
                        nullptr);
             return false;
         }

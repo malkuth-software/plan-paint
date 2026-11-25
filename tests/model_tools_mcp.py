@@ -106,6 +106,13 @@ def main(argv):
             # Turned a quarter about (40, 30), the 40 by 20 box stands 20 wide and 40 tall.
             check('rotation sampled', ok and colour_at(text, '40.0,12.0') == '#FF0000' and
                   colour_at(text, '22.0,30.0') == '#FFFFFF', text)
+            # A second drawing is an effect too (1.0.5 review: it replied
+            # "effect: none"), and a point may be a pair.
+            ok, text = session.call('plan_paint_draw', {'shape': 'rectangle', 'from': [150, 10], 'to': [170, 20],
+                                                        'fill': '#00FFFF', 'colour': 'none'})
+            check('second draw has an effect', ok and 'effect: none' not in text, text)
+            ok, text = session.call('plan_paint_sample', {'points': [[160, 15]]})
+            check('pair points sampled', ok and colour_at(text, '160.0,15.0') == '#00FFFF', text)
             ok, text = session.call('plan_paint_path', {'points': [
                 {'x': 100, 'y': 20}, {'x': 140, 'y': 60, 'c1': {'x': 130, 'y': 20}, 'c2': {'x': 140, 'y': 40}},
                 {'x': 100, 'y': 60}], 'fill': '#0000FF', 'colour': 'none'})
@@ -138,8 +145,8 @@ def main(argv):
             check('dialog OK is marked default', ok and ' default' in ok_line, ok_line or text[-300:])
             ok, text = session.call('act', {'action': 'press', 'target': 'dialog-ok'})
             check('dialog OK submits and says so', ok and ('gave way' in text or 'closed:' in text), text)
-            ok, text = session.call('capture', {'points': [[1, 1]]})
-            check('capture points', ok and '1,1 #' in text, text)
+            ok, text = session.call('capture', {'points': [[1, 1], {'x': 2, 'y': 2}]})
+            check('capture points, both shapes', ok and '1,1 #' in text and '2,2 #' in text, text)
             ok, text = session.call('plan_paint_image_info', {})
             check('image info', ok and 'colours: primary' in text, text)
         except queue.Empty:
