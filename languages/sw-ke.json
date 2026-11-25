@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "Weka kama mandharinyuma ya eneo-kazi (vigae)",
   "Diagnostic overlay: on": "Tabaka la ubatilishaji: limewashwa",
   "Superimpose": "Weka juu",
-  "Brightness": "Mwangaza"
+  "Brightness": "Mwangaza",
+  "Open the File tab as a menu": "Fungua kichupo cha Faili kama menyu",
+  "Open the File tab as a page": "Fungua kichupo cha Faili kama ukurasa"
 }

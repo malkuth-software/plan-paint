@@ -2188,8 +2188,10 @@ struct NativeExercise {
     }
 };
 #ifdef _WIN32
-// The interactive fixture exposes the existing host automation transport so
-// platform checks can capture the exact CPU surface and route real host input.
+// The interactive fixture: host::run_windows joins its window to GUI.Forms'
+// automation, so a platform check started with --mcp can capture the exact
+// CPU surface and route real host input (GUI.Forms 1.0.3; the former
+// automation_enabled channel is gone).
 struct WindowsFixtureReady {
     NativeExercise* exercise;
     gf::Window* window;
@@ -2348,7 +2350,6 @@ int main(int argc, char** argv) {
             host_options.title = options.title;
             host_options.initial_size = options.initial_size;
             host_options.minimum_size = options.minimum_size;
-            host_options.automation_enabled = true;
             host_options.host_ready = WindowsFixtureReady{&exercise, window.get()};
             return gf::host::run_windows(std::move(window), std::move(host_options));
         }

@@ -5961,8 +5961,8 @@ void rotated_view_prepares_at_once_and_pans_by_fractions() {
             "the rest render equals a whole render at the view's origin");
 }
 // The owner: the CONV view came back seconds after a stroke, which
-// recompiled the whole picture. The view's surface recompiles only the cells
-// an edit reads and the next frame resamples only the view over the edit;
+// recompiled the whole picture. The view's surface recompiles only the rows
+// holding an edit and the next frame resamples only the view over the edit;
 // that frame equals a whole render of the edited picture.
 void rotated_view_edit_resamples_locally() {
     Fixture fixture;
@@ -7392,6 +7392,149 @@ void superimpose_paste_tab_drawing_and_removal() {
     // The session borrows the fixture's window: it ends first (declared
     // after the fixture), and the window goes with the fixture after it.
 }
+// The File tab (owner audit, 2026-11-22, decision 3: Plan Paint
+// demonstrates Backstage and the two-pane application menu). By default it
+// opens Backstage: New, Open, Save and Save as head its column, About and
+// Exit end it, and the Recent pictures, Image, Print and Settings topics show
+// the rest of the editor's file commands as buttons. The Settings topic
+// switches the File tab to the two-pane menu (settings.file_menu), whose
+// own item switches it back; a page button returns to the document first.
+void file_tab_backstage_and_menu() {
+    Fixture fixture;
+    gf::Window& window = *fixture.window;
+    paint::forms::Editor& editor = *fixture.editor;
+    editor.recent.paths = {"pictures/harbour.png", "pictures/lighthouse.png"};
+    editor.execute("file-area-menu");
+    editor.execute("file-area-backstage");
+    window.perform_layout();
+    const std::shared_ptr<gf::Ribbon> bar = ribbon_bar(window);
+    const std::shared_ptr<gf::BackstageView> view = (*bar).backstage.read();
+    require(view && !editor.settings.file_menu, "the File tab opens Backstage by default");
+    std::vector<std::string> column;
+    for (const gf::BackstageItemSpec& item : (*view).items()) {
+        column.push_back(item.stable_id);
+    }
+    require(column.size() >= 10U && column[0] == "new" && column[1] == "open" && column[2] == "save" &&
+                column[3] == "save-as" && column[4] == "recent" && column[5] == "image" && column[6] == "print" &&
+                column[7] == "settings" && column[column.size() - 2U] == "about" && column.back() == "quit",
+            "Backstage's column: the document commands, the topics, then About and Exit");
+    require((*view).items()[0].definitive && (*view).items()[0].command,
+            "Backstage's commands are the editor's own, and return to the document");
+    require((*bar).show_backstage(), "the File tab opens Backstage");
+    window.perform_layout();
+    require((*bar).backstage_open() && (*plan_ribbon(window)).file_menu_open(), "Backstage counts as the File tab open");
+    const std::shared_ptr<gf::Button> harbour =
+        std::dynamic_pointer_cast<gf::Button>(window.find("backstage.recent-0"));
+    require(harbour && (*harbour).text.read() == "harbour.png" && (*harbour).effectively_visible(),
+            "the first topic lists the recent pictures by name");
+    require((*view).activate("settings"), "the Settings topic opens");
+    window.perform_layout();
+    const std::shared_ptr<gf::Button> as_menu =
+        std::dynamic_pointer_cast<gf::Button>(window.find("backstage.file-area-menu"));
+    require(as_menu && (*as_menu).effectively_visible() && window.find("backstage.settings") &&
+                window.find("backstage.icon-batch"),
+            "the Settings topic holds Settings, Batch production and the File tab's form");
+    require((*as_menu).perform_click(), "the File tab's form is chosen from Backstage");
+    window.perform_layout();
+    require(editor.settings.file_menu && !(*bar).backstage_open() && !(*bar).backstage.read(),
+            "the File tab now opens the two-pane menu, and Backstage has closed");
+    bool switch_back = false;
+    for (const gf::MenuItemSpec& item : (*bar).application_menu()) {
+        switch_back = switch_back || item.stable_id == "file-area-backstage";
+    }
+    require(switch_back && (*bar).recent_items().size() == 2U,
+            "the two-pane menu offers Backstage back beside the recent pictures");
+    require((*bar).show_application_menu(gf::MenuOpenMode::pointer) && (*bar).menu_open() &&
+                !(*bar).backstage_open(),
+            "the File tab opens the two-pane application menu");
+    (*bar).close_menus();
+    editor.execute("file-area-backstage");
+    window.perform_layout();
+    require(!editor.settings.file_menu && (*bar).backstage.read() == view,
+            "the menu's item restores the same Backstage");
+    require((*bar).show_backstage() && (*view).activate("image"), "Backstage's Image topic opens");
+    window.perform_layout();
+    require(window.find("backstage.properties") && window.find("backstage.reload") && window.find("backstage.recover"),
+            "the Image topic holds the picture's commands");
+    (*bar).close_backstage();
+    require(!(*bar).backstage_open(), "Backstage returns to the document");
+}
+
+// Automatic compaction by group (GUI.Forms RB phase 2b): the Materials
+// tab's grain group is authored at two rows only (a label above each
+// field); as the window narrows it stacks three rows, keeping each label
+// above its field, before it collapses into its group button.
+void grain_group_compacts_by_rows() {
+    Fixture fixture;
+    gf::Window& window = *fixture.window;
+    open_tab(window, "patterns-tab");
+    const std::shared_ptr<gf::Ribbon> bar = ribbon_bar(window);
+    const stxlib::Optional<std::size_t> selected = (*bar).selected_tab.read();
+    const std::size_t tab = *selected.value();
+    const std::span<const gf::RibbonGroupSpec> groups = (*bar).tabs()[tab].groups;
+    std::size_t grain = groups.size();
+    for (std::size_t index = 0; index < groups.size(); ++index) {
+        if (groups[index].stable_id == "grain") {
+            grain = index;
+        }
+    }
+    require(grain < groups.size(), "the Materials tab has its grain group");
+    const std::span<const gf::RibbonGroupLayout> layouts = (*bar).group_layouts(tab, grain);
+    require(layouts.size() == 3U && layouts[0].rows == 2U && layouts[1].rows == 3U &&
+                layouts[2].size == gf::RibbonGroupSize::collapsed,
+            "the grain group's two authored rows continue to three rows, then the group button");
+    std::size_t previous = 0U;
+    bool three_rows = false;
+    for (double width = 1600.0; width >= 480.0; width -= 16.0) {
+        window.resize({width, 820.0});
+        window.perform_layout();
+        const std::optional<gf::Ribbon::Group> group = shown_group(window, "grain");
+        require(group.has_value(), "the grain group shows at every width");
+        require((*group).layout >= previous, "the grain group only shrinks as the window narrows");
+        previous = (*group).layout;
+        if ((*group).layout == 1U && !three_rows) {
+            three_rows = true;
+            const std::optional<gf::Ribbon::CommandItem> label = shown_command(window, "grain-scale-label");
+            const std::optional<gf::Ribbon::CommandItem> field = shown_command(window, "grain-scale");
+            // The field is a hosted control: its part, not a face, holds its bounds.
+            gf::Rect field_bounds{};
+            if (field) {
+                const gf::Ribbon::CommandParts& parts = (*field).parts;
+                for (const gf::PartGeometry* part : {&parts.command_numeric_up_down, &parts.command_combo_box,
+                                         &parts.command_text_box, &parts.command_face}) {
+                    if ((*part).present) {
+                        field_bounds = (*part).bounds;
+                        break;
+                    }
+                }
+            }
+            require(label && field &&
+                        (*label).parts.command_face.bounds.bottom() <= field_bounds.y + 1.0 &&
+                        std::abs((*label).parts.command_face.bounds.x - field_bounds.x) < 1.0,
+                    "at three rows each grain label still stands above its field");
+        }
+    }
+    require(three_rows && previous == 2U, "narrowing shows the three-row step and then the group button");
+    window.resize({1280.0, 820.0});
+    window.perform_layout();
+}
+
+// The checked look reaches Plan Paint's tools (owner, 2026-11-22): a tool
+// on a split command (Fill, Select) publishes checked like a toggle, so
+// the theme draws it standing in the gold dithered bulge; Plan Paint's
+// theme no longer authors pressed or checked faces over the engine's.
+void selected_split_tool_is_checked() {
+    Fixture fixture(Fixture::Themed{});
+    gf::Window& window = *fixture.window;
+    paint::forms::Editor& editor = *fixture.editor;
+    open_tab(window, "home-tab");
+    editor.choose_tool(paint::Tool::Fill);
+    window.perform_layout();
+    const std::optional<gf::Ribbon::CommandItem> fill = shown_command(window, "tool-3");
+    const std::optional<gf::Ribbon::CommandItem> select = shown_command(window, "tool-0");
+    require(fill && (*fill).states.checked, "the selected tool on a split publishes checked");
+    require(select && !(*select).states.checked, "an unselected split tool does not");
+}
 int main(int argc, char** argv) {
     // The framebuffer tests' raster (test_raster): owned here, made before
     // any window and released after every test, never by static destruction.
@@ -7456,6 +7599,9 @@ int main(int argc, char** argv) {
         english_language_recovery();
         stamp_material_keeps_one_hardness_mask();
         compact_ribbon_keeps_icons_and_fields();
+        file_tab_backstage_and_menu();
+        grain_group_compacts_by_rows();
+        selected_split_tool_is_checked();
         cobalt_tabs_and_split_button_routes();
         tightened_oval_guide_survives_brush_switch();
         guide_atlas_and_text_effect_interactions();

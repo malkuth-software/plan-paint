@@ -3,7 +3,9 @@
 #include <gui_forms/basic_controls.hpp>
 #include <gui_forms/commands/gallery_command/gallery_command.hpp>
 #include <gui_forms/controls/anchored_overlay_layer.hpp>
+#include <gui_forms/controls/backstage_view.hpp>
 #include <gui_forms/controls/combo_box.hpp>
+#include <gui_forms/controls/flex_panel.hpp>
 #include <gui_forms/controls/numeric_up_down.hpp>
 #include <gui_forms/controls/text_box.hpp>
 #include <gui_forms/controls/quick_access_toolbar.hpp>
@@ -83,9 +85,15 @@ class Ribbon final : public gui_forms::Control {
     void show_atlas();
     // The Quick Access Toolbar's row plus the ribbon's measured height.
     double ribbon_height() const;
-    // The File tab: the application menu (command and separator items) and
-    // the recent pictures (item IDs "recent-<n>", run as editor commands).
-    void set_file_menu(std::vector<gui_forms::MenuItemSpec> items, std::vector<gui_forms::RibbonRecentItem> recent);
+    // The File tab, from one list of editor commands: Backstage, or with
+    // `as_menu` the two-pane application menu (command and separator items
+    // beside the recent pictures, item IDs "recent-<n>", run as editor
+    // commands). Backstage ("backstage") takes the same items: New, Open,
+    // Save and Save as at the top of its column and About and Exit at the
+    // foot, as definitive commands; the rest are buttons ("backstage.<command
+    // ID>") on the Recent pictures, Image, Print and Settings topics.
+    void set_file_menu(std::vector<gui_forms::MenuItemSpec> items, std::vector<gui_forms::RibbonRecentItem> recent,
+                       bool as_menu);
     bool file_menu_open() const;
     // Inspection: the Command behind the ribbon command `id` (its text,
     // description, enabled and checked state), or null for an unknown ID.
@@ -131,6 +139,15 @@ class Ribbon final : public gui_forms::Control {
     std::shared_ptr<gui_forms::Ribbon> bar_;
     std::shared_ptr<gui_forms::QuickAccessToolbar> quick_access_;
     std::shared_ptr<gui_forms::Button> help_, help_english_;
+    // The File tab's Backstage, kept while the two-pane menu stands in for
+    // it. Its pages are made again with the items; the previous pages (and
+    // their buttons' subscriptions) are kept one rebuild longer, and every
+    // rebuild during a page click, so a button whose command rebuilt the
+    // File tab outlives its own click.
+    std::shared_ptr<gui_forms::BackstageView> backstage_;
+    std::vector<gui_forms::Control::Ptr> retired_pages_;
+    std::vector<gui_forms::SubscriptionToken> backstage_subscriptions_, retired_subscriptions_;
+    bool backstage_clicking_ = false;
     std::shared_ptr<AtlasPanel> atlas_;
     std::shared_ptr<IconPanel> icon_;
     // Where an overlay anchors: moved over the command that opened it.
@@ -235,6 +252,14 @@ class Ribbon final : public gui_forms::Control {
     // The Superimpose tab's Transparency or Brightness changed.
     void superimpose_number_changed(double);
     void recent_chosen(const gui_forms::RibbonRecentItemInvocation& invocation);
+    // -- Backstage (ribbon.cpp) -------------------------------------------------
+    void build_backstage(const std::vector<gui_forms::MenuItemSpec>& items,
+                         const std::vector<gui_forms::RibbonRecentItem>& recent);
+    std::shared_ptr<gui_forms::FlexPanel> backstage_page(const std::string& topic, const std::string& title);
+    void add_backstage_label(gui_forms::FlexPanel& page, const std::string& id, const std::string& text);
+    void add_backstage_button(gui_forms::FlexPanel& page, const std::string& command_id, const std::string& text);
+    // A page button closes Backstage, then runs its command in the editor.
+    void backstage_clicked(gui_forms::ButtonBase& button);
     void help_clicked(gui_forms::ButtonBase& button);
     void activate(const std::string& id);
     void apply_choice(const std::string& id);

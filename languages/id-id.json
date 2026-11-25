@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "Jadikan latar desktop (ubin)",
   "Diagnostic overlay: on": "Lapisan invalidasi: aktif",
   "Superimpose": "Tumpangkan",
-  "Brightness": "Kecerahan"
+  "Brightness": "Kecerahan",
+  "Open the File tab as a menu": "Buka tab Berkas sebagai menu",
+  "Open the File tab as a page": "Buka tab Berkas sebagai halaman"
 }

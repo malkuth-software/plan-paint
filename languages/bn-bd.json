@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "ডেস্কটপের পটভূমি করুন (টাইল)",
   "Diagnostic overlay: on": "অবৈধকরণ ওভারলে: চালু",
   "Superimpose": "উপরিপাত",
-  "Brightness": "উজ্জ্বলতা"
+  "Brightness": "উজ্জ্বলতা",
+  "Open the File tab as a menu": "ফাইল ট্যাবটি মেনু হিসেবে খুলুন",
+  "Open the File tab as a page": "ফাইল ট্যাবটি পৃষ্ঠা হিসেবে খুলুন"
 }

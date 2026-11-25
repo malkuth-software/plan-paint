@@ -1,14 +1,18 @@
 // Version and vendor resource for plan-paint.exe; CMake fills the version.
-#include <winver.h>
+// The fixed-info values are written as numbers: STXlib's winver.h (the
+// own runtime's, GUI.Forms 1.0.3) does not yet define the VS_FIXEDFILEINFO
+// constants. VS_FFI_FILEFLAGSMASK 0x3F, VOS_NT_WINDOWS32 0x40004, VFT_APP 1,
+// VFT2_UNKNOWN 0 (verrsrc.h). When STXlib's winver.h defines them, this
+// file goes back to #include <winver.h> and the names.
 
 1 VERSIONINFO
 FILEVERSION @PAINT_VERSION_MAJOR@,@PAINT_VERSION_MINOR@,@PAINT_VERSION_PATCH@,0
 PRODUCTVERSION @PAINT_VERSION_MAJOR@,@PAINT_VERSION_MINOR@,@PAINT_VERSION_PATCH@,0
-FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGSMASK 0x3F
 FILEFLAGS 0
-FILEOS VOS_NT_WINDOWS32
-FILETYPE VFT_APP
-FILESUBTYPE VFT2_UNKNOWN
+FILEOS 0x40004
+FILETYPE 0x1
+FILESUBTYPE 0x0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN

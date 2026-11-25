@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "تنظیم به‌عنوان پس‌زمینهٔ میزکار (کاشی)",
   "Diagnostic overlay: on": "لایهٔ نمایش ابطال: روشن",
   "Superimpose": "روی‌هم‌گذاری",
-  "Brightness": "روشنایی"
+  "Brightness": "روشنایی",
+  "Open the File tab as a menu": "زبانهٔ فایل را به صورت منو باز کن",
+  "Open the File tab as a page": "زبانهٔ فایل را به صورت صفحه باز کن"
 }

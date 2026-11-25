@@ -9,15 +9,11 @@ if(RAINSTAR_TOOLKIT_SOURCE_DIR)
   endif()
   add_subdirectory("${RAINSTAR_TOOLKIT_SOURCE_DIR}" toolkit EXCLUDE_FROM_ALL)
   set(GUIForms_FONT_DIR "${RAINSTAR_TOOLKIT_SOURCE_DIR}/assets/fonts")
-  # gui_forms_add_theme finds its embed script through a directory variable
-  # that the toolkit's add_subdirectory scope keeps to itself (and the module
-  # returns early once the function exists), so name it here as well.
-  set(GUI_FORMS_THEME_EMBED_SCRIPT "${RAINSTAR_TOOLKIT_SOURCE_DIR}/cmake/GUIFormsThemeEmbed.cmake")
 else()
 # Keep the explicitly selected SDK ahead of ambient /usr/local headers. Mixing
 # installed GUI.Forms headers from another SDK with these libraries breaks ABI.
 set(CMAKE_NO_SYSTEM_FROM_IMPORTED ON)
-find_package(GUIForms 0.6 CONFIG REQUIRED COMPONENTS Application Threading)
+find_package(GUIForms 1.0 CONFIG REQUIRED COMPONENTS Application Threading)
 set_property(TARGET GUIForms::Application PROPERTY IMPORTED_NO_SYSTEM TRUE)
 include(CheckCXXSourceCompiles)
 set(CMAKE_REQUIRED_LIBRARIES GUIForms::Application)
@@ -47,19 +43,23 @@ if(NOT PLAN_PAINT_GUI_FORMS_STANDARD)
 endif()
 endif()
 
-# paint_core's CONV* uses stx_conv. An SDK's GUIFormsConfig finds it in this
-# scope; a pinned in-tree toolkit defines it as a global target; a toolkit
-# that installs stx at configure time leaves it in <build>/stx-prefix (or the
-# GUI_FORMS_STX_PREFIX it was given), where it is found here.
-if(NOT TARGET stx_conv::stx_conv)
-  if(GUI_FORMS_STX_PREFIX)
-    set(paint_stx_prefix "${GUI_FORMS_STX_PREFIX}")
-  else()
-    set(paint_stx_prefix "${CMAKE_BINARY_DIR}/stx-prefix")
-  endif()
+# paint_core's CONV uses stxlib::conv (stxlib::algorithms); stx_conv is found
+# only for the opt-in PLAN_PAINT_CONV_COMPARE comparison. An SDK's GUIFormsConfig finds both in this
+# scope; a pinned in-tree toolkit defines them as global targets; a toolkit
+# that installs stx at configure time leaves them in <build>/stx-prefix (or
+# the GUI_FORMS_STX_PREFIX it was given), where they are found here.
+if(GUI_FORMS_STX_PREFIX)
+  set(paint_stx_prefix "${GUI_FORMS_STX_PREFIX}")
+else()
+  set(paint_stx_prefix "${CMAKE_BINARY_DIR}/stx-prefix")
+endif()
+if(PLAN_PAINT_CONV_COMPARE AND NOT TARGET stx_conv::stx_conv)
   find_package(stx_conv CONFIG REQUIRED NO_DEFAULT_PATH PATHS "${paint_stx_prefix}")
 endif()
-target_link_libraries(paint_core PUBLIC stx_conv::stx_conv)
+if(NOT TARGET stxlib::algorithms)
+  find_package(stxlib CONFIG REQUIRED NO_DEFAULT_PATH PATHS "${paint_stx_prefix}")
+endif()
+target_link_libraries(paint_core PUBLIC stxlib::algorithms)
 # The curve tools flatten through GUI.Drawing's GraphicsPath (src/curve.cpp),
 # which the static Application archive carries; the frontend-free build keeps
 # its own flattening.
@@ -76,6 +76,9 @@ gui_forms_add_form(paint_forms forms/english_help.form CLASS EnglishHelpForm NAM
 gui_forms_add_form(paint_forms forms/tool_size.form CLASS ToolSizeForm NAMESPACE paint::forms DERIVED)
 add_executable(plan-paint MACOSX_BUNDLE src/forms/main.cpp)
 target_link_libraries(plan-paint PRIVATE paint_forms)
+# All the program's C++ allocations come from STXlib's allocator, as in
+# GUI.Forms' own programs; a sanitizer build keeps the toolchain's operator new.
+gui_forms_use_library_allocator(plan-paint)
 # Plan Paint's theme package (colours, fonts and the bubble ribbon buttons),
 # embedded and compiled once by Application::create.
 gui_forms_add_theme(plan-paint themes/plan-paint FUNCTION plan_paint_theme NAMESPACE paint)
@@ -116,8 +119,8 @@ if(WIN32)
   target_sources(plan-paint PRIVATE packaging/windows.rc "${CMAKE_CURRENT_BINARY_DIR}/windows_version.rc")
   target_include_directories(plan-paint PRIVATE assets)
   set_target_properties(plan-paint PROPERTIES WIN32_EXECUTABLE TRUE)
-  if(MSVC)
-    target_link_options(plan-paint PRIVATE /ENTRY:mainCRTStartup)
+  if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+    target_link_options(plan-paint PRIVATE "LINKER:/ENTRY:mainCRTStartup")
   endif()
   target_link_libraries(paint_forms PRIVATE comdlg32 gdi32 ole32 oleaut32 shell32)
   target_compile_definitions(paint_forms PRIVATE RAINSTAR_FORMS_NATIVE_PRINT=1)

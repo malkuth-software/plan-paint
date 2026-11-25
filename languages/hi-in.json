@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "डेस्कटॉप पृष्ठभूमि बनाएँ (टाइल)",
   "Diagnostic overlay: on": "अमान्यकरण ओवरले: चालू",
   "Superimpose": "अध्यारोपण",
-  "Brightness": "चमक"
+  "Brightness": "चमक",
+  "Open the File tab as a menu": "फ़ाइल टैब को मेनू के रूप में खोलें",
+  "Open the File tab as a page": "फ़ाइल टैब को पृष्ठ के रूप में खोलें"
 }

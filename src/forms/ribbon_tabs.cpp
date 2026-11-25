@@ -667,14 +667,11 @@ gf::RibbonTabSpec Ribbon::text_tab() {
     tab.text = sticky ? tr("Sticky note") : tr("Text");
     tab.tab_set = "text-tools";
     gf::RibbonGroupSpec font = group("text-font-group", tr("Font"));
+    // Two rows, then GUI.Forms's automatic compaction: three rows (the size
+    // field's label then stands above it under the family box), then the
+    // collapsed button. A sticky note's settings overflow 1280 px at the
+    // theme's fonts, and its reduction order takes the three-row step first.
     font.layouts = {paired_rows()};
-    if (sticky) {
-        // A sticky note's settings overflow 1280 px at the theme's fonts; the
-        // font group's check boxes fold into three rows (the size field's
-        // label then stands above it under the family box) before the
-        // sticky groups give way.
-        font.layouts.push_back(sized_layout(gf::RibbonGroupSize::medium, 0, Size::compact, 3));
-    }
     gf::RibbonCommandSpec faces = hosted("text-font", tr("Font family"), Kind::combo_box, 200);
     faces.choices = {"Portsmouth", "Portsmouth Mono"};
     for (const std::string& path : font_paths_) {
@@ -729,7 +726,8 @@ gf::RibbonTabSpec Ribbon::text_tab() {
     // Finishing and the font stay on the plane longest: the transform, the
     // letter treatment and the colours fold into buttons first.
     // (A sticky note's colours are one command, which never folds; its
-    // font group folds its check boxes first, then the cycle runs.)
+    // font group folds its check boxes into three rows first, by automatic
+    // compaction, then the cycle runs.)
     if (sticky) {
         tab.reduction_order.push_back({"text-font-group", gf::RibbonReductionKind::layout});
     }

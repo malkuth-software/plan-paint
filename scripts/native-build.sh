@@ -41,8 +41,17 @@ case "$action" in
       windows-x64|macos-arm64|linux-x64|linux-arm64) ;;
       *) echo "Unsupported native platform: $platform" >&2; exit 1 ;;
     esac
+    # Windows: GUI.Forms' own-runtime toolchain for x86_64-pc-windows-msvc
+    # (gui_forms/tools/toolkit_configure.py toolchain, after own_runtime.py
+    # build has set its locations). Elsewhere the harness's llvm22.cmake.
+    if [ "$platform" = windows-x64 ]; then
+      toolchain=$(python3 gui_forms/tools/toolkit_configure.py toolchain)
+    else
+      toolchain="-DCMAKE_TOOLCHAIN_FILE=$PWD/template_harness/harness/cmake/llvm22.cmake"
+    fi
+    # shellcheck disable=SC2086 # the toolchain options are words
     cmake -S . -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_TOOLCHAIN_FILE="$PWD/template_harness/harness/cmake/llvm22.cmake" \
+      $toolchain \
       -DCMAKE_C_COMPILER="$compiler_c" -DCMAKE_CXX_COMPILER="$compiler_cxx" \
       -DRAINSTAR_SYSTEM_CODECS=OFF "$@"
     ;;

@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "Définir comme fond d’écran (mosaïque)",
   "Diagnostic overlay: on": "Surcouche d’invalidation : active",
   "Superimpose": "Superposer",
-  "Brightness": "Luminosité"
+  "Brightness": "Luminosité",
+  "Open the File tab as a menu": "Ouvrir l’onglet Fichier en menu",
+  "Open the File tab as a page": "Ouvrir l’onglet Fichier en page"
 }

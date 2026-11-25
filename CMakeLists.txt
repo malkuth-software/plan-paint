@@ -1,12 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 project(PlanPaint VERSION 1.2.0 LANGUAGES C CXX)
-# Every shipped program imports only system DLLs (scripts/check_system_libraries.py):
-# link libc++, libunwind, compiler-rt and winpthreads statically, as GUI.Forms does
-# for its own programs (gui_forms/CMakeLists.txt, add_link_options(-static) under
-# MINGW, which reaches only GUI.Forms' own directory).
-if(MINGW)
-  add_link_options(-static)
-endif()
+# Every shipped program imports only system DLLs (scripts/check_system_libraries.py).
+# On Windows GUI.Forms' toolchain (x86_64-pc-windows-msvc on STXlib's own runtime,
+# gui_forms/cmake/llvm22-windows-msvc-own.cmake) links libc++ and the runtime
+# statically, so the program imports Windows system DLLs and ucrtbase only.
 set(PAINT_RELEASE_VERSION "${PROJECT_VERSION}" CACHE STRING "Tested publication version")
 if(NOT PAINT_RELEASE_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
   message(FATAL_ERROR "PAINT_RELEASE_VERSION must be numeric major.minor.patch")
@@ -21,22 +18,22 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # The harness bootstrap's smoke build (projects/plan-paint.toml): only the
 # codec-free warp kernel and its test, so a fresh workspace proves its
 # toolchain and compiler cache without the image codecs or GUI.Forms. The
-# warp kernel samples stx_conv's surface: when stx_conv is not on
-# CMAKE_PREFIX_PATH (a workspace without the toolkit), only the image code is
-# compiled and there is no test.
+# warp kernel and the canvas surface read stxlib::conv (STXlib): when it is
+# not on CMAKE_PREFIX_PATH (a workspace without the toolkit), only the image
+# code is compiled and there is no test.
 option(PLAN_PAINT_SMOKE "Build only the codec-free warp kernel and its test" OFF)
 if(PLAN_PAINT_SMOKE)
   enable_testing()
-  find_package(stx_conv CONFIG QUIET)
-  if(TARGET stx_conv::stx_conv)
+  find_package(stxlib CONFIG QUIET)
+  if(TARGET stxlib::algorithms)
     add_library(paint_smoke_core STATIC src/image.cpp src/warp.cpp src/canvas_surface.cpp)
     target_include_directories(paint_smoke_core PUBLIC src)
-    target_link_libraries(paint_smoke_core PUBLIC stx_conv::stx_conv)
+    target_link_libraries(paint_smoke_core PUBLIC stxlib::algorithms)
     add_executable(paint-warp-tests tests/warp_tests.cpp)
     target_link_libraries(paint-warp-tests PRIVATE paint_smoke_core)
     add_test(NAME paint-warp COMMAND paint-warp-tests)
   else()
-    message(STATUS "stx_conv not found: the smoke build compiles the image code only")
+    message(STATUS "stxlib not found: the smoke build compiles the image code only")
     add_library(paint_smoke_core STATIC src/image.cpp)
     target_include_directories(paint_smoke_core PUBLIC src)
   endif()
@@ -74,12 +71,16 @@ else()
   set_source_files_properties(vendor/playsuite-paper/paper.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off;-fno-fast-math")
 endif()
 target_link_libraries(paint_core PUBLIC ${RAINSTAR_TIFF_TARGET} ${RAINSTAR_WEBP_TARGET} avif lunasvg::lunasvg tinyxml2::tinyxml2)
-# CONV* resampling (src/conv.cpp) uses stx_conv, which ships beside GUI.Forms:
-# cmake/GUIFormsFrontend.cmake links it once the toolkit or SDK has found it.
-# Without the GUI.Forms frontend it must be found on CMAKE_PREFIX_PATH.
+# CONV resampling, the transform tools and the rotated canvas view
+# (src/conv.cpp, src/warp.cpp, src/canvas_surface.cpp) use stxlib::conv (in
+# stxlib::algorithms). stx_conv, the CONV library these replaced, is found
+# and linked only by the opt-in comparison PLAN_PAINT_CONV_COMPARE.
+# Both ship beside GUI.Forms:
+# cmake/GUIFormsFrontend.cmake links them once the toolkit or SDK has found
+# them. Without the GUI.Forms frontend they must be found on CMAKE_PREFIX_PATH.
 if(NOT RAINSTAR_GUI_FORMS)
-  find_package(stx_conv CONFIG REQUIRED)
-  target_link_libraries(paint_core PUBLIC stx_conv::stx_conv)
+  find_package(stxlib CONFIG REQUIRED)
+  target_link_libraries(paint_core PUBLIC stxlib::algorithms)
 endif()
 if(WIN32)
   # command_line.cpp reads the UTF-16 command line with CommandLineToArgvW.
@@ -218,6 +219,25 @@ if(RAINSTAR_BENCHMARKS)
   target_link_libraries(paint-carpet-benchmark PRIVATE paint_core)
 endif()
 
+# One-off comparison of the CONV paths, stx_conv (Plan Paint 45d8442's
+# implementation, kept in benchmarks/conv_compare as paint::legacy) against
+# stxlib::conv: time and peak memory on fixed workloads. Not a test and not
+# built or run by CI (owner, 2026-11-22); run it by hand once and report.
+option(PLAN_PAINT_CONV_COMPARE "Build paint-conv-compare, the one-off stx_conv against stxlib::conv comparison" OFF)
+if(PLAN_PAINT_CONV_COMPARE)
+  if(NOT TARGET stx_conv::stx_conv)
+    find_package(stx_conv CONFIG REQUIRED)
+  endif()
+  add_executable(paint-conv-compare benchmarks/conv_compare/conv_compare.cpp
+    benchmarks/conv_compare/legacy_conv.cpp benchmarks/conv_compare/legacy_warp.cpp
+    benchmarks/conv_compare/legacy_canvas_surface.cpp)
+  target_include_directories(paint-conv-compare PRIVATE benchmarks/conv_compare)
+  target_link_libraries(paint-conv-compare PRIVATE paint_core stx_conv::stx_conv)
+  if(WIN32)
+    target_link_libraries(paint-conv-compare PRIVATE psapi)
+  endif()
+endif()
+
 option(RAINSTAR_COMPILER_REPORTS "Save CONV assembly and vectorization diagnostics" OFF)
 if(RAINSTAR_COMPILER_REPORTS)
   file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/compiler-reports")
@@ -322,8 +342,10 @@ foreach(target IN ITEMS plan-paint-legacy plan-paint)
   if(TARGET ${target})
     if(APPLE)
       target_link_options(${target} PRIVATE "$<$<CONFIG:Release,MinSizeRel>:-Wl,-dead_strip>")
-    elseif(MSVC)
-      target_link_options(${target} PRIVATE "$<$<CONFIG:Release,MinSizeRel>:/OPT:REF;/OPT:ICF>")
+    elseif(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+      # lld-link (clang for x86_64-pc-windows-msvc) takes the MSVC spellings.
+      target_link_options(${target} PRIVATE "$<$<CONFIG:Release,MinSizeRel>:LINKER:/OPT:REF>"
+        "$<$<CONFIG:Release,MinSizeRel>:LINKER:/OPT:ICF>")
     else()
       target_link_options(${target} PRIVATE "$<$<CONFIG:Release,MinSizeRel>:-Wl,--gc-sections>")
     endif()

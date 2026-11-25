@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "Đặt làm hình nền (lát gạch)",
   "Diagnostic overlay: on": "Lớp phủ vô hiệu hóa: bật",
   "Superimpose": "Chồng lên",
-  "Brightness": "Độ sáng"
+  "Brightness": "Độ sáng",
+  "Open the File tab as a menu": "Mở thẻ Tệp dưới dạng menu",
+  "Open the File tab as a page": "Mở thẻ Tệp dưới dạng trang"
 }

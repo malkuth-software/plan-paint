@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "Зробити тлом стільниці (мозаїка)",
   "Diagnostic overlay: on": "Підсвічування перемальовування: увімкнено",
   "Superimpose": "Накладання",
-  "Brightness": "Яскравість"
+  "Brightness": "Яскравість",
+  "Open the File tab as a menu": "Відкривати вкладку «Файл» як меню",
+  "Open the File tab as a page": "Відкривати вкладку «Файл» як сторінку"
 }

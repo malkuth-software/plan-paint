@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "デスクトップの背景に設定 (並べて表示)",
   "Diagnostic overlay: on": "無効化オーバーレイ: オン",
   "Superimpose": "重ねて表示",
-  "Brightness": "明るさ"
+  "Brightness": "明るさ",
+  "Open the File tab as a menu": "[ファイル] タブをメニューとして開く",
+  "Open the File tab as a page": "[ファイル] タブをページとして開く"
 }

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <atomic>
 #include <cstring>
+#include <stdexcept>
 #include <string>
 #include <thread>
 namespace paint::forms {
@@ -633,6 +634,9 @@ void PaintCanvas::build_view_surface() {
         // Under 2 x 2 pixels: the frame shows the nearest source pixel.
     } catch (const std::bad_alloc&) {
         view_error = tr("Unable to allocate the rotated view.");
+    } catch (const std::runtime_error&) {
+        // The field could not be made or compiled.
+        view_error = tr("Unable to allocate the rotated view.");
     }
 }
 void PaintCanvas::publish_source(const Image& source, Rect damage) {
@@ -655,7 +659,7 @@ void PaintCanvas::publish_source(const Image& source, Rect damage) {
         view_source_ = source;
         build_view_surface();
     } else {
-        // An edit: the surface recompiles only the cells that read a changed
+        // An edit: the surface recompiles only the rows holding a changed
         // pixel, at once, and the next frame resamples only the view over them.
         if (damage.w <= 0 || damage.h <= 0) {
             damage = {0, 0, source.width, source.height};
@@ -679,7 +683,14 @@ void PaintCanvas::publish_source(const Image& source, Rect damage) {
             const Rect changed{changed_left, changed_top, changed_right - changed_left + 1,
                                changed_bottom - changed_top + 1};
             if (view_surface_.ready()) {
-                view_surface_.update(view_source_, changed);
+                try {
+                    view_surface_.update(view_source_, changed);
+                } catch (const std::runtime_error&) {
+                    // Neither the local nor a whole recompile took: the
+                    // surface is cleared and the frame shows nearest pixels.
+                    view_error = tr("Unable to allocate the rotated view.");
+                    ++surface_build_;
+                }
             }
             if (view_damage_.w > 0 && view_damage_.h > 0) {
                 const int left = std::min(view_damage_.x, changed.x), top = std::min(view_damage_.y, changed.y);
@@ -963,11 +974,18 @@ void PaintCanvas::sample_rotated_area(int left, int top, int columns, int rows) 
         // pixel-centre coordinates are half a unit less.
         const CanvasSurface::TargetMap map{c / scale,  s / scale, c * origin.x + s * origin.y - 0.5,
                                            -s / scale, c / scale, -s * origin.x + c * origin.y - 0.5};
-        view_surface_.render(map, left, top, columns, rows, target, static_cast<std::size_t>(width));
-        return;
+        const CanvasSurface::Frame frame{view_samples_.data(), width, static_cast<int>(rendered_size_.height),
+                                         static_cast<std::size_t>(width)};
+        try {
+            view_surface_.render(map, frame, left, top, columns, rows);
+            return;
+        } catch (const std::runtime_error&) {
+            // The field refused the transfer (no workspace memory): the
+            // nearest pixels stand in for this area.
+        }
     }
     // No surface (a picture under 2 x 2 pixels, or over the surface's
-    // limit): the nearest source pixel.
+    // limit), or a refused transfer: the nearest source pixel.
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < columns; ++x) {
             const double vx = (left + x + 0.5) / scale + origin.x;

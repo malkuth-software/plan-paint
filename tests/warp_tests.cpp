@@ -1,12 +1,15 @@
 #include "warp.hpp"
-#include <stx_conv/surface.hpp>
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 namespace {
 void require(bool value, const char* message) {
@@ -16,6 +19,126 @@ void require(bool value, const char* message) {
 }
 void near(double a, double b, double tolerance, const char* message) {
     require(std::abs(a - b) <= tolerance, message);
+}
+// Straight 8-bit from premultiplied channel values, clamped once as a
+// transfer clamps them (alpha to [0, 1], colour to [0, alpha]); a pixel whose
+// alpha rounds to 0 is written 0, 0, 0, 0.
+paint::Color straight(const double values[4]) {
+    const double alpha = std::clamp(values[3], 0.0, 1.0);
+    paint::Color result{0, 0, 0, static_cast<std::uint8_t>(std::round(255.0 * alpha))};
+    if (result.a > 0) {
+        result.r = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[0], 0.0, alpha) / alpha));
+        result.g = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[1], 0.0, alpha) / alpha));
+        result.b = static_cast<std::uint8_t>(std::round(255.0 * std::clamp(values[2], 0.0, alpha) / alpha));
+    }
+    return result;
+}
+// The ground's raw field at ground node coordinates (u, v), clamped to it.
+void ground_at(const paint::ConvWarpField& field, double u, double v, double values[4]) {
+    const stxlib::OperationStatus status = field.ground().evaluate(u, v, stxlib::MutableView<double>(values, 4));
+    require(status.succeeded(), "the ground evaluates");
+}
+// render_affine's pull-back: destination pixel (x, y) reads the ground's
+// node coordinates (ou + a11 x + a12 y, ov + a21 x + a22 y), the source
+// position plus the two-pixel margin.
+stxlib::conv::AffineMap ground_pull(const paint::AffineMap& map) {
+    const double determinant = map.xx * map.yy - map.xy * map.yx;
+    const double a11 = map.yy / determinant, a12 = -map.xy / determinant;
+    const double a21 = -map.yx / determinant, a22 = map.xx / determinant;
+    const stxlib::conv::AffineMap pull{a11, a12, a21, a22, -a11 * map.tx - a12 * map.ty + 2.0,
+                                       -a21 * map.tx - a22 * map.ty + 2.0};
+    return pull;
+}
+constexpr int divisions = 256;
+// Destination pixel (x, y) as stxlib::conv's affine transfer forms it, on a
+// map whose lines are destination columns (|a22| > |a21|): the composited
+// transfer (include/stxlib/conv.hpp; transfer.cpp, affine_composited_state),
+// not the 2D field. Pass 1 reads each ground row r at the point of column x
+// where v = r, u = alpha x + beta r + gamma: its value (preview) or its 1D
+// field's average over u +- |alpha| / 2 (canon). Pass 2 compiles that column
+// as a 1D field, whose admission acts on pass 1's values, and reads it at
+// the pixel's v (preview) or averages it over v +- |a22| / 2 (canon). The
+// averages are dense midpoint sums; only their bounded error separates this
+// from the transfer.
+paint::Color composited_reference(const paint::ConvWarpField& field, const stxlib::conv::AffineMap& pull, int x,
+                                  int y, bool canon) {
+    require(std::abs(pull.a22) > std::abs(pull.a21), "the reference takes maps whose lines are columns");
+    constexpr std::size_t lanes = 4;
+    const double alpha = pull.a11 - pull.a12 * pull.a21 / pull.a22;
+    const double beta = pull.a12 / pull.a22;
+    const double gamma = pull.ou - pull.a12 * pull.ov / pull.a22;
+    const double half_u = 0.5 * std::abs(alpha), half_v = 0.5 * std::abs(pull.a22);
+    const std::size_t rows = static_cast<std::size_t>(field.height() + 4);
+    std::vector<double> line(rows * lanes, 0.0);
+    for (std::size_t row = 0; row < rows; ++row) {
+        const double u = alpha * x + beta * static_cast<double>(row) + gamma;
+        double values[4] = {};
+        if (!canon) {
+            ground_at(field, u, static_cast<double>(row), values);
+            for (std::size_t channel = 0; channel < lanes; ++channel) {
+                line[row * lanes + channel] = values[channel];
+            }
+            continue;
+        }
+        for (int i = 0; i < divisions; ++i) {
+            ground_at(field, u - half_u + 2.0 * half_u * (i + 0.5) / divisions, static_cast<double>(row), values);
+            for (std::size_t channel = 0; channel < lanes; ++channel) {
+                line[row * lanes + channel] += values[channel] / divisions;
+            }
+        }
+    }
+    stxlib::OperationResult<stxlib::conv::LineField> made =
+        stxlib::conv::LineField::make(rows, lanes, stxlib::conv::FieldOptions{});
+    require(made.succeeded(), "the column field is made");
+    stxlib::conv::LineField column = std::move(made).take_value();
+    const stxlib::conv::LineSamples samples{stxlib::View<double>(line.data(), line.size()), rows, lanes, lanes};
+    require(column.compile(samples).succeeded(), "the column field compiles");
+    const double v = pull.ov + pull.a21 * x + pull.a22 * y;
+    double sums[4] = {};
+    const int count = canon ? divisions : 1;
+    for (int i = 0; i < count; ++i) {
+        double values[4] = {};
+        const double at = canon ? v - half_v + 2.0 * half_v * (i + 0.5) / divisions : v;
+        require(column.evaluate(at, stxlib::MutableView<double>(values, 4)).succeeded(),
+                "the column field evaluates");
+        for (std::size_t channel = 0; channel < lanes; ++channel) {
+            sums[channel] += values[channel] / count;
+        }
+    }
+    return straight(sums);
+}
+// The canon's pixel over the source square [left, left + 1) x [top, top + 1)
+// under an axis-aligned map, composited as above.
+paint::Color canon_reference(const paint::ConvWarpField& field, double left, double top) {
+    const stxlib::conv::AffineMap pull{1.0, 0.0, 0.0, 1.0, left + 0.5 + 2.0, top + 0.5 + 2.0};
+    return composited_reference(field, pull, 0, 0, true);
+}
+// Destination pixel (x, y) through the 2D field, as a mesh map forms it:
+// the ground's value at the pulled-back centre (preview), or its average
+// over the pulled-back pixel square (canon; dense midpoint sum).
+paint::Color field_reference(const paint::ConvWarpField& field, const stxlib::conv::AffineMap& pull, int x, int y,
+                             bool canon) {
+    constexpr int samples = 96;
+    const int count = canon ? samples : 1;
+    double sums[4] = {};
+    for (int j = 0; j < count; ++j) {
+        for (int i = 0; i < count; ++i) {
+            const double px = canon ? x - 0.5 + (i + 0.5) / samples : x;
+            const double py = canon ? y - 0.5 + (j + 0.5) / samples : y;
+            double values[4] = {};
+            ground_at(field, pull.ou + pull.a11 * px + pull.a12 * py, pull.ov + pull.a21 * px + pull.a22 * py, values);
+            for (int channel = 0; channel < 4; ++channel) {
+                sums[channel] += values[channel] / (static_cast<double>(count) * count);
+            }
+        }
+    }
+    return straight(sums);
+}
+void near_color(paint::Color actual, paint::Color expected, const char* message) {
+    near(actual.r, expected.r, 1.0, message);
+    near(actual.g, expected.g, 1.0, message);
+    near(actual.b, expected.b, 1.0, message);
+    near(actual.a, expected.a, 1.0, message);
 }
 void test_constant_and_affine() {
     paint::Image image;
@@ -121,11 +244,18 @@ void test_mesh() {
     require(paint::move_reshape_node(mesh, interior, old), "reset move failed");
     paint::ConvWarpField field;
     field.compile(image);
-    paint::Image output;
+    // The unmoved mesh's triangle maps are the identity only to rounding:
+    // Minification must still take the preview (the canon would average the
+    // edge pixels with the transparent ground), so it covers every pixel and
+    // gives the Point render's bytes.
+    paint::Image output, point;
     paint::render_mesh(field, mesh, 80, 60, output);
     for (paint::Color pixel : output.pixels) {
         require(paint::equal(pixel, {3, 90, 230, 255}), "mesh identity has cracks");
     }
+    paint::render_mesh(field, mesh, 80, 60, point, paint::WarpSampling::Point);
+    require(std::equal(output.pixels.begin(), output.pixels.end(), point.pixels.begin(), paint::equal),
+            "an identity mesh minifies");
     std::vector<paint::Point> outline{{0, 0}, {60, 0}, {60, 20}, {30, 20}, {30, 50}, {0, 50}};
     mesh = paint::make_reshape_mesh(outline, 10);
     require(paint::reshape_mesh_valid(mesh), "concave lasso triangulation failed");
@@ -137,11 +267,12 @@ void test_mesh() {
     }
     require(rejected, "crossing lasso accepted");
 }
-// The field is stx_conv's tensor surface (paper closure, no bubble)
-// through the premultiplied pixels: its raw samples are stx_conv's, bit for
-// bit, on this 7x8 mixed affine/wrapped/curved-edge input; the surface is
-// continuous across cells; projected samples stay in the colour domain.
-void test_surface_reference() {
+// The field is stxlib::conv's (the paper's Surface, paper closure, no
+// bubble) through the premultiplied pixels, on this 7x8 mixed
+// affine/wrapped/curved-edge input: the surface is continuous across cells
+// and projected samples stay in the colour domain. (Its equality with
+// stx_conv's surface is reported by the one-off benchmarks/conv_compare.)
+void test_surface_continuity() {
     paint::Image image;
     image.reset(8, 7);
     for (int y = 0; y < 7; ++y) {
@@ -154,31 +285,6 @@ void test_surface_reference() {
     }
     paint::ConvWarpField field;
     field.compile(image);
-    std::vector<double> nodes(image.pixels.size() * 4);
-    for (std::size_t i = 0; i < image.pixels.size(); ++i) {
-        const double alpha = image.pixels[i].a / 255.0;
-        nodes[i * 4] = image.pixels[i].r / 255.0 * alpha;
-        nodes[i * 4 + 1] = image.pixels[i].g / 255.0 * alpha;
-        nodes[i * 4 + 2] = image.pixels[i].b / 255.0 * alpha;
-        nodes[i * 4 + 3] = alpha;
-    }
-    stx_conv::surface::SurfaceShape shape;
-    shape.nodes_u = 8;
-    shape.nodes_v = 7;
-    shape.channels = 4;
-    shape.closure = stx_conv::surface::Closure::paper;
-    shape.bubble = stx_conv::surface::Bubble::none;
-    stx_conv::surface::Surface reference(shape);
-    require(reference.compile(nodes, {}, {}) == stx_conv::Status::ok, "stx_conv surface compile failed");
-    double positions[6][2] = {{.13, .31}, {1.7, 2.1}, {2.3, 3.7}, {4.14, 1.16}, {5.9, 4.1}, {6.7, 5.6}};
-    for (int i = 0; i < 6; ++i) {
-        double values[4] = {};
-        require(reference.evaluate(positions[i][0], positions[i][1], values) == stx_conv::Status::ok,
-                "stx_conv surface evaluation failed");
-        paint::WarpSample sample = field.sample_components({positions[i][0], positions[i][1]});
-        require(sample.r == values[0] && sample.g == values[1] && sample.b == values[2] && sample.a == values[3],
-                "field differs from stx_conv's surface");
-    }
     for (int y = 0; y < 6; ++y) {
         for (int x = 1; x < 7; ++x) {
             paint::WarpSample left = field.sample_components({x - 1.0e-9, y + 0.37});
@@ -276,11 +382,12 @@ void test_physical_alpha_before_filtering() {
     paint::WarpSample physical = field.sample_premultiplied({1.685, 2.0});
     near(physical.a, raw.a, 0.0, "physical projection changed admitted alpha");
     near(physical.r, physical.a, 0.0, "physical sample contains excess premultiplied red");
-    // On this mixed-opacity edge, late clipping would return red 252. Projecting
-    // before integration agrees with the independent dense integral, red 248.
+    // Area is the canon: the raw field's average over the pixel, clamped once
+    // after it is formed (the former quadrature projected each sample first,
+    // red 248 here, where late clipping gave 252).
     paint::Image edge;
     paint::render_affine(field, {1, 0, 0.2, 0, 1, 0}, 5, 5, edge, paint::WarpSampling::Area);
-    require(edge.get(2, 2).r == 248, "excess color leaked between quadrature samples before clipping");
+    near_color(edge.get(2, 2), canon_reference(field, 1.3, 1.5), "area render is not the ground's composited canon");
     // All channels, including mixed colors and hidden RGB in transparent source pixels.
     std::uint32_t state = 19;
     for (paint::Color& pixel : image.pixels) {
@@ -307,31 +414,11 @@ void test_physical_alpha_before_filtering() {
                     "physical projection changed a visible source node");
         }
     }
-    // Independent dense midpoint integration of the physical field. Unlike a
-    // mirrored Gauss-rule test, this catches projection after, rather than before,
-    // averaging and allows only the bounded filter's numerical integration error.
-    constexpr int divisions = 256;
-    double sums[4] = {};
-    for (int y = 0; y < divisions; ++y) {
-        for (int x = 0; x < divisions; ++x) {
-            paint::Point position{1.2 + (x + 0.5) / divisions, 1.1 + (y + 0.5) / divisions};
-            physical = field.sample_premultiplied(position);
-            sums[0] += physical.r;
-            sums[1] += physical.g;
-            sums[2] += physical.b;
-            sums[3] += physical.a;
-        }
-    }
+    // The canon against an independent dense integration of the composited
+    // canon's two passes over the pixel's footprint, clamped once.
     paint::Image output;
     paint::render_affine(field, {1, 0, 0.3, 0, 1, 0.4}, 5, 5, output, paint::WarpSampling::Area);
-    paint::Color actual = output.get(2, 2);
-    near(actual.r, std::round(255.0 * sums[0] / sums[3]), 1.0, "filtered physical red differs from integral");
-    near(actual.g, std::round(255.0 * sums[1] / sums[3]), 1.0,
-         "filtered physical green differs from integral");
-    near(actual.b, std::round(255.0 * sums[2] / sums[3]), 1.0,
-         "filtered physical blue differs from integral");
-    near(actual.a, std::round(255.0 * sums[3] / (divisions * divisions)), 1.0,
-         "filtered alpha differs from integral");
+    near_color(output.get(2, 2), canon_reference(field, 1.2, 1.1), "filtered pixel differs from the canon integral");
 }
 void test_sampling_continuity_and_equivalent_maps() {
     paint::Image image;
@@ -349,11 +436,18 @@ void test_sampling_continuity_and_equivalent_maps() {
     require(identity.get(2, 2).r == 40 && moved.get(2, 2).r == 40,
             "infinitesimal translation changed the default sampling functional");
     paint::render_affine(field, {}, 5, 5, area, paint::WarpSampling::Area);
-    require(area.get(2, 2).r == 41, "explicit area mode silently became a point sample at identity");
+    near_color(area.get(2, 2), canon_reference(field, 1.5, 1.5),
+               "explicit area mode is not the canon at identity");
     paint::render_affine(field, {1, 0, 0.000001, 0, 1, 0}, 5, 5, moved, paint::WarpSampling::Area);
     require(moved.get(2, 2).r == area.get(2, 2).r, "explicit area functional jumps near identity");
-    constexpr paint::AffineMap maps[4] = {
-        {1, 0, 1, 0, 1, 0}, {0.8, 0.12, 0.4, 0, 0.9, 0.3}, {0, -1, 4, 1, 0, 0}, {1, 0, 0.000001, 0, 1, 0}};
+    // Equivalent affine and mesh maps. render_affine is stxlib::conv's
+    // composited transfer, render_mesh the 2D field; the two agree where pass
+    // 1 reads every row at the same u (beta = a12 / a22 = 0: translations and
+    // quarter turns), since this fixture's material rows are identical, so
+    // each column pass 2 compiles is one profile scaled. The mesh's grid
+    // carries source positions rounded once more than the affine map's, so a
+    // byte may round the other way.
+    constexpr paint::AffineMap maps[3] = {{1, 0, 1, 0, 1, 0}, {0, -1, 4, 1, 0, 0}, {1, 0, 0.000001, 0, 1, 0}};
     for (const paint::AffineMap& map : maps) {
         paint::ReshapeMesh mesh = paint::make_reshape_mesh(image, 2.0);
         for (paint::MeshNode& node : mesh.nodes) {
@@ -366,13 +460,44 @@ void test_sampling_continuity_and_equivalent_maps() {
             paint::render_affine(field, map, 7, 7, affine_output, sampling);
             paint::render_mesh(field, mesh, 7, 7, mesh_output, sampling);
             for (std::size_t i = 0; i < affine_output.pixels.size(); ++i) {
-                require(paint::equal(affine_output.pixels[i], mesh_output.pixels[i]),
-                        "equivalent affine and mesh maps produced different pixels");
+                near_color(affine_output.pixels[i], mesh_output.pixels[i],
+                           "equivalent affine and mesh maps produced different pixels");
             }
         }
     }
-    // Former 2/4/8-rule thresholds no longer introduce finite switches.
-    for (double stretch : {1.0, 1.25, 3.0}) {
+    // A shear with scale reads each row at its own u, so the two transfers
+    // are different readings of the field near admission (material edges):
+    // each is checked against its own reference, every pixel, including the
+    // first row and column, whose squares the mesh grid must cover whole.
+    {
+        const paint::AffineMap map{0.8, 0.12, 0.4, 0, 0.9, 0.3};
+        const stxlib::conv::AffineMap pull = ground_pull(map);
+        paint::ReshapeMesh mesh = paint::make_reshape_mesh(image, 2.0);
+        for (paint::MeshNode& node : mesh.nodes) {
+            node.target = {map.xx * node.source.x + map.xy * node.source.y + map.tx,
+                           map.yx * node.source.x + map.yy * node.source.y + map.ty};
+        }
+        // The map minifies, so Minification is the canon.
+        for (paint::WarpSampling sampling :
+             {paint::WarpSampling::Point, paint::WarpSampling::Minification, paint::WarpSampling::Area}) {
+            const bool canon = sampling != paint::WarpSampling::Point;
+            paint::Image affine_output, mesh_output;
+            paint::render_affine(field, map, 7, 7, affine_output, sampling);
+            paint::render_mesh(field, mesh, 7, 7, mesh_output, sampling);
+            for (int y = 0; y < 7; ++y) {
+                for (int x = 0; x < 7; ++x) {
+                    near_color(affine_output.get(x, y), composited_reference(field, pull, x, y, canon),
+                               "a sheared affine render is not the composited transfer");
+                    near_color(mesh_output.get(x, y), field_reference(field, pull, x, y, canon),
+                               "a sheared mesh render is not the 2D field");
+                }
+            }
+        }
+    }
+    // Minification switches from the preview to the canon where the map
+    // starts to minify (a footprint of one pixel); past it the canon is
+    // continuous in the scale.
+    for (double stretch : {1.25, 3.0}) {
         double before = 1.0 / (stretch - 0.0000001);
         double after = 1.0 / (stretch + 0.0000001);
         paint::render_affine(field, {before, 0, 2 - 2 * before, 0, before, 2 - 2 * before}, 5, 5, identity);
@@ -392,8 +517,10 @@ struct ConcurrentAffineProbe {
 };
 void test_reused_affine_workers() {
     paint::Image first, second;
-    first.reset(5, 5, {200, 30, 40, 255});
-    second.reset(5, 5, {20, 90, 220, 255});
+    // Nine pixels a side: the canon's footprint at the centre reads only
+    // the material, not the transparent ground around it.
+    first.reset(9, 9, {200, 30, 40, 255});
+    second.reset(9, 9, {20, 90, 220, 255});
     paint::ConvWarpField a, b;
     a.compile(first);
     b.compile(second);
@@ -407,9 +534,9 @@ void test_reused_affine_workers() {
     for (std::jthread& caller : callers) {
         caller.join();
     }
-    require(paint::equal(probes[0].result.get(2, 2), first.get(2, 2)) &&
-                paint::equal(probes[1].result.get(2, 2), second.get(2, 2)) &&
-                paint::equal(probes[2].result.get(2, 2), first.get(2, 2)),
+    require(paint::equal(probes[0].result.get(4, 4), first.get(4, 4)) &&
+                paint::equal(probes[1].result.get(4, 4), second.get(4, 4)) &&
+                paint::equal(probes[2].result.get(4, 4), first.get(4, 4)),
             "reused point and area workers retain distinct concurrent jobs");
     require(probes[0].result.get(20, 20).a == 0 && probes[1].result.get(20, 20).a == 0,
             "reused workers clear pixels outside each source");
@@ -443,12 +570,12 @@ int main(int argc, char** argv) {
         test_constant_and_affine();
         test_identity_and_alpha();
         test_mesh();
-        test_surface_reference();
+        test_surface_continuity();
         test_admitted_edge_and_mesh_area();
         test_physical_alpha_before_filtering();
         test_sampling_continuity_and_equivalent_maps();
         test_reused_affine_workers();
-        std::cout << "CONV warp constants, stx_conv surface reference, affine fields, cardinality, alpha, tiny "
+        std::cout << "CONV warp constants, surface continuity, stxlib::conv canon, affine fields, alpha, tiny "
                      "images, mesh identity, folds and lasso tests passed.\n";
         if (argc > 1) {
             benchmark(std::stoi(argv[1]));

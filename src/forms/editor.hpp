@@ -189,7 +189,7 @@ class PaintCanvas final : public gui_forms::RasterCanvas {
     gui_forms::ImageId backing_, repeated_, reference_, rotated_;
     Image view_source_;
     // The CONV surface through view_source_: built whole for a new picture,
-    // its cells recompiled locally for an edit (publish_source).
+    // the rows holding an edit recompiled (publish_source).
     CanvasSurface view_surface_;
     // Counts whole builds of view_surface_; a frame rendered from another
     // build is rendered whole.

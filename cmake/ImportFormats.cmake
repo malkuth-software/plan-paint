@@ -9,6 +9,96 @@
 # WEBP_INCLUDE_DIR (the directory holding webp/decode.h) and the avif target.
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
+# Removes the C math library `m` from the link libraries of every target
+# defined in `directory` and its subdirectories. libavif (v1.4.2, avif_obj,
+# under UNIX OR MINGW) and lunasvg's plutovg link a bare `m`, which on
+# x86_64-pc-windows-msvc is "m.lib" and lld-link cannot open it (#53's
+# windows-x64 job). The own runtime's C library (STXlib's crt) holds the
+# math functions. An empty target named `m` would break plutovg's
+# install(EXPORT), so the name is taken out instead.
+function(rainstar_drop_math_library directory)
+  get_property(targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+  foreach(target IN LISTS targets)
+    foreach(property LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+      get_target_property(libraries ${target} ${property})
+      if(libraries)
+        list(REMOVE_ITEM libraries m "$<LINK_ONLY:m>")
+        set_property(TARGET ${target} PROPERTY ${property} "${libraries}")
+      endif()
+    endforeach()
+  endforeach()
+  get_property(subdirectories DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+  foreach(subdirectory IN LISTS subdirectories)
+    rainstar_drop_math_library("${subdirectory}")
+  endforeach()
+endfunction()
+
+# Writes the meson cross file for dav1d on x86_64-pc-windows-msvc (the own
+# runtime) and sets `out` to its path. Meson takes each array element as one
+# argument, so the flags CMake holds as command lines are split into words.
+function(rainstar_dav1d_cross_file out)
+  separate_arguments(c_args NATIVE_COMMAND "${CMAKE_C_FLAGS}")
+  # Meson drops an -isystem that names one of the compiler's default include
+  # directories, and clang's resource directory is one, so the toolchain's
+  # -nostdinc and -isystem <resource>/include become -nostdlibinc: the
+  # system directories go, and clang's own headers stay.
+  execute_process(COMMAND "${CMAKE_C_COMPILER}" --target=${CMAKE_C_COMPILER_TARGET} -print-resource-dir
+    OUTPUT_VARIABLE resource_dir OUTPUT_STRIP_TRAILING_WHITESPACE)
+  file(TO_CMAKE_PATH "${resource_dir}/include" resource_include)
+  set(kept "")
+  set(after_isystem FALSE)
+  foreach(word IN LISTS c_args)
+    file(TO_CMAKE_PATH "${word}" word_path)
+    if(after_isystem)
+      set(after_isystem FALSE)
+      if(NOT word_path STREQUAL resource_include)
+        list(APPEND kept "-isystem" "${word}")
+      endif()
+    elseif(word STREQUAL "-isystem")
+      set(after_isystem TRUE)
+    elseif(word STREQUAL "-nostdinc")
+      list(APPEND kept "-nostdlibinc")
+    else()
+      list(APPEND kept "${word}")
+    endif()
+  endforeach()
+  set(c_args "${kept}")
+  separate_arguments(link_args NATIVE_COMMAND "${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_C_STANDARD_LIBRARIES}")
+  foreach(list_name IN ITEMS c_args link_args)
+    set(quoted "")
+    foreach(word IN LISTS ${list_name})
+      string(REPLACE "\\" "/" word "${word}")
+      string(REPLACE "'" "\\'" word "${word}")
+      list(APPEND quoted "'${word}'")
+    endforeach()
+    list(JOIN quoted ", " ${list_name}_meson)
+  endforeach()
+  set(file "${CMAKE_BINARY_DIR}/dav1d-windows-msvc-own.meson")
+  file(WRITE "${file}" "[binaries]
+c = ['${CMAKE_C_COMPILER}', '--target=${CMAKE_C_COMPILER_TARGET}']
+c_ld = 'lld'
+ar = '${CMAKE_AR}'
+nasm = 'nasm'
+
+[built-in options]
+# No Microsoft runtime: meson would otherwise compile with -fms-runtime-lib=dll,
+# which names msvcrt in every object.
+b_vscrt = 'none'
+c_args = [${c_args_meson}]
+c_link_args = [${link_args_meson}]
+
+[properties]
+needs_exe_wrapper = false
+
+[host_machine]
+system = 'windows'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
+")
+  set(${out} "${file}" PARENT_SCOPE)
+endfunction()
+
 if(RAINSTAR_SYSTEM_CODECS)
   message(WARNING "RAINSTAR_SYSTEM_CODECS links installed codec libraries; this program is not shippable.")
   find_package(PkgConfig QUIET)
@@ -69,6 +159,14 @@ else()
     set(ENV{MACOSX_DEPLOYMENT_TARGET} "${CMAKE_OSX_DEPLOYMENT_TARGET}")
   endif()
   set(AVIF_CODEC_DAV1D LOCAL CACHE STRING "" FORCE)
+  # Windows: x86_64-pc-windows-msvc on GUI.Forms' own runtime. LocalDav1d
+  # runs meson at build time and passes CROSS_FILE as --cross-file when it is
+  # set (libavif cmake/Modules/LocalDav1d.cmake). This cross file gives meson
+  # this build's compiler, target, headers and link line, so dav1d reads the
+  # own runtime and nothing else, as the program does.
+  if(WIN32 AND GUI_FORMS_MSVC_RUNTIME STREQUAL "OWN")
+    rainstar_dav1d_cross_file(CROSS_FILE)
+  endif()
 endif()
 
 foreach(codec AOM LIBGAV1 RAV1E SVT AVM)
@@ -82,6 +180,7 @@ FetchContent_Declare(avif
   URL_HASH SHA256=2b645287340ba5a631d268b551dc2d72bd73ac33335962dd36dcdb6d8366921d
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(avif)
+unset(CROSS_FILE)
 
 set(LUNASVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(lunasvg
@@ -95,3 +194,10 @@ FetchContent_Declare(tinyxml2
   URL_HASH SHA256=5556deb5081fb246ee92afae73efd943c889cef0cafea92b0b82422d6a18f289
   DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(tinyxml2)
+if(CMAKE_C_COMPILER_TARGET MATCHES "windows-msvc")
+  foreach(dependency IN ITEMS avif lunasvg tinyxml2 tiff webp)
+    if(${dependency}_SOURCE_DIR)
+      rainstar_drop_math_library("${${dependency}_SOURCE_DIR}")
+    endif()
+  endforeach()
+endif()

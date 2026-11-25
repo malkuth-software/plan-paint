@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "Use as desktop background (tile am)",
   "Diagnostic overlay: on": "Invalidation overlay: e dey on",
   "Superimpose": "Put am on top",
-  "Brightness": "Brightness"
+  "Brightness": "Brightness",
+  "Open the File tab as a menu": "Open di File tab as menu",
+  "Open the File tab as a page": "Open di File tab as page"
 }

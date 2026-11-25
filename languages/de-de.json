@@ -1019,5 +1019,7 @@
   "Set as desktop background (tile)": "Als Desktophintergrund festlegen (gekachelt)",
   "Diagnostic overlay: on": "Invalidierungsanzeige: an",
   "Superimpose": "Überlagern",
-  "Brightness": "Helligkeit"
+  "Brightness": "Helligkeit",
+  "Open the File tab as a menu": "Registerkarte „Datei“ als Menü öffnen",
+  "Open the File tab as a page": "Registerkarte „Datei“ als Seite öffnen"
 }
