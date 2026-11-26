@@ -123,10 +123,8 @@ def launch_without_prompt(program, timeout, check):
                 time.sleep(0.25)
             check('launch opens no dialog', ok and 'dialog' not in listing.lower(), listing)
             check('recovery is offered in the status bar', 'can be recovered' in notice, notice[-400:])
-            # A disconnect closes only a program the model holds: a pointer
-            # move takes control first (--mcp-fcfs: at once).
-            ok, text = session.call('pointer', {'action': 'move', 'position': {'x': 5, 'y': 5}})
-            check('a pointer move takes control', ok, text)
+            # disconnect is an act: under --mcp-fcfs it takes control at
+            # once, as the first act of this launch.
             ok, text = session.call('disconnect', {})
             check('soft disconnect of an unchanged picture', ok and 'stays open' not in text, text)
         except queue.Empty:

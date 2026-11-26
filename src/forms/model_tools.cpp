@@ -35,9 +35,11 @@ namespace {
 // or an opened one replaces the current one (its unsaved changes go behind
 // a Save changes? question the user answers), reload and recover replace
 // it from disk, save and save-as write files, the wallpaper commands change
-// the desktop, and Exit closes the program.
-constexpr std::array<std::string_view, 11> destructive_commands{
-    "new", "open", "reload", "recover", "save", "save-as", "quit",
+// the desktop. Exit is not among them (GUI.Forms 1.0.6, owner): it asks
+// the window to close as the built-in close tool does, an act like any
+// other, its Save changes? question the model's to answer with on_unsaved.
+constexpr std::array<std::string_view, 10> destructive_commands{
+    "new", "open", "reload", "recover", "save", "save-as",
     "wallpaper-fill", "wallpaper-tile", "wallpaper-center", "crop"};
 
 // Dialog openers whose names do not end in an ellipsis, and the tool that
@@ -149,8 +151,8 @@ constexpr const char* app_note =
     "floating as pending.\n"
     "- With the pointer, Edge and Fill paint with the Primary colour unless the colour group gives Fill the Alt "
     "colour.\n"
-    "- Resize and Properties open dialogs: use plan_paint_resize_image instead. New, Open, Save and Exit are "
-    "destructive and ask the user once per launch.\n"
+    "- Resize and Properties open dialogs: use plan_paint_resize_image instead. New, Open and Save are "
+    "destructive and ask the user once per launch; Exit (command_quit) closes as the close tool does.\n"
     "- To finish: save with plan_paint_save (a path for a new picture; a save you ask for with a path asks "
     "nobody), then call release_control to leave the program open with the user, or disconnect. A disconnect "
     "with unsaved changes closes nothing and tells you what to save; it is never shown to the user.";
