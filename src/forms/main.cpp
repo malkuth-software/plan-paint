@@ -41,21 +41,22 @@ gui_forms::ApplicationCreateResult create_application() {
     return gui_forms::Application::create(std::move(fallback));
 }
 } // namespace
-// Whether GUI.Forms serves this launch over MCP: an MCP option, or
-// GUI_FORMS_MCP set to 1 or shared. Read before take_mcp_arguments removes
-// the options from argv.
+// Whether GUI.Forms serves this launch over MCP: an MCP launch option, or
+// GUI_FORMS_MCP set to shared or fcfs (GUI.Forms 1.0.6; --mcp alone only
+// prints the MCP help). Read before take_mcp_arguments removes the options
+// from argv.
 static bool served_by_mcp(int argc, char** argv) {
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument(argv[index]);
-        if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--mcp-folder" ||
-            argument == "--mcp-script" || argument == "--model-directed" || argument == "--mcp-appearance-review") {
+        if (argument == "--mcp-shared" || argument == "--mcp-fcfs" || argument == "--mcp-script" ||
+            argument == "--mcp-appearance-review") {
             return true;
         }
     }
     const char* variable = std::getenv("GUI_FORMS_MCP");
     if (variable == nullptr) { return false; }
     const std::string_view value(variable);
-    return value == "1" || value == "shared" || value == "folder";
+    return value == "shared" || value == "fcfs";
 }
 
 int main(int argc, char** argv) {
@@ -85,9 +86,8 @@ int main(int argc, char** argv) {
         // holds them.
         for (std::size_t index = 0; index < arguments.size();) {
             const std::string& argument = arguments[index];
-            if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--mcp-folder" ||
-                argument == "--model-directed" || argument == "--mcp-appearance-review" || argument == "--mcp-socket" ||
-                argument == "--help") {
+            if (argument == "--mcp" || argument == "--mcp-shared" || argument == "--mcp-fcfs" ||
+                argument == "--mcp-appearance-review" || argument == "--mcp-socket" || argument == "--help") {
                 arguments.erase(arguments.begin() + static_cast<std::ptrdiff_t>(index));
             } else if (argument == "--mcp-script") {
                 const std::size_t taken = index + 1 < arguments.size() ? 2 : 1;
@@ -130,8 +130,8 @@ int main(int argc, char** argv) {
         }
         if (session_canvas_controls) { (*editor).settings.canvas_controls = true; }
         (*editor).served_launch = served;
-        // The editor's tools and marks for a model (--mcp): kept while the
-        // editor runs.
+        // The editor's tools and marks for a model (--mcp-shared, --mcp-fcfs):
+        // kept while the editor runs.
         const paint::forms::EditorModelTools model_tools(*editor);
         std::unique_ptr<gui_forms::Window> window =
             std::make_unique<gui_forms::Window>(editor, gui_forms::Size{1280, 820});

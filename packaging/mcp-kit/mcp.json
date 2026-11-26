@@ -4,9 +4,9 @@
       "command": "./Plan Paint.app/Contents/MacOS/plan-paint",
       "args": ["--mcp-shared"]
     },
-    "plan-paint-led": {
+    "plan-paint-fcfs": {
       "command": "./Plan Paint.app/Contents/MacOS/plan-paint",
-      "args": ["--mcp"]
+      "args": ["--mcp-fcfs"]
     }
   }
 }

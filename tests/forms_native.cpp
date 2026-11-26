@@ -2189,7 +2189,7 @@ struct NativeExercise {
 };
 #ifdef _WIN32
 // The interactive fixture: host::run_windows joins its window to GUI.Forms'
-// automation, so a platform check started with --mcp can capture the exact
+// automation, so a platform check started with --mcp-fcfs can capture the exact
 // CPU surface and route real host input (GUI.Forms 1.0.3; the former
 // automation_enabled channel is gone).
 struct WindowsFixtureReady {

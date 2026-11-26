@@ -1,7 +1,8 @@
 #pragma once
 
 // Plan Paint for a model (GUI.Forms MCP, round 2 of the pilot): what a
-// program launched with --mcp tells the automation about itself.
+// program launched with --mcp-shared or --mcp-fcfs tells the automation
+// about itself.
 //
 // - Commands are tools already (the ribbon's and the File menu's Commands,
 //   by stable ID). The ones that discard work, replace the picture, write

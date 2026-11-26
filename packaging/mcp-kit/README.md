@@ -7,15 +7,17 @@ This folder holds Plan Paint (macOS arm64) built with GUI.Forms and served over 
 Two servers are configured in `.mcp.json` (and the same in `mcp.json`):
 
 - `plan-paint` starts Plan Paint with `--mcp-shared`. You keep the program until the model's first act, which asks you in the program whether the model may take control. The question counts down 10 s and allows when it ends; Don't Allow refuses that act, and the model's next act asks again. Control comes back to you when the model calls `release_control`, after 30 s without a call, or when you take it back.
-- `plan-paint-led` starts it with `--mcp`, the AI-led launch: the model holds control from its first call, with no question and no return after idle. You can still take control back.
+- `plan-paint-fcfs` starts it with `--mcp-fcfs`, first come, first served: the model's first act takes control at once, with no question, and idle never returns it. You get the program back by asking: a click on its content offers take-back.
+
+Either launch also makes Plan Paint's command folder (`/tmp/<id>`, printed at start) and its socket, and each backs up the others: when the client's input ends, only that MCP session ends and Plan Paint stays up. Launched without either flag, Plan Paint has no MCP at all; `plan-paint --mcp` prints the MCP help and exits.
 
 Reads (windows, snapshot, find, text, capture, plan_paint_image_info, plan_paint_sample, plan_paint_to_window) never need control.
 
-Claude Code: start `claude` in this folder. It reads `.mcp.json` from the folder it starts in and asks once before it uses servers a project file declares; answer yes for one or both. `claude mcp list` shows which servers it loaded. To skip the question, start it with `claude --mcp-config mcp.json`. Any other MCP client: add a stdio server whose command is `./Plan Paint.app/Contents/MacOS/plan-paint` with the argument `--mcp-shared` or `--mcp`, started with this folder as its working directory.
+Claude Code: start `claude` in this folder. It reads `.mcp.json` from the folder it starts in and asks once before it uses servers a project file declares; answer yes for one or both. `claude mcp list` shows which servers it loaded. To skip the question, start it with `claude --mcp-config mcp.json`. Any other MCP client: add a stdio server whose command is `./Plan Paint.app/Contents/MacOS/plan-paint` with the argument `--mcp-shared` or `--mcp-fcfs`, started with this folder as its working directory.
 
 ## From a session that is already running
 
-A running Claude Code session cannot load a new `.mcp.json`. With GUI.Forms 1.0.5 and later every running GUI.Forms program listens on a socket of its own that only your user can reach, and the socket speaks MCP itself, so any session can open a console to it with standard tools: `docs/user/talk-to-a-program.md` gives the `nc`, `socat` and Python one-liners. A program launched without `--mcp` asks you in the program before each connection. With GUI.Forms 1.0.4 (this kit's round-3 build) there is no socket yet; start a new session in this folder instead.
+A running Claude Code session cannot load a new `.mcp.json`. A GUI.Forms program launched with `--mcp-shared` or `--mcp-fcfs` (1.0.6) listens on a socket of its own that only your user can reach, and the socket speaks MCP itself, so any session can open a console to it with standard tools, or use its command folder from a plain shell: `docs/user/talk-to-a-program.md` gives the commands. A model can also start Plan Paint itself in the background with `--mcp-fcfs` and drive it through the folder. A Plan Paint launched without a flag shares nothing; restart it with one of the flags.
 
 ## What you see
 
@@ -28,7 +30,7 @@ Launched for a model, Plan Paint fits the picture to the window when the window 
 - Launched for MCP, Plan Paint does not offer recovery snapshots from earlier sessions at startup (that offer is a native alert, and while it is open no MCP call could be answered). The snapshots are kept: the next ordinary launch offers them, and File > Recover unfinished artwork opens them at any time.
 - Saving: `plan_paint_save` saves to the picture's file, or with `path` to a new file, without asking anyone: a save the model asks for, to a path the model gives, is the model's to make. The ribbon's and File menu's Save, Save as, New, Open and Exit commands are destructive, and the first of them in a launch asks you once.
 - Finishing: save, then either `release_control`, which gives the program back to you and leaves it open, or `disconnect`. A soft disconnect (the default) never closes over unsaved work and never shows anything: if there is work to save, nothing closes and the reply says what to save; when you hold the program, it stays open as it is. `disconnect` with mode `hard` ends the session and asks every window to close: the save question is shown to you, or with `discard_unsaved` the changes are dropped silently.
-- If the client drops without disconnecting (it crashed or was killed), Plan Paint asks you whether to save, as a hard disconnect does.
+- If the client drops without disconnecting (it crashed or was killed), its session ends and control comes back to you; Plan Paint stays open for its command folder and socket.
 - While the model's call runs, a question Plan Paint raises is the model's and never shown on screen; after you take control back, questions are shown to you as usual.
 
 ## Plan Paint's tools

@@ -1,6 +1,6 @@
 """Plan Paint's model tools over MCP (GUI.Forms round 4 of the pilot).
 
-Starts Plan Paint with --mcp in a scratch home, then over MCP's stdio
+Starts Plan Paint with --mcp-fcfs in a scratch home, then over MCP's stdio
 framing: a new 200 by 120 picture; a filled, rotated rectangle; a filled
 Bezier path; a bucket fill; a gradient; text; plan_paint_sample and capture
 points reading the colours back, in both point forms ({x, y} and [x, y],
@@ -13,8 +13,9 @@ arguments, is described (`help <tool>` is that text, so an undocumented tool
 fails here). Ends with a hard disconnect that discards the picture and
 expects exit 0 within the timeout. Then a second launch over a home holding an unfinished-artwork snapshot opens no
 dialog: it starts with a new picture and says in the status bar that the
-artwork can be recovered from the File menu; with nothing unsaved, the end
-of its input closes it (exit 0). Exit 77 skips where no window
+artwork can be recovered from the File menu; with nothing unsaved, a soft
+disconnect closes it (exit 0; the end of its input alone ends only the
+stdio session, GUI.Forms 1.0.6). Exit 77 skips where no window
 server is reachable.
 
     python3 -B tests/model_tools_mcp.py <plan-paint executable> [timeout seconds]
@@ -47,7 +48,7 @@ class Session:
     def __init__(self, program, timeout, home):
         environment = dict(os.environ, HOME=home, XDG_CONFIG_HOME=home, XDG_DATA_HOME=home, APPDATA=home,
                            GUI_FORMS_MCP_ATTACH='0')
-        self.process = subprocess.Popen([program, '--mcp'], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        self.process = subprocess.Popen([program, '--mcp-fcfs'], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE, env=environment)
         self.replies = queue.Queue()
         self.timeout = timeout
@@ -122,6 +123,8 @@ def launch_without_prompt(program, timeout, check):
                 time.sleep(0.25)
             check('launch opens no dialog', ok and 'dialog' not in listing.lower(), listing)
             check('recovery is offered in the status bar', 'can be recovered' in notice, notice[-400:])
+            ok, text = session.call('disconnect', {})
+            check('soft disconnect of an unchanged picture', ok, text)
         except queue.Empty:
             check('second launch replies', False, 'no reply within %s seconds' % timeout)
         except (BrokenPipeError, OSError) as error:
@@ -132,11 +135,11 @@ def launch_without_prompt(program, timeout, check):
             pass
         try:
             code = session.process.wait(timeout=timeout)
-            check('end of input closes an unchanged picture', code == 0, 'exit %s' % code)
+            check('a soft disconnect closes an unchanged picture', code == 0, 'exit %s' % code)
         except subprocess.TimeoutExpired:
             session.process.kill()
             session.process.wait()
-            check('end of input closes an unchanged picture', False, 'still running')
+            check('a soft disconnect closes an unchanged picture', False, 'still running')
 
 
 def colour_at(text, label):
@@ -258,9 +261,8 @@ def main(argv):
             check('capture points, both shapes', ok and '1,1 #' in text and '2,2 #' in text, text)
             ok, text = session.call('plan_paint_image_info', {})
             check('image info', ok and 'colours: primary' in text, text)
-            # The end of the input is a hard disconnect with the default:
-            # the picture's save question would be the user's, so this
-            # session discards it itself.
+            # A hard disconnect would leave the picture's save question to
+            # the user, so this session discards it itself.
             ok, text = session.call('disconnect', {'mode': 'hard', 'discard_unsaved': True})
             check('hard disconnect discarding', ok, text)
         except queue.Empty:
