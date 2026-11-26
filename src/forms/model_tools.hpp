@@ -88,10 +88,14 @@ class EditorModelTools final {
                        gui_forms::automation::ModelToolReply& reply);
     static void save(void* context, const gui_forms::automation::ModelToolCall& call,
                      gui_forms::automation::ModelToolReply& reply);
+    static void carpet(void* context, const gui_forms::automation::ModelToolCall& call,
+                       gui_forms::automation::ModelToolReply& reply);
 
     Editor& editor_;
     // The draw tool's schema names every shape it draws, so it is built.
     std::string draw_schema_;
+    // The carpet tool's schema names every fabric preset, so it is built.
+    std::string carpet_schema_;
 };
 
 } // namespace paint::forms

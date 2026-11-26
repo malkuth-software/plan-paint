@@ -7,7 +7,9 @@ points reading the colours back, in both point forms ({x, y} and [x, y],
 which the schemas also take); a radial gradient's radius; text's drawn size
 and the measure option; the Resize dialog, its OK marked default, a press on
 OK refused and the dialog closed by the model (a model never submits a
-dialog); a 100-step batch of strokes. Each drawing is checked by
+dialog); a 100-step batch of strokes; the Carpet Generator's tool (a preset
+painted, the same fibres relit, a setting out of range refused, the
+snapshot naming the tool); every program tool's help example accepted. Each drawing is checked by
 sampling. Every plan_paint_* and command_* tool, and each of its
 arguments, is described (`help <tool>` is that text, so an undocumented tool
 fails here). Ends with a hard disconnect that discards the picture and
@@ -87,6 +89,49 @@ def undocumented(tools):
             if not schema.get('description', '').strip():
                 missing.append(name + '.' + argument)
     return missing
+
+
+def help_example(program, name, home):
+    """The example line `--mcp-help <tool>` gives."""
+    environment = dict(os.environ, HOME=home, XDG_CONFIG_HOME=home, XDG_DATA_HOME=home, APPDATA=home)
+    done = subprocess.run([program, '--mcp-help', name], capture_output=True, env=environment, timeout=60)
+    lines = done.stdout.decode('utf-8').splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() == 'Example:' and index + 1 < len(lines):
+            return lines[index + 1].strip()
+    return ''
+
+
+def example_arguments(example):
+    """An example's key=value pairs as the console reads them: a value that
+    reads as JSON is JSON, anything else a string."""
+    words = []
+    current = ''
+    depth = 0
+    quoted = False
+    for letter in example:
+        if letter == '"' and (not current or current[-1] != '\\'):
+            quoted = not quoted
+        elif not quoted and letter in '[{':
+            depth += 1
+        elif not quoted and letter in ']}':
+            depth -= 1
+        if letter == ' ' and depth == 0 and not quoted:
+            if current:
+                words.append(current)
+            current = ''
+            continue
+        current += letter
+    if current:
+        words.append(current)
+    arguments = {}
+    for word in words[1:]:
+        key, _, value = word.partition('=')
+        try:
+            arguments[key] = json.loads(value)
+        except ValueError:
+            arguments[key] = value
+    return arguments
 
 
 def seed_recovery(home):
@@ -263,6 +308,37 @@ def main(argv):
             check('capture points, both shapes', ok and '1,1 #' in text and '2,2 #' in text, text)
             ok, text = session.call('plan_paint_image_info', {})
             check('image info', ok and 'colours: primary' in text, text)
+            # The Carpet Generator without its dialog (MCP round 6): a preset
+            # applied and painted, then the same fibres (the seed held) under
+            # another light.
+            ok, text = session.call('plan_paint_carpet', {'preset': 'royal_velvet',
+                                                          'points': [{'x': 20, 'y': 100}, {'x': 120, 'y': 100}],
+                                                          'size': 24})
+            seed = re.search(r'seed (\d+)', text)
+            check('carpet preset applied and painted', ok and seed is not None and 'painted a carpet stroke' in text,
+                  text)
+            if seed is not None:
+                ok, text = session.call('plan_paint_carpet', {'seed': int(seed.group(1)), 'light_direction': 300})
+                check('carpet relit with the same fibres', ok and 'seed ' + seed.group(1) in text and
+                      'light_direction 300 degrees' in text, text)
+            ok, text = session.call('plan_paint_carpet', {'fibre_diameter': 99})
+            check('a carpet setting out of range is refused', not ok and 'fibre_diameter' in text, text)
+            ok, text = session.call('snapshot', {})
+            check('the snapshot names the carpet tool for the dialog', 'instead=plan_paint_carpet' in text,
+                  text[-300:])
+            # Every program tool's help example is a call the tool accepts
+            # (MCP round 6). plan_paint_save is left out (it writes a file),
+            # plan_paint_new_image refuses over unsaved work by design, and
+            # the resize comes last (it shrinks the picture under the
+            # others' points).
+            examples = sorted(name for name in names if name.startswith('plan_paint_') and
+                              name not in ('plan_paint_save', 'plan_paint_new_image', 'plan_paint_resize_image'))
+            for name in examples + ['plan_paint_resize_image']:
+                example = help_example(argv[1], name, home)
+                arguments = example_arguments(example)
+                ok, text = session.call(name, arguments)
+                check('the help example for %s is accepted' % name, ok and example != '',
+                      example + ' -> ' + text[:300])
             # A hard disconnect would leave the picture's save question to
             # the user, so this session discards it itself.
             ok, text = session.call('disconnect', {'mode': 'hard', 'discard_unsaved': True})

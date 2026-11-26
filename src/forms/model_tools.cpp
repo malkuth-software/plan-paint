@@ -48,12 +48,16 @@ struct DialogOpener final {
     const char* id;
     const char* tool;
 };
-constexpr std::array<DialogOpener, 5> dialog_openers{{
+constexpr std::array<DialogOpener, 7> dialog_openers{{
     {"save-as", "plan_paint_save"},
     {"resize", "plan_paint_resize_image"},
     {"ribbon-bar.resize", "plan_paint_resize_image"},
     {"properties", "plan_paint_resize_image"},
     {"backstage.properties", "plan_paint_resize_image"},
+    // The Carpet Generator (MCP round 6: a model could not apply a material
+    // it had tuned in the dialog's preview).
+    {"carpet-settings", "plan_paint_carpet"},
+    {"family-carpet", "plan_paint_carpet"},
 }};
 
 constexpr const char* resize_schema =
@@ -151,7 +155,9 @@ constexpr const char* app_note =
     "floating as pending.\n"
     "- With the pointer, Edge and Fill paint with the Primary colour unless the colour group gives Fill the Alt "
     "colour.\n"
-    "- Resize and Properties open dialogs: use plan_paint_resize_image instead. New, Open and Save are "
+    "- Resize and Properties open dialogs: use plan_paint_resize_image instead. The Carpet Generator's dialog: "
+    "plan_paint_carpet applies a preset or any of its settings (keep seed, change light_direction) and can paint "
+    "a stroke with it. New, Open and Save are "
     "destructive and ask the user once per launch; Exit (command_quit) closes as the close tool does.\n"
     "- To finish: save with plan_paint_save (a path for a new picture; a save you ask for with a path asks "
     "nobody), then call release_control to leave the program open with the user, or disconnect. A disconnect "
@@ -242,6 +248,102 @@ constexpr const char* gradient_schema =
     "box's diagonal.\"},"
     "\"angle\":{\"type\":\"number\",\"description\":\"A linear gradient's direction in degrees: 0 runs left to ri"
     "ght, 90 top to bottom.\"}},\"required\":[\"from\",\"to\",\"stops\"],\"additionalProperties\":false}";
+// The carpet tool's schema (MCP round 6): every setting the Carpet
+// Generator dialog shows, with its unit and range, a preset to start from,
+// and an optional stroke to paint with the material. The preset list is
+// built from carpet_preset_name between the head and the tail.
+constexpr const char* carpet_schema_head =
+    "{\"type\":\"object\",\"properties\":{\"preset\":{\"type\":\"string\",\"description\":\"A named fabric to "
+    "start from, as the dialog's Fabric preset list has; without it, the current material. Settings given beside "
+    "it change only themselves.\",\"enum\":[";
+constexpr const char* carpet_schema_tail =
+    "]},\"velvet_felt\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1,\"description\":\"From velvet (0) to "
+    "felt (1), the dialog's Velvet to felt.\"},"
+    "\"fibre_diameter\":{\"type\":\"number\",\"minimum\":10,\"maximum\":36,\"description\":\"Fibre diameter in "
+    "micrometres.\"},"
+    "\"pile_depth\":{\"type\":\"number\",\"minimum\":0.25,\"maximum\":1.25,\"description\":\"Pile or sheet depth "
+    "in millimetres.\"},"
+    "\"nap_disorder\":{\"type\":\"number\",\"minimum\":0.05,\"maximum\":1.15,\"description\":\"How disordered "
+    "the nap lies, no unit: 0.05 lies combed, 1.15 tousled.\"},"
+    "\"crimp\":{\"type\":\"number\",\"minimum\":0.1,\"maximum\":1.3,\"description\":\"Fibre crimp, no unit: "
+    "how much each fibre waves.\"},"
+    "\"optical_roughness\":{\"type\":\"number\",\"minimum\":0.25,\"maximum\":0.75,\"description\":\"The fibres'"
+    " optical roughness, no unit: low is a tight sheen, high a broad one.\"},"
+    "\"dye_concentration\":{\"type\":\"number\",\"minimum\":0.5,\"maximum\":2,\"description\":\"Dye "
+    "concentration, a multiple of the dye's base strength.\"},"
+    "\"light_direction\":{\"type\":\"number\",\"minimum\":0,\"maximum\":360,\"description\":\"The light's "
+    "direction in degrees, as the dialog's Light direction.\"},"
+    "\"view_tilt\":{\"type\":\"number\",\"minimum\":0,\"maximum\":48,\"description\":\"The view's tilt from "
+    "straight down, in degrees.\"},"
+    "\"magnification\":{\"type\":\"number\",\"minimum\":0.75,\"maximum\":3,\"description\":\"Magnification of "
+    "the fibres, as a multiple (1 is the dialog's normal).\"},"
+    "\"dye_colour\":{\"type\":\"string\",\"description\":\"The dye's colour, #RRGGBB.\"},"
+    "\"hillshade\":{\"type\":\"boolean\",\"description\":\"Hillshade relief, as the dialog's check box.\"},"
+    "\"seed\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":4294967295,\"description\":\"The fibre "
+    "arrangement: the same seed keeps the same fibres while other settings change (the dialog's New fibers adds "
+    "one). The reply gives the seed in use.\"},"
+    "\"points\":{\"type\":\"array\",\"minItems\":2,\"maxItems\":4096,\"description\":\"Optional: paints a "
+    "carpet stroke through these points in picture pixels with the material, as the brush does (one undo "
+    "step).\",\"items\":{\"type\":[\"object\",\"array\"],\"properties\":{\"x\":{\"type\":\"number\"},\"y\":{"
+    "\"type\":\"number\"}},\"required\":[\"x\",\"y\"],\"additionalProperties\":false,\"items\":{\"type\":"
+    "\"number\"},\"minItems\":2,\"maxItems\":2}},"
+    "\"size\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":512,\"description\":\"The stroke's width in "
+    "pixels; default the brush size, at least 24.\"}},\"additionalProperties\":false}";
+
+// A fabric preset's name for a model: its name in lower case, words joined
+// by underscores ("royal_velvet").
+std::string carpet_preset_id(int index) {
+    std::string name{};
+    for (const char* letter = carpet_preset_name(index); *letter != '\0'; ++letter) {
+        const char character = *letter;
+        if (character == ' ') {
+            name += '_';
+        } else if (character >= 'A' && character <= 'Z') {
+            name += static_cast<char>(character - 'A' + 'a');
+        } else {
+            name += character;
+        }
+    }
+    return name;
+}
+
+// The number member `name`, if given, into `value`, within `low` to
+// `high`; false, failing the reply, when it is not a number in range.
+bool bounded_number(const stxlib::JsonDocument& document, stxlib::TextView name, double low, double high,
+                    double& value, automation::ModelToolReply& reply) {
+    const stxlib::Optional<stxlib::JsonRef> member = document.member(document.root(), name);
+    if (member.absent()) return true;
+    const stxlib::Optional<double> number = document.number(*member.value());
+    if (number.absent() || !(*number.value() >= low && *number.value() <= high)) {
+        const std::string message = std::string(name.data(), name.count()) + " is a number from " +
+                                    point_number(low) + " to " + point_number(high);
+        reply.fail(automation::ModelToolError::invalid_arguments, message.c_str(), nullptr);
+        return false;
+    }
+    value = *number.value();
+    return true;
+}
+
+// A carpet material as the reply gives it: every setting by its argument
+// name, so a model can hold some and change others.
+std::string carpet_text(const CarpetParameters& material) {
+    std::string text{};
+    text += "velvet_felt " + point_number(material.web);
+    text += ", fibre_diameter " + point_number(material.radius * 2000.0) + " um";
+    text += ", pile_depth " + point_number(material.height) + " mm";
+    text += ", nap_disorder " + point_number(material.disorder);
+    text += ", crimp " + point_number(material.crimp);
+    text += ", optical_roughness " + point_number(material.roughness);
+    text += ", dye_concentration " + point_number(material.dye);
+    text += ", light_direction " + point_number(material.light) + " degrees";
+    text += ", view_tilt " + point_number(material.view) + " degrees";
+    text += ", magnification " + point_number(material.magnification / 0.60);
+    text += ", dye_colour " + hex_text(material.color);
+    text += material.hillshade ? ", hillshade true" : ", hillshade false";
+    text += ", seed " + std::to_string(material.seed);
+    return text;
+}
+
 constexpr const char* text_schema =
     "{\"type\":\"object\",\"properties\":{\"at\":{\"type\":[\"object\",\"array\"],"
     "\"description\":\"The text's top-left corner, in picture pixels.\","
@@ -647,6 +749,24 @@ EditorModelTools::EditorModelTools(Editor& editor) : editor_(editor) {
     fresh.settles = true;
     static_cast<void>(automation::register_model_tool(fresh, &EditorModelTools::new_image, this));
 
+    carpet_schema_ = carpet_schema_head;
+    for (int index = 0; index < carpet_preset_count; ++index) {
+        if (index != 0) carpet_schema_ += ",";
+        carpet_schema_ += "\"" + carpet_preset_id(index) + "\"";
+    }
+    carpet_schema_ += carpet_schema_tail;
+    automation::ModelToolSpec carpet{};
+    carpet.name = "plan_paint_carpet";
+    carpet.title = "Carpet material";
+    carpet.description = "Applies a Carpet Generator material to the carpet brush without the dialog, as its OK "
+                         "does: a named preset, the current material, or either with any of its settings changed "
+                         "(keep seed and change light_direction to relight the same fibres). points paints a carpet "
+                         "stroke with it at once; the reply gives every setting in use.";
+    carpet.input_schema = carpet_schema_.c_str();
+    carpet.access = automation::ModelToolAccess::acting;
+    carpet.settles = true;
+    static_cast<void>(automation::register_model_tool(carpet, &EditorModelTools::carpet, this));
+
     automation::ModelToolSpec saving{};
     saving.name = "plan_paint_save";
     saving.title = "Save";
@@ -763,6 +883,7 @@ EditorModelTools::~EditorModelTools() {
     static_cast<void>(automation::unregister_model_tool("plan_paint_resize_image"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_new_image"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_save"));
+    static_cast<void>(automation::unregister_model_tool("plan_paint_carpet"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_draw"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_stroke"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_set_colour"));
@@ -976,6 +1097,115 @@ void EditorModelTools::stroke(void* context, const automation::ModelToolCall& ca
     document.image = std::move(drawn);
     editor.refresh();
     reply_text(reply, "drew a line through " + std::to_string(points.size()) + " points in " + hex_text(color) + "\n");
+}
+
+void EditorModelTools::carpet(void* context, const automation::ModelToolCall& call, automation::ModelToolReply& reply) {
+    EditorModelTools& tools = *static_cast<EditorModelTools*>(context);
+    stxlib::JsonDocument arguments{};
+    if (!read_arguments(call, arguments, reply)) return;
+    Editor& editor = tools.editor_;
+    Document& document = editor.document;
+    CarpetParameters material = editor.carpet_parameters;
+    const stxlib::Optional<stxlib::TextView> preset = arguments.member_text(arguments.root(), "preset");
+    if (const stxlib::TextView* const name = preset.value()) {
+        const std::string_view wanted((*name).data(), (*name).count());
+        int found = -1;
+        for (int index = 0; index < carpet_preset_count; ++index) {
+            if (carpet_preset_id(index) == wanted) found = index;
+        }
+        if (found < 0) {
+            reply.fail(automation::ModelToolError::invalid_arguments, "preset is one of the fabric presets",
+                       "help plan_paint.carpet lists them");
+            return;
+        }
+        material = carpet_preset(found);
+    }
+    double diameter = material.radius * 2000.0;
+    double magnification = material.magnification / 0.60;
+    const double roughness = material.roughness;
+    if (!bounded_number(arguments, "velvet_felt", 0.0, 1.0, material.web, reply) ||
+        !bounded_number(arguments, "fibre_diameter", 10.0, 36.0, diameter, reply) ||
+        !bounded_number(arguments, "pile_depth", 0.25, 1.25, material.height, reply) ||
+        !bounded_number(arguments, "nap_disorder", 0.05, 1.15, material.disorder, reply) ||
+        !bounded_number(arguments, "crimp", 0.1, 1.3, material.crimp, reply) ||
+        !bounded_number(arguments, "optical_roughness", 0.25, 0.75, material.roughness, reply) ||
+        !bounded_number(arguments, "dye_concentration", 0.5, 2.0, material.dye, reply) ||
+        !bounded_number(arguments, "light_direction", 0.0, 360.0, material.light, reply) ||
+        !bounded_number(arguments, "view_tilt", 0.0, 48.0, material.view, reply) ||
+        !bounded_number(arguments, "magnification", 0.75, 3.0, magnification, reply)) {
+        return;
+    }
+    material.radius = diameter / 2000.0;
+    material.magnification = magnification * 0.60;
+    // As the dialog's slider does: the azimuthal roughness follows.
+    if (material.roughness != roughness) material.azimuth_roughness = std::clamp(material.roughness + 0.1, 0.30, 0.85);
+    const stxlib::Optional<stxlib::TextView> dye = arguments.member_text(arguments.root(), "dye_colour");
+    if (const stxlib::TextView* const hex = dye.value()) {
+        Color color{};
+        if (!parse_hex(*hex, color)) {
+            reply.fail(automation::ModelToolError::invalid_arguments, "dye_colour is #RRGGBB", nullptr);
+            return;
+        }
+        color.a = 255;
+        material.color = color;
+    }
+    const stxlib::Optional<bool> hillshade = arguments.member_boolean(arguments.root(), "hillshade");
+    if (hillshade.present()) material.hillshade = *hillshade.value();
+    const stxlib::Optional<stxlib::JsonRef> seed_member = arguments.member(arguments.root(), "seed");
+    if (seed_member.present()) {
+        const stxlib::Optional<stxlib::i64> seed = arguments.member_integer(arguments.root(), "seed");
+        if (seed.absent() || *seed.value() < 0 || *seed.value() > 4294967295LL) {
+            reply.fail(automation::ModelToolError::invalid_arguments, "seed is an integer from 0 to 4294967295",
+                       nullptr);
+            return;
+        }
+        material.seed = static_cast<std::uint32_t>(*seed.value());
+    }
+    std::vector<Point> points{};
+    if (arguments.member(arguments.root(), "points").present() &&
+        !point_list(arguments, "points", 2U, 4096U, points, reply)) {
+        return;
+    }
+    int size = std::max(24, document.ink.size);
+    const stxlib::Optional<stxlib::JsonRef> size_member = arguments.member(arguments.root(), "size");
+    if (size_member.present()) {
+        const stxlib::Optional<stxlib::i64> read = arguments.member_integer(arguments.root(), "size");
+        if (read.absent() || *read.value() < 1 || *read.value() > 512) {
+            reply.fail(automation::ModelToolError::invalid_arguments, "size is from 1 to 512 pixels", nullptr);
+            return;
+        }
+        size = static_cast<int>(*read.value());
+    }
+    Image tile{};
+    try {
+        tile = render_carpet_tile(material, 512);
+    } catch (const std::exception& failure) {
+        const std::string message = std::string("the material could not be rendered: ") + failure.what();
+        reply.fail(automation::ModelToolError::internal, message.c_str(), nullptr);
+        return;
+    }
+    editor.finish_controls();
+    // As the dialog's OK: the carpet brush takes the material.
+    editor.carpet_parameters = material;
+    editor.carpet_tile = tile;
+    editor.brush_family = BrushFamily::Carpet;
+    document.ink.size = std::max(24, document.ink.size);
+    std::string text = "carpet material applied: " + carpet_text(material) + "\n";
+    if (!points.empty()) {
+        Image drawn = document.image;
+        CarpetStroke stroke{};
+        const double opacity = document.ink.primary.a / 255.0;
+        for (std::size_t index = 1U; index < points.size(); ++index) {
+            stroke.segment(drawn, points[index - 1U], points[index], static_cast<double>(size), tile, opacity, false);
+        }
+        commit_drawing(editor, drawn);
+        text += "painted a carpet stroke " + std::to_string(size) + " px wide through " +
+                std::to_string(points.size()) + " points\n";
+    } else {
+        editor.refresh();
+        text += "the Brush tool's carpet family paints with it; points paints a stroke here\n";
+    }
+    reply_text(reply, text);
 }
 
 void EditorModelTools::set_colour(void* context, const automation::ModelToolCall& call,
