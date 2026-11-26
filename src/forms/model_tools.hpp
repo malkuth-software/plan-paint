@@ -90,6 +90,18 @@ class EditorModelTools final {
                      gui_forms::automation::ModelToolReply& reply);
     static void carpet(void* context, const gui_forms::automation::ModelToolCall& call,
                        gui_forms::automation::ModelToolReply& reply);
+    static void brush_size(void* context, const gui_forms::automation::ModelToolCall& call,
+                           gui_forms::automation::ModelToolReply& reply);
+    static void gradient_stop(void* context, const gui_forms::automation::ModelToolCall& call,
+                              gui_forms::automation::ModelToolReply& reply);
+    static void dither(void* context, const gui_forms::automation::ModelToolCall& call,
+                       gui_forms::automation::ModelToolReply& reply);
+    static void transform(void* context, const gui_forms::automation::ModelToolCall& call,
+                          gui_forms::automation::ModelToolReply& reply);
+    static void sprite_grid(void* context, const gui_forms::automation::ModelToolCall& call,
+                            gui_forms::automation::ModelToolReply& reply);
+    static void hotspot(void* context, const gui_forms::automation::ModelToolCall& call,
+                        gui_forms::automation::ModelToolReply& reply);
 
     Editor& editor_;
     // The draw tool's schema names every shape it draws, so it is built.

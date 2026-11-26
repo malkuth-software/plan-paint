@@ -3,6 +3,7 @@
 #include "forms/editor.hpp"
 #include "codecs.hpp"
 #include "gradient.hpp"
+#include "numeric_transform.hpp"
 #include "paths.hpp"
 #include "raster.hpp"
 #include "text.hpp"
@@ -48,7 +49,7 @@ struct DialogOpener final {
     const char* id;
     const char* tool;
 };
-constexpr std::array<DialogOpener, 7> dialog_openers{{
+constexpr std::array<DialogOpener, 15> dialog_openers{{
     {"save-as", "plan_paint_save"},
     {"resize", "plan_paint_resize_image"},
     {"ribbon-bar.resize", "plan_paint_resize_image"},
@@ -58,6 +59,16 @@ constexpr std::array<DialogOpener, 7> dialog_openers{{
     // it had tuned in the dialog's preview).
     {"carpet-settings", "plan_paint_carpet"},
     {"family-carpet", "plan_paint_carpet"},
+    // The other dialogs a model can answer with arguments (MCP round 6).
+    // Edit colors opens the colour dialog without an ellipsis in its name.
+    {"edit-colors", "plan_paint_set_colour"},
+    {"custom-size", "plan_paint_brush_size"},
+    {"status-tool-size", "plan_paint_brush_size"},
+    {"gradient-edit-color", "plan_paint_gradient_stop"},
+    {"selection-dither", "plan_paint_dither"},
+    {"numeric-transform", "plan_paint_transform"},
+    {"atlas-grid", "plan_paint_sprite_grid"},
+    {"atlas-hotspot", "plan_paint_hotspot"},
 }};
 
 constexpr const char* resize_schema =
@@ -157,7 +168,10 @@ constexpr const char* app_note =
     "colour.\n"
     "- Resize and Properties open dialogs: use plan_paint_resize_image instead. The Carpet Generator's dialog: "
     "plan_paint_carpet applies a preset or any of its settings (keep seed, change light_direction) and can paint "
-    "a stroke with it. New, Open and Save are "
+    "a stroke with it. The other dialogs a model can answer have tools too: plan_paint_set_colour (Edit "
+    "colors), plan_paint_brush_size (Custom size), plan_paint_gradient_stop (a gradient stop's Color), "
+    "plan_paint_dither, plan_paint_transform, plan_paint_sprite_grid and plan_paint_hotspot; a snapshot's "
+    "instead= names the tool for a dialog's command. New, Open and Save are "
     "destructive and ask the user once per launch; Exit (command_quit) closes as the close tool does.\n"
     "- To finish: save with plan_paint_save (a path for a new picture; a save you ask for with a path asks "
     "nobody), then call release_control to leave the program open with the user, or disconnect. A disconnect "
@@ -343,6 +357,100 @@ std::string carpet_text(const CarpetParameters& material) {
     text += ", seed " + std::to_string(material.seed);
     return text;
 }
+
+// The schemas of the dialogs' own tools (MCP round 6): each takes what its
+// dialog's fields take, with the same ranges and units.
+constexpr const char* brush_size_schema =
+    "{\"type\":\"object\",\"properties\":{\"size\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":1024,"
+    "\"description\":\"The tool size in pixels, as the Custom size dialog sets it: the brush, eraser and outline "
+    "width.\"}},\"required\":[\"size\"],\"additionalProperties\":false}";
+constexpr const char* gradient_stop_schema =
+    "{\"type\":\"object\",\"properties\":{\"colour\":{\"type\":\"string\",\"description\":\"The stop's colour, "
+    "#RRGGBB or #RRGGBBAA.\"},\"stop\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":31,\"examples\":[0],"
+    "\"description\":\"Which "
+    "stop of the Gradient fill, counted from 0 at its start; default the stop chosen on the ribbon.\"}},"
+    "\"required\":[\"colour\"],\"additionalProperties\":false}";
+constexpr const char* dither_schema =
+    "{\"type\":\"object\",\"properties\":{\"colours\":{\"type\":\"integer\",\"minimum\":2,\"maximum\":32,"
+    "\"description\":\"How many colours the palette keeps; default the dialog's last choice.\"},"
+    "\"pattern\":{\"type\":\"string\",\"enum\":[\"crosswind\",\"weave\",\"scrambled\",\"drift\",\"posterize\"],"
+    "\"description\":\"The dithering pattern; posterize reduces the colours without dithering. Default the "
+    "dialog's last choice.\"}},\"additionalProperties\":false}";
+constexpr const char* transform_schema =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"offset_x\":{\"type\":\"number\",\"minimum\":-16384,\"maximum\":16384,\"description\":\"Moves right by this "
+    "many pixels (left when negative); default 0.\"},"
+    "\"offset_y\":{\"type\":\"number\",\"minimum\":-16384,\"maximum\":16384,\"description\":\"Moves down by this "
+    "many pixels (up when negative); default 0.\"},"
+    "\"scale_x\":{\"type\":\"number\",\"minimum\":1,\"maximum\":1600,\"description\":\"Horizontal scale in "
+    "percent; default 100.\"},"
+    "\"scale_y\":{\"type\":\"number\",\"minimum\":1,\"maximum\":1600,\"description\":\"Vertical scale in "
+    "percent; default 100.\"},"
+    "\"angle\":{\"type\":\"number\",\"minimum\":-360,\"maximum\":360,\"description\":\"Rotation in degrees "
+    "clockwise; default 0.\"},"
+    "\"sampling\":{\"type\":\"string\",\"enum\":[\"point\",\"minification\",\"area\"],\"description\":\"How "
+    "pixels are resampled; default minification.\"}},\"additionalProperties\":false}";
+constexpr const char* sprite_grid_schema =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"columns\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":4096,\"description\":\"Frames across.\"},"
+    "\"rows\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":4096,\"description\":\"Frames down.\"},"
+    "\"margin_x\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":32768,\"description\":\"The left and right "
+    "margin in pixels; default 0.\"},"
+    "\"margin_y\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":32768,\"description\":\"The top and bottom "
+    "margin in pixels; default 0.\"},"
+    "\"spacing_x\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":32768,\"description\":\"Pixels between "
+    "columns; default 0.\"},"
+    "\"spacing_y\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":32768,\"description\":\"Pixels between rows; "
+    "default 0.\"}},\"required\":[\"columns\",\"rows\"],\"additionalProperties\":false}";
+constexpr const char* hotspot_schema =
+    "{\"type\":\"object\",\"properties\":{"
+    "\"x\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":255,\"description\":\"The hotspot's column in the "
+    "cursor image's pixels, from its left edge.\"},"
+    "\"y\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":255,\"description\":\"The hotspot's row in the cursor "
+    "image's pixels, from its top edge.\"}},\"required\":[\"x\",\"y\"],\"additionalProperties\":false}";
+
+// The integer member `name`, if given, into `value`, within `low` to
+// `high`; false, failing the reply, when it is not an integer in range.
+bool bounded_integer(const stxlib::JsonDocument& document, stxlib::TextView name, int low, int high, int& value,
+                     automation::ModelToolReply& reply) {
+    const stxlib::Optional<stxlib::JsonRef> member = document.member(document.root(), name);
+    if (member.absent()) return true;
+    const stxlib::Optional<stxlib::i64> number = document.member_integer(document.root(), name);
+    if (number.absent() || *number.value() < low || *number.value() > high) {
+        const std::string message = std::string(name.data(), name.count()) + " is an integer from " +
+                                    std::to_string(low) + " to " + std::to_string(high);
+        reply.fail(automation::ModelToolError::invalid_arguments, message.c_str(), nullptr);
+        return false;
+    }
+    value = static_cast<int>(*number.value());
+    return true;
+}
+
+// The text member `name`, if given, as one of `names` into `index`; false,
+// failing the reply, for any other value.
+template <std::size_t count>
+bool named_choice(const stxlib::JsonDocument& document, stxlib::TextView name,
+                  const std::array<const char*, count>& names, int& index, automation::ModelToolReply& reply) {
+    const stxlib::Optional<stxlib::JsonRef> member = document.member(document.root(), name);
+    if (member.absent()) return true;
+    const stxlib::Optional<stxlib::TextView> text = document.member_text(document.root(), name);
+    if (const stxlib::TextView* const given = text.value()) {
+        const std::string_view wanted((*given).data(), (*given).count());
+        for (std::size_t at = 0U; at < count; ++at) {
+            if (wanted == names[at]) {
+                index = static_cast<int>(at);
+                return true;
+            }
+        }
+    }
+    std::string message = std::string(name.data(), name.count()) + " is one of";
+    for (std::size_t at = 0U; at < count; ++at) message += std::string(at == 0U ? " " : ", ") + names[at];
+    reply.fail(automation::ModelToolError::invalid_arguments, message.c_str(), nullptr);
+    return false;
+}
+
+constexpr std::array<const char*, 5> dither_pattern_names{"crosswind", "weave", "scrambled", "drift", "posterize"};
+constexpr std::array<const char*, 3> sampling_names{"point", "minification", "area"};
 
 constexpr const char* text_schema =
     "{\"type\":\"object\",\"properties\":{\"at\":{\"type\":[\"object\",\"array\"],"
@@ -767,6 +875,69 @@ EditorModelTools::EditorModelTools(Editor& editor) : editor_(editor) {
     carpet.settles = true;
     static_cast<void>(automation::register_model_tool(carpet, &EditorModelTools::carpet, this));
 
+    automation::ModelToolSpec brush_size{};
+    brush_size.name = "plan_paint_brush_size";
+    brush_size.title = "Tool size";
+    brush_size.description = "Sets the tool size in pixels without the Custom size dialog, as its OK does: the "
+                             "width the brush, eraser and outlines paint with on the canvas.";
+    brush_size.input_schema = brush_size_schema;
+    brush_size.access = automation::ModelToolAccess::acting;
+    brush_size.settles = true;
+    static_cast<void>(automation::register_model_tool(brush_size, &EditorModelTools::brush_size, this));
+
+    automation::ModelToolSpec gradient_stop{};
+    gradient_stop.name = "plan_paint_gradient_stop";
+    gradient_stop.title = "Gradient stop colour";
+    gradient_stop.description = "Sets a colour stop of the Gradient fill (the ribbon's gradient material) without "
+                                "the stop's Color dialog. The reply lists every stop. plan_paint_gradient paints "
+                                "a gradient with stops of its own.";
+    gradient_stop.input_schema = gradient_stop_schema;
+    gradient_stop.access = automation::ModelToolAccess::acting;
+    gradient_stop.settles = true;
+    static_cast<void>(automation::register_model_tool(gradient_stop, &EditorModelTools::gradient_stop, this));
+
+    automation::ModelToolSpec dither{};
+    dither.name = "plan_paint_dither";
+    dither.title = "Dither / posterize";
+    dither.description = "Dithers or posterizes the picture (inside the selection when one is active) without "
+                         "the dialog, as its OK does: one undo step, alpha kept. The reply gives the palette's "
+                         "size.";
+    dither.input_schema = dither_schema;
+    dither.access = automation::ModelToolAccess::acting;
+    dither.settles = true;
+    static_cast<void>(automation::register_model_tool(dither, &EditorModelTools::dither, this));
+
+    automation::ModelToolSpec transform{};
+    transform.name = "plan_paint_transform";
+    transform.title = "Transform";
+    transform.description = "Moves, scales and rotates the selection (or the whole picture) by numbers without the "
+                            "Transform dialog, as its Apply does: scale about the centre, then rotate, then move. "
+                            "One undo step.";
+    transform.input_schema = transform_schema;
+    transform.access = automation::ModelToolAccess::acting;
+    transform.settles = true;
+    static_cast<void>(automation::register_model_tool(transform, &EditorModelTools::transform, this));
+
+    automation::ModelToolSpec sprite_grid{};
+    sprite_grid.name = "plan_paint_sprite_grid";
+    sprite_grid.title = "Sprite sheet grid";
+    sprite_grid.description = "Splits the whole picture into equal frames without the Sprite grid dialog, as its "
+                              "OK does, and opens the first frame for editing. The frames must fit the picture.";
+    sprite_grid.input_schema = sprite_grid_schema;
+    sprite_grid.access = automation::ModelToolAccess::acting;
+    sprite_grid.settles = true;
+    static_cast<void>(automation::register_model_tool(sprite_grid, &EditorModelTools::sprite_grid, this));
+
+    automation::ModelToolSpec hotspot{};
+    hotspot.name = "plan_paint_hotspot";
+    hotspot.title = "Cursor hotspot";
+    hotspot.description = "Sets the current cursor image's hotspot without the Hotspot dialog, as its OK does. "
+                          "Only while a cursor is open; a point past the image is moved to its edge.";
+    hotspot.input_schema = hotspot_schema;
+    hotspot.access = automation::ModelToolAccess::acting;
+    hotspot.settles = true;
+    static_cast<void>(automation::register_model_tool(hotspot, &EditorModelTools::hotspot, this));
+
     automation::ModelToolSpec saving{};
     saving.name = "plan_paint_save";
     saving.title = "Save";
@@ -884,6 +1055,12 @@ EditorModelTools::~EditorModelTools() {
     static_cast<void>(automation::unregister_model_tool("plan_paint_new_image"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_save"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_carpet"));
+    static_cast<void>(automation::unregister_model_tool("plan_paint_brush_size"));
+    static_cast<void>(automation::unregister_model_tool("plan_paint_gradient_stop"));
+    static_cast<void>(automation::unregister_model_tool("plan_paint_dither"));
+    static_cast<void>(automation::unregister_model_tool("plan_paint_transform"));
+    static_cast<void>(automation::unregister_model_tool("plan_paint_sprite_grid"));
+    static_cast<void>(automation::unregister_model_tool("plan_paint_hotspot"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_draw"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_stroke"));
     static_cast<void>(automation::unregister_model_tool("plan_paint_set_colour"));
@@ -1206,6 +1383,192 @@ void EditorModelTools::carpet(void* context, const automation::ModelToolCall& ca
         text += "the Brush tool's carpet family paints with it; points paints a stroke here\n";
     }
     reply_text(reply, text);
+}
+
+void EditorModelTools::brush_size(void* context, const automation::ModelToolCall& call,
+                                  automation::ModelToolReply& reply) {
+    EditorModelTools& tools = *static_cast<EditorModelTools*>(context);
+    stxlib::JsonDocument arguments{};
+    if (!read_arguments(call, arguments, reply)) return;
+    int size = 0;
+    if (arguments.member(arguments.root(), "size").absent()) {
+        reply.fail(automation::ModelToolError::invalid_arguments, "size is required", nullptr);
+        return;
+    }
+    if (!bounded_integer(arguments, "size", 1, 1024, size, reply)) return;
+    Editor& editor = tools.editor_;
+    editor.document.ink.size = size;
+    editor.refresh();
+    reply_text(reply, "tool size: " + std::to_string(size) + " px\n");
+}
+
+void EditorModelTools::gradient_stop(void* context, const automation::ModelToolCall& call,
+                                     automation::ModelToolReply& reply) {
+    EditorModelTools& tools = *static_cast<EditorModelTools*>(context);
+    stxlib::JsonDocument arguments{};
+    if (!read_arguments(call, arguments, reply)) return;
+    Editor& editor = tools.editor_;
+    Gradient& gradient = editor.fill_gradient;
+    const stxlib::Optional<stxlib::TextView> hex = arguments.member_text(arguments.root(), "colour");
+    Color color{};
+    if (hex.absent() || !parse_hex(*hex.value(), color)) {
+        reply.fail(automation::ModelToolError::invalid_arguments, "colour is #RRGGBB or #RRGGBBAA", nullptr);
+        return;
+    }
+    int stop = static_cast<int>(editor.gradient_stop);
+    const int last = static_cast<int>(gradient.stops.size()) - 1;
+    if (!bounded_integer(arguments, "stop", 0, last, stop, reply)) return;
+    if (stop < 0 || stop > last) {
+        reply.fail(automation::ModelToolError::invalid_arguments, "the gradient has no stop chosen", nullptr);
+        return;
+    }
+    gradient.stops[static_cast<std::size_t>(stop)].color = color;
+    editor.gradient_stop = static_cast<std::size_t>(stop);
+    editor.refresh();
+    std::string text = "gradient stop " + std::to_string(stop) + ": " + hex_text(color) + "\nstops:";
+    for (const GradientStop& each : gradient.stops) {
+        text += " " + point_number(each.position) + " " + hex_text(each.color) + ";";
+    }
+    text.back() = '\n';
+    reply_text(reply, text);
+}
+
+void EditorModelTools::dither(void* context, const automation::ModelToolCall& call, automation::ModelToolReply& reply) {
+    EditorModelTools& tools = *static_cast<EditorModelTools*>(context);
+    stxlib::JsonDocument arguments{};
+    if (!read_arguments(call, arguments, reply)) return;
+    Editor& editor = tools.editor_;
+    Document& document = editor.document;
+    DitherOptions options = editor.dither_options;
+    int pattern = static_cast<int>(options.pattern);
+    if (!bounded_integer(arguments, "colours", 2, 32, options.colors, reply) ||
+        !named_choice(arguments, "pattern", dither_pattern_names, pattern, reply)) {
+        return;
+    }
+    options.pattern = static_cast<DitherPattern>(pattern);
+    std::vector<Color> palette{};
+    try {
+        // As the dialog's command and OK: the selection settles first.
+        editor.finish_controls();
+        document.require_rgba_transform();
+        Image result = dithered(document.image, editor.canvas_selection_mask(), options, &palette);
+        document.checkpoint();
+        document.image = std::move(result);
+    } catch (const std::exception& failure) {
+        reply.fail(automation::ModelToolError::invalid_arguments, failure.what(), nullptr);
+        return;
+    }
+    editor.dither_options = options;
+    editor.refresh();
+    const bool inside = document.selection.active && document.selection.canvas_selection;
+    reply_text(reply, std::string("dithered ") + (inside ? "the selection" : "the picture") + ": " +
+                          dither_pattern_names[static_cast<std::size_t>(pattern)] + ", " +
+                          std::to_string(palette.size()) + " colours\n");
+}
+
+void EditorModelTools::transform(void* context, const automation::ModelToolCall& call,
+                                 automation::ModelToolReply& reply) {
+    EditorModelTools& tools = *static_cast<EditorModelTools*>(context);
+    stxlib::JsonDocument arguments{};
+    if (!read_arguments(call, arguments, reply)) return;
+    NumericTransformSettings settings{};
+    int sampling = static_cast<int>(settings.sampling);
+    if (!bounded_number(arguments, "offset_x", -16384.0, 16384.0, settings.offset_x, reply) ||
+        !bounded_number(arguments, "offset_y", -16384.0, 16384.0, settings.offset_y, reply) ||
+        !bounded_number(arguments, "scale_x", 1.0, 1600.0, settings.scale_x, reply) ||
+        !bounded_number(arguments, "scale_y", 1.0, 1600.0, settings.scale_y, reply) ||
+        !bounded_number(arguments, "angle", -360.0, 360.0, settings.angle, reply) ||
+        !named_choice(arguments, "sampling", sampling_names, sampling, reply)) {
+        return;
+    }
+    settings.sampling = static_cast<WarpSampling>(sampling);
+    Editor& editor = tools.editor_;
+    Document& document = editor.document;
+    bool changed = false;
+    bool selection = false;
+    try {
+        document.require_rgba_transform();
+        editor.unset_guide();
+        editor.finish_controls();
+        const NumericTransformSource source = capture_numeric_transform(document);
+        selection = source.selection.active;
+        NumericTransformResult result = render_numeric_transform(source, settings);
+        changed = result.changed;
+        apply_numeric_transform(document, source, std::move(result));
+    } catch (const std::exception& failure) {
+        reply.fail(automation::ModelToolError::invalid_arguments, failure.what(), nullptr);
+        return;
+    }
+    editor.refresh();
+    std::string text = changed ? "transformed " : "nothing changed: the transform leaves ";
+    text += selection ? "the selection" : "the picture";
+    text += " (offset " + point_number(settings.offset_x) + ", " + point_number(settings.offset_y) + " px; scale " +
+            point_number(settings.scale_x) + "% x " + point_number(settings.scale_y) + "%; angle " +
+            point_number(settings.angle) + " degrees; " + sampling_names[static_cast<std::size_t>(sampling)] +
+            " sampling)\n";
+    reply_text(reply, text);
+}
+
+void EditorModelTools::sprite_grid(void* context, const automation::ModelToolCall& call,
+                                   automation::ModelToolReply& reply) {
+    EditorModelTools& tools = *static_cast<EditorModelTools*>(context);
+    stxlib::JsonDocument arguments{};
+    if (!read_arguments(call, arguments, reply)) return;
+    if (arguments.member(arguments.root(), "columns").absent() ||
+        arguments.member(arguments.root(), "rows").absent()) {
+        reply.fail(automation::ModelToolError::invalid_arguments, "columns and rows are required", nullptr);
+        return;
+    }
+    AtlasGrid grid{};
+    if (!bounded_integer(arguments, "columns", 1, 4096, grid.columns, reply) ||
+        !bounded_integer(arguments, "rows", 1, 4096, grid.rows, reply) ||
+        !bounded_integer(arguments, "margin_x", 0, 32768, grid.margin_x, reply) ||
+        !bounded_integer(arguments, "margin_y", 0, 32768, grid.margin_y, reply) ||
+        !bounded_integer(arguments, "spacing_x", 0, 32768, grid.spacing_x, reply) ||
+        !bounded_integer(arguments, "spacing_y", 0, 32768, grid.spacing_y, reply)) {
+        return;
+    }
+    Editor& editor = tools.editor_;
+    Document& document = editor.document;
+    try {
+        editor.unset_guide();
+        editor.finish_controls();
+        document.configure_atlas(grid);
+    } catch (const std::exception& failure) {
+        reply.fail(automation::ModelToolError::invalid_arguments, failure.what(), nullptr);
+        return;
+    }
+    editor.refresh();
+    reply_text(reply, "sprite grid: " + std::to_string(grid.columns) + " x " + std::to_string(grid.rows) +
+                          " frames; frame 1 is open (" + size_text(document) + " pixels)\n");
+}
+
+void EditorModelTools::hotspot(void* context, const automation::ModelToolCall& call,
+                               automation::ModelToolReply& reply) {
+    EditorModelTools& tools = *static_cast<EditorModelTools*>(context);
+    stxlib::JsonDocument arguments{};
+    if (!read_arguments(call, arguments, reply)) return;
+    Editor& editor = tools.editor_;
+    Document& document = editor.document;
+    if (document.atlas.kind != AtlasKind::Cursor || document.atlas.active < 0) {
+        reply.fail(automation::ModelToolError::invalid_arguments, "no cursor image is open",
+                   "open a .cur or .ani file, or make cursor sizes from the picture, first");
+        return;
+    }
+    if (arguments.member(arguments.root(), "x").absent() || arguments.member(arguments.root(), "y").absent()) {
+        reply.fail(automation::ModelToolError::invalid_arguments, "x and y are required", nullptr);
+        return;
+    }
+    int x = 0;
+    int y = 0;
+    if (!bounded_integer(arguments, "x", 0, 255, x, reply) || !bounded_integer(arguments, "y", 0, 255, y, reply)) {
+        return;
+    }
+    document.set_hotspot(x, y);
+    editor.refresh();
+    const IconFrame& frame = document.atlas.icons[static_cast<std::size_t>(document.atlas.active)];
+    reply_text(reply, "hotspot: " + std::to_string(frame.hotspot_x) + ", " + std::to_string(frame.hotspot_y) +
+                          " (image " + size_text(document) + " pixels)\n");
 }
 
 void EditorModelTools::set_colour(void* context, const automation::ModelToolCall& call,

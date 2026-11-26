@@ -9,7 +9,9 @@ and the measure option; the Resize dialog, its OK marked default, a press on
 OK refused and the dialog closed by the model (a model never submits a
 dialog); a 100-step batch of strokes; the Carpet Generator's tool (a preset
 painted, the same fibres relit, a setting out of range refused, the
-snapshot naming the tool); every program tool's help example accepted. Each drawing is checked by
+snapshot naming the tool); the other dialogs' tools (tool size, a gradient
+stop, dither, transform, sprite grid, a hotspot refused without a cursor);
+every program tool's help example accepted. Each drawing is checked by
 sampling. Every plan_paint_* and command_* tool, and each of its
 arguments, is described (`help <tool>` is that text, so an undocumented tool
 fails here). Ends with a hard disconnect that discards the picture and
@@ -326,19 +328,45 @@ def main(argv):
             ok, text = session.call('snapshot', {})
             check('the snapshot names the carpet tool for the dialog', 'instead=plan_paint_carpet' in text,
                   text[-300:])
+            # The other dialogs' tools (MCP round 6): each does what its
+            # dialog's OK does, and the snapshot names it for the dialog.
+            ok, text = session.call('plan_paint_brush_size', {'size': 7})
+            check('tool size set without its dialog', ok and 'tool size: 7 px' in text, text)
+            ok, text = session.call('plan_paint_brush_size', {'size': 0})
+            check('a tool size out of range is refused', not ok and 'size' in text, text)
+            ok, text = session.call('plan_paint_gradient_stop', {'stop': 1, 'colour': '#FF8000'})
+            check('a gradient stop coloured without its dialog', ok and 'gradient stop 1: #FF8000' in text, text)
+            ok, text = session.call('plan_paint_dither', {'colours': 4, 'pattern': 'weave'})
+            check('dithered without the dialog', ok and 'weave' in text and 'colours' in text, text)
+            ok, text = session.call('plan_paint_dither', {'pattern': 'plaid'})
+            check('an unknown dither pattern is refused', not ok and 'crosswind' in text, text)
+            ok, text = session.call('plan_paint_transform', {'angle': 90, 'sampling': 'point'})
+            check('transformed without the dialog', ok and 'transformed the picture' in text and
+                  'angle 90 degrees' in text, text)
+            ok, text = session.call('plan_paint_hotspot', {'x': 1, 'y': 1})
+            check('a hotspot without a cursor is refused', not ok and 'no cursor image' in text, text)
+            ok, text = session.call('snapshot', {})
+            check('the snapshot names the tool size tool for its dialog', 'instead=plan_paint_brush_size' in text,
+                  text[-300:])
             # Every program tool's help example is a call the tool accepts
             # (MCP round 6). plan_paint_save is left out (it writes a file),
             # plan_paint_new_image refuses over unsaved work by design, and
             # the resize comes last (it shrinks the picture under the
             # others' points).
             examples = sorted(name for name in names if name.startswith('plan_paint_') and
-                              name not in ('plan_paint_save', 'plan_paint_new_image', 'plan_paint_resize_image'))
+                              name not in ('plan_paint_save', 'plan_paint_new_image', 'plan_paint_resize_image',
+                                           'plan_paint_hotspot', 'plan_paint_sprite_grid'))
             for name in examples + ['plan_paint_resize_image']:
                 example = help_example(argv[1], name, home)
                 arguments = example_arguments(example)
                 ok, text = session.call(name, arguments)
                 check('the help example for %s is accepted' % name, ok and example != '',
                       example + ' -> ' + text[:300])
+            # The sprite grid last: the picture becomes a sheet of frames.
+            ok, text = session.call('plan_paint_sprite_grid', {'columns': 2, 'rows': 2, 'spacing_x': 2})
+            check('a sprite grid without its dialog', ok and 'sprite grid: 2 x 2 frames' in text, text)
+            ok, text = session.call('plan_paint_sprite_grid', {'columns': 4096, 'rows': 4096})
+            check('a sprite grid that does not fit is refused', not ok, text)
             # A hard disconnect would leave the picture's save question to
             # the user, so this session discards it itself.
             ok, text = session.call('disconnect', {'mode': 'hard', 'discard_unsaved': True})
