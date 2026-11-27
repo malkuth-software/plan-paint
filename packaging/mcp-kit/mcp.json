@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "plan-paint": {
+      "command": "./Plan Paint.app/Contents/MacOS/plan-paint",
+      "args": ["--mcp-shared"]
+    },
+    "plan-paint-fcfs": {
+      "command": "./Plan Paint.app/Contents/MacOS/plan-paint",
+      "args": ["--mcp-fcfs"]
+    }
+  }
+}

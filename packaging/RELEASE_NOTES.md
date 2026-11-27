@@ -2,6 +2,8 @@ The native Paint ribbon includes drawing, selection, path, stamp, pattern, resha
 
 Mix brushes include **Contour relief**, which replaces Holonomy with highlights and shadows shaped by the image's own edges. Scale controls contour width; Phase rotates the light. **Brushes → Fine glitter** directly selects glitter spray and opens its controls.
 
+**Models can use Plan Paint over MCP** (GUI.Forms 1.0.5). Start it with `--mcp-shared` (a model's first act asks you, with a 10 s countdown) or `--mcp-fcfs` (the first model to act takes control at once; you take it back by asking). Either serves MCP on standard input and output, a command folder and a local socket that only your user can reach, and `plan-paint --mcp-socket` prints where (`--help` says more); `plan-paint --mcp` prints the MCP help. Without a flag Plan Paint shares nothing. While it is in control, a "thinking..." button opens a console of every call and reply, and a click anywhere takes control back.
+
 These packages use standalone GUI.Forms and its live-buffer canvas. All four native builds must pass CTest, style checks, packaging and isolated packaged startup before publication. SHA256SUMS contains the checksum of each package.
 
 | Platform | Package and requirements |

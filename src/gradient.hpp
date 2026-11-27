@@ -2,6 +2,7 @@
 #include "image.hpp"
 #include <span>
 #include <string>
+#include <algorithm>
 #include <vector>
 namespace paint {
 enum class GradientKind { Linear, Radial };
@@ -27,6 +28,10 @@ class GradientSampler {
     GradientSampler(const Gradient& gradient, Rect bounds);
     Color at(double position) const;
     Color sample(double x, double y) const;
+    // A radial gradient's radius in pixels (position 1 at that distance
+    // from the centre); the default reaches the box's corners.
+    void set_radius(double radius) { radius_ = std::max(.5, radius); }
+    double radius() const { return radius_; }
 
   private:
     struct Stop {

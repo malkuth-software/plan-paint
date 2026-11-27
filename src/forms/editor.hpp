@@ -314,6 +314,9 @@ class Editor final : public gui_forms::Control {
     // modal loop would hold every MCP call, so it waits for an ordinary
     // launch (File > Recover still opens it).
     bool served_launch = false;
+    // Fits the picture to the view on a served launch's first show, and
+    // again while the window's layout settles (fit_tick).
+    void first_show_fit();
     std::string recovery_notice;
     // A command-line file that failed to open. Ready may run before the host
     // can show modal UI, so the message waits for the first recovery tick.
@@ -473,6 +476,16 @@ class Editor final : public gui_forms::Control {
     std::future<FileStamp> file_check_;
     std::unique_ptr<gui_forms::Timer> file_timer_;
     gui_forms::SubscriptionToken file_subscription_;
+    // A served launch's fit on first show (MCP round 5): the window's final
+    // layout can come after the first fit (it opened 741 tall, then settled
+    // at 733 and cut the picture off), so the fit is redone while the canvas
+    // keeps changing size and nobody has changed the view, for a few seconds.
+    std::unique_ptr<gui_forms::Timer> fit_timer_;
+    gui_forms::SubscriptionToken fit_subscription_;
+    gui_forms::Rect fitted_bounds_{};
+    double fitted_zoom_ = 0;
+    int fit_checks_ = 0;
+    void fit_tick();
     std::shared_ptr<gui_forms::Label> file_notice_label_;
     std::shared_ptr<gui_forms::Button> file_reload_;
     void initialize_canvas_controls();
@@ -708,6 +721,8 @@ class Editor final : public gui_forms::Control {
     void move(Point point);
     void end(Point point);
     void release_gesture();
+    // Says, in a model act's reply, that a floating shape was dropped.
+    void report_floating_cancelled();
     void zoom(double factor, gui_forms::Point anchor);
     void copy();
     void paste();

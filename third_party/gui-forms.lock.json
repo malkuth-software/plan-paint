@@ -1,7 +1,7 @@
 {
   "pin_note": "The one place the GUI.Forms pin is written. The pin is a GUI.Forms commit on GitHub: the checkpoint under test, then its merged main commit. The cache release is build-<commit>; add a platform's digest under caches to restore its published compiler cache (a platform without one compiles from source).",
   "repository": "malkuth-software/gui_forms",
-  "commit": "189d561e228ed3c2adddd3a4d793ff1dc9cdfc23",
+  "commit": "6ebed1b4b9fa1cdafe24d530da20ba71fdc01861",
   "compiler": "22.1.8",
   "caches": {}
 }

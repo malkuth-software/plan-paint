@@ -1,7 +1,8 @@
 #pragma once
 
 // Plan Paint for a model (GUI.Forms MCP, round 2 of the pilot): what a
-// program launched with --mcp tells the automation about itself.
+// program launched with --mcp-shared or --mcp-fcfs tells the automation
+// about itself.
 //
 // - Commands are tools already (the ribbon's and the File menu's Commands,
 //   by stable ID). The ones that discard work, replace the picture, write
@@ -10,8 +11,9 @@
 // - Commands that open a dialog are marked so a model knows a user must
 //   answer it; where Plan Paint can do the same with arguments, a tool does
 //   it without the dialog (EditorModelTools).
-// - Tools draw in picture pixels (draw, stroke, set_colour), convert picture
-//   points to window points (to_window), and image_info names what floats.
+// - Tools draw in picture pixels (draw, path, stroke, fill, gradient, text,
+//   set_colour), read colours back (sample), convert picture points to
+//   window points (to_window), and image_info names what floats.
 
 #include <gui_forms/automation/tools/model_tools.hpp>
 
@@ -74,6 +76,16 @@ class EditorModelTools final {
                            gui_forms::automation::ModelToolReply& reply);
     static void to_window(void* context, const gui_forms::automation::ModelToolCall& call,
                           gui_forms::automation::ModelToolReply& reply);
+    static void path(void* context, const gui_forms::automation::ModelToolCall& call,
+                     gui_forms::automation::ModelToolReply& reply);
+    static void fill(void* context, const gui_forms::automation::ModelToolCall& call,
+                     gui_forms::automation::ModelToolReply& reply);
+    static void gradient(void* context, const gui_forms::automation::ModelToolCall& call,
+                         gui_forms::automation::ModelToolReply& reply);
+    static void text(void* context, const gui_forms::automation::ModelToolCall& call,
+                     gui_forms::automation::ModelToolReply& reply);
+    static void sample(void* context, const gui_forms::automation::ModelToolCall& call,
+                       gui_forms::automation::ModelToolReply& reply);
     static void save(void* context, const gui_forms::automation::ModelToolCall& call,
                      gui_forms::automation::ModelToolReply& reply);
 

@@ -35,9 +35,11 @@ void Editor::start_recovery(const std::string& initial_path) {
             recovery_root = path_from_utf8(preference_directory()) / tr("Recovery");
         }
         reset_recovery(false, initial_path);
-        // Ready can precede the native application's final launch notification.
-        // Defer modal UI until a timer tick in the running event loop.
-        recovery_startup_pending = initial_path.empty() && !served_launch;
+        // Plan Paint starts with a new picture and asks nothing at launch
+        // (owner, 2026-11-25): unfinished artwork is offered by a notice in
+        // the status bar, and File > Recover unfinished artwork opens it.
+        // The notice waits for the first timer tick, after the launch.
+        recovery_startup_pending = initial_path.empty();
         recovery_timer = std::make_unique<gf::Timer>(*attached_window(), std::chrono::seconds(1));
         recovery_subscription =
             (*recovery_timer)
@@ -45,23 +47,25 @@ void Editor::start_recovery(const std::string& initial_path) {
                 .subscribe(*this, gf::Delegate<>::bind<Editor, &Editor::recovery_tick>(*this));
         (*recovery_timer).start();
     } catch (const std::exception& exception) {
+        // Said in the status bar: nothing modal at launch.
         recovery_notice = exception.what();
-        error(tr("Automatic recovery is unavailable: ") + recovery_notice);
+        if (status_) {
+            (*status_).text = tr("Automatic recovery is unavailable: ") + recovery_notice;
+        }
     }
 }
 void Editor::recovery_tick() {
     if (recovery_startup_pending) {
         recovery_startup_pending = false;
-        if (!startup_open_error.empty()) {
-            const std::string message = startup_open_error;
-            startup_open_error.clear();
-            error(message);
-        }
+        // A file that could not be opened at launch is already in the
+        // status bar (Editor::ready); a recovery snapshot is offered there.
         try {
-            recover_document();
+            if (startup_open_error.empty() && !recovery_root.empty() &&
+                !RecoverySession::candidates(recovery_root).empty() && status_) {
+                (*status_).text = tr("Unfinished artwork can be recovered: File > Recover unfinished artwork…");
+            }
         } catch (const std::exception& exception) {
             recovery_notice = exception.what();
-            error(recovery_notice);
         }
         return;
     }
